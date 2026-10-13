@@ -29,15 +29,42 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QByteArray, QRectF, Qt
+from PySide6.QtCore import QByteArray, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 from app.ui.tray import assets_dir
 
-__all__ = ["icon", "icon_file", "clear_cache", "ICON_PX", "ICON_NAMES"]
+__all__ = ["icon", "icon_file", "clear_cache", "ICON_PX", "ICON_NAMES", "ICON_SIZES", "icon_size"]
 
 #: Rendered at this size and left for Qt to scale down.
 ICON_PX = 48
+
+#: **The size every icon is shown at, by where it sits** (UI phase B, 2026-10-13).
+#:
+#: Measured before the table existed: 16px in every menu, list, side list, tree,
+#: action button and Search toolbar toggle (Qt's own small-icon size, and
+#: `buttons.ICON_PX`); 20px on the rail and the Chat side panel's tabs; 14px for
+#: a glyph inside a field or a chip (the number field's reset, the quick search's
+#: scope chips); 22px for the magnifier that leads the quick search box, whose
+#: text is 1.6 times body. Four sizes, so four values - the smallest set that
+#: describes the window without moving a pixel. A new control picks its row here
+#: rather than writing a number; `tests/unit/test_ui_style_rules.py` holds it.
+ICON_SIZES: dict[str, int] = {
+    "inline": 14,     # inside a field or a chip
+    "menu": 16,       # a context menu or a `/` menu line
+    "list": 16,       # a side list, a tree, a table row
+    "button": 16,     # an action button (`widgets/buttons.py`)
+    "toolbar": 16,    # an icon-only toggle on a page's toolbar
+    "rail": 20,       # the rail, and the Chat side panel's tabs
+    "field": 22,      # the glyph that leads the quick search box
+}
+
+
+def icon_size(role: str) -> QSize:
+    """`ICON_SIZES[role]` as a square `QSize`, for `setIconSize`. A `KeyError` for
+    a role not in the table, on purpose: a new size is a decision for the table."""
+    side = ICON_SIZES[role]
+    return QSize(side, side)
 
 #: Every glyph this order ships, so a test can assert each file exists and a
 #: caller asking for a name outside the set is caught at review rather than at

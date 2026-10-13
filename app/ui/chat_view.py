@@ -32,6 +32,7 @@ from app.ui.widgets.chat_shelf import ShelfBar
 from app.ui.widgets.chat_side_panel import PanelSwitch
 from app.ui.widgets.chat_sources import SourcesPane
 from app.ui.widgets.model_picker import ModelPicker
+from app.ui.theme import SPACE_S
 
 __all__ = ["ChatView"]
 
@@ -90,7 +91,7 @@ class ChatView(QWidget):
         # them, so the footer line, the question box and "Send" all touched it.
         # 2026-10-08: one 8px rhythm down the column (it had Qt's default gaps).
         column.setContentsMargins(10, 0, 10, 0)
-        column.setSpacing(8)
+        column.setSpacing(SPACE_S)
         column.addLayout(notice_row)
         column.addLayout(head)
         column.addWidget(self.speed_note)

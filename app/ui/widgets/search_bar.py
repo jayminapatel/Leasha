@@ -22,6 +22,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QWidget
 
 from app.ui.widgets.segmented import SegmentedControl
+from app.ui.theme import SPACE_S, SPACE_M, SPACE_L
 
 __all__ = [
     "build_input", "build_scope", "build_interpret", "build_rerank",
@@ -289,10 +290,10 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     bar.setObjectName("searchBar")
     bar_layout = QVBoxLayout(bar)
     bar_layout.setContentsMargins(0, 0, 0, 0)
-    bar_layout.setSpacing(8)
+    bar_layout.setSpacing(SPACE_S)
 
     row = QHBoxLayout()
-    row.setSpacing(8)
+    row.setSpacing(SPACE_S)
     row.addWidget(scope)
     row.addWidget(chips, 1)
     row.addStretch(1)
@@ -350,8 +351,8 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     view.home = home
 
     layout = QVBoxLayout(view)
-    layout.setContentsMargins(16, 12, 16, 12)
-    layout.setSpacing(8)
+    layout.setContentsMargins(SPACE_L, SPACE_M, SPACE_L, SPACE_M)
+    layout.setSpacing(SPACE_S)
     layout.addLayout(box_row)
     layout.addWidget(bar)
     layout.addWidget(home, 1)

@@ -25,7 +25,8 @@ from typing import Optional
 
 __all__ = [
     "Theme", "palette_for", "stylesheet", "detect_scheme", "SCHEMES",
-    "theme_colours", "RADIUS", "BUTTON",
+    "theme_colours", "RADIUS", "BUTTON", "TOOLTIP", "TOOLTIP_SIZES", "tooltip_tokens",
+    "SPACING", "SPACE_XS", "SPACE_S", "SPACE_M", "SPACE_L", "SPACE_XL",
 ]
 
 SCHEMES = ("system", "light", "dark")
@@ -424,10 +425,13 @@ QMenu::item:selected {{ background: {accent_soft}; color: {text}; }}
 QMenu::item:disabled {{ color: {text_faint}; }}
 QMenu::separator {{ height: 1px; background: {divider}; margin: 4px 8px; }}
 
+/* **One tooltip look** (`TOOLTIP` below): the only QToolTip rule in the app, so
+   every tooltip - a button's, a list line's, one shown by `QToolTip.showText` -
+   is drawn alike in both themes. */
 QToolTip {{
-    background: {surface_alt}; color: {text};
-    border: 1px solid {border_strong}; border-radius: 5px;
-    padding: 5px 8px; font-size: {small};
+    background: {tooltip_bg}; color: {tooltip_text};
+    border: 1px solid {tooltip_border}; border-radius: {tooltip_radius};
+    padding: {tooltip_pad_y} {tooltip_pad_x}; font-size: {small};
 }}
 
 QToolButton {{
@@ -1080,6 +1084,43 @@ BUTTON: dict[str, str] = {
     "button_min_h": "18px",
 }
 
+#: **The one tooltip look** (UI phase B, 2026-10-13). Colours are names of
+#: palette tokens, resolved per theme by `stylesheet`, so a tooltip is the
+#: raised surface, body ink and the strong border in both themes; sizes are
+#: the ones the rule has always had (5px 8px, rounded 5px), now named. The
+#: wording rule that goes with it is in `docs/UI_STYLE_GUIDE.md` and
+#: `tests/unit/test_ui_style_rules.py`.
+TOOLTIP: dict[str, str] = {
+    "tooltip_bg": "surface_alt",
+    "tooltip_text": "text",
+    "tooltip_border": "border_strong",
+}
+TOOLTIP_SIZES: dict[str, str] = {
+    "tooltip_pad_y": "5px",
+    "tooltip_pad_x": "8px",
+    "tooltip_radius": "5px",
+}
+
+
+def tooltip_tokens(colours: dict[str, str]) -> dict[str, str]:
+    """`TOOLTIP`'s colours for one palette, and its sizes, as sheet values."""
+    return {**{name: colours[token] for name, token in TOOLTIP.items()}, **TOOLTIP_SIZES}
+
+
+#: **The spacing scale: the 8px rhythm** (UI phase B, 2026-10-13). Every gap
+#: between controls and every margin round a group is one of these, or 0 for
+#: flush. Named by size so a layout reads as a step on the scale rather than a
+#: number somebody measured once. Literals off the scale (2, 3, 6, 10 and 14 are
+#: still in use) are older than the scale; moving one changes the picture, so it
+#: waits for a pass that looks at the window. `docs/UI_STYLE_GUIDE.md` says
+#: which files are already on it; `tests/unit/test_ui_style_rules.py` holds them.
+SPACE_XS = 4
+SPACE_S = 8
+SPACE_M = 12
+SPACE_L = 16
+SPACE_XL = 24
+SPACING: tuple[int, ...] = (SPACE_XS, SPACE_S, SPACE_M, SPACE_L, SPACE_XL)
+
 #: Used when there is no `QApplication` to ask - a test, or a stylesheet built
 #: before the app exists. 9pt is the Windows default.
 DEFAULT_POINT_SIZE = 9.0
@@ -1157,4 +1198,4 @@ def stylesheet(preference: str = "system", *, detected: Optional[str] = None,
     # `radius_pill` follows the text size (2026-10-10) - see `pill_radius`.
     radii = {**RADIUS, "radius_pill": pill_radius(base_pt)}
     return _TEMPLATE.format(**colours, **font_sizes(base_pt), **radii, **BUTTON,
-                            tick=_tick_file(colours), chevron=_chevron_file(colours))
+                            **tooltip_tokens(colours), tick=_tick_file(colours), chevron=_chevron_file(colours))

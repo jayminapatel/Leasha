@@ -18,6 +18,8 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QPlainTextEdit
 
 from app.search.commands import COMMANDS, matching
+from app.ui.widgets.command_icon import command_icon, picture_for, text_colour
+from app.ui.widgets.icons import icon_size
 
 __all__ = ["attach_chat_commands", "ChatCommandMenu"]
 
@@ -31,6 +33,7 @@ class ChatCommandMenu(QObject):
         self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._list.setAccessibleName("Switches you can type after a slash")
         self._list.setToolTip("Choose a switch: Up and Down, then Enter or Tab")
+        self._list.setIconSize(icon_size("menu"))
         self._list.itemClicked.connect(lambda item: self._insert(item.data(Qt.ItemDataRole.UserRole)))
         edit.textChanged.connect(self._refresh)
         edit.installEventFilter(self)
@@ -51,8 +54,12 @@ class ChatCommandMenu(QObject):
             self._list.hide()
             return
         self._list.clear()
+        ink = text_colour(self._list)
         for command in found:
-            item = QListWidgetItem(f"{command.icon}  /{command.name}   {command.summary}")
+            # The switch's Lucide picture, as in every other `/` menu (UI phase B);
+            # the painted character it used to lead with is the fallback.
+            item = QListWidgetItem(command_icon(picture_for(command), command.icon, ink),
+                                   f"/{command.name}   {command.summary}")
             item.setData(Qt.ItemDataRole.UserRole, command.name)
             item.setToolTip(f"{command.example}  -  {command.value_hint}")
             self._list.addItem(item)

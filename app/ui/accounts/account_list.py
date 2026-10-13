@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QAbstractItemView, QTreeWidget, QTreeWidgetItem, Q
 from app.ui.accounts import logic
 from app.ui.later import later
 from app.ui.theme import theme_colours
+from app.ui.widgets.icons import icon_size
 
 __all__ = ["AccountList", "COLUMNS"]
 
@@ -48,7 +49,7 @@ class AccountList(QTreeWidget):
         self.setRootIsDecorated(False)
         self.setUniformRowHeights(True)
         self.setAlternatingRowColors(True)
-        self.setIconSize(QSize(16, 16))
+        self.setIconSize(icon_size("list"))
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.setDragEnabled(True)

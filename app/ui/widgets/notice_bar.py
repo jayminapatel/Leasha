@@ -37,6 +37,7 @@ from PySide6.QtGui import QTextDocument
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from app.ui.presenter import notice_line
+from app.ui.theme import SPACE_XS, SPACE_S
 
 __all__ = ["NoticeBar"]
 
@@ -94,8 +95,8 @@ class NoticeBar(QWidget):
         self.close_button.clicked.connect(self._dismiss)
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 4)
-        row.setSpacing(8)
+        row.setContentsMargins(0, 0, 0, SPACE_XS)
+        row.setSpacing(SPACE_S)
         row.addWidget(self.label, 1)
         row.addWidget(self.action, 0)
         row.addWidget(self.close_button, 0)

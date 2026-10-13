@@ -52,6 +52,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.ui.widgets.icons import ICON_SIZES
+
 __all__ = ["fit", "fit_all", "default_of", "reset_button", "RESET_NAME", "RESET_ICON"]
 
 #: The reset button's object name - what the stylesheet and the tests find it by.
@@ -62,7 +64,7 @@ RESET_NAME = "numberReset"
 RESET_ICON = "rotate-ccw"
 
 #: The icon's size inside the button, in pixels.
-_ICON_PX = 14
+_ICON_PX = ICON_SIZES["inline"]
 
 #: The Qt property that marks a field as fitted, so a second pass skips it.
 _FITTED = "numberFieldFitted"

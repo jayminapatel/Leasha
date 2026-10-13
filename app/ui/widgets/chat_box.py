@@ -58,6 +58,7 @@ from app.llm.models import SUGGESTED, VISION_SUGGESTED
 from app.ui.widgets.chat_roles import ModelCombo, RolesGrid
 from app.ui.widgets.model_download import DownloadRow
 from app.ui.workers import CallableWorker, run
+from app.ui.theme import SPACE_S
 
 __all__ = ["ChatBox", "chat_settings", "ROLE_KEYS", "DESCRIBE_KEY", "INTRO"]
 
@@ -205,7 +206,7 @@ class ChatBox(QGroupBox):
         self.web_part = QWidget()
         self.web_part.setObjectName("chatWebPart")
         web_form = QFormLayout(self.web_part)
-        web_form.setContentsMargins(0, 8, 0, 0)
+        web_form.setContentsMargins(0, SPACE_S, 0, 0)
         self.web_intro = QLabel(WEB_INTRO)
         self.web_intro.setObjectName("chatWebNote")
         self.web_intro.setWordWrap(True)

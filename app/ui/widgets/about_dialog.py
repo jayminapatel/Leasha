@@ -19,7 +19,7 @@ from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.core.version import build_info
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_S, theme_colours
 from app.ui.tray import assets_dir
 from app.ui.widgets.buttons import style_button
 
@@ -70,7 +70,7 @@ class AboutDialog(QDialog):
         self.setModal(True)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(36, 24, 36, 16)    # the brand's clear space: the L's height
-        layout.setSpacing(8)
+        layout.setSpacing(SPACE_S)
 
         self.logo = QLabel()
         self.logo.setObjectName("aboutLogo")

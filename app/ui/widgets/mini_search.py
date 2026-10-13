@@ -63,7 +63,9 @@ from app.core.logging import logger
 from app.ui.presenter.quick_search import (
     CHIP_ORDER, chip_label, kind_bucket, row_label,
 )
+from app.ui.widgets.icons import ICON_SIZES, icon_size
 from app.ui.widgets.mini_search_frame import CardWindow
+from app.ui.theme import SPACE_XS, SPACE_S
 
 __all__ = [
     "MiniSearch", "ROWS", "DEBOUNCE_MS", "row_label", "CHIP_ORDER",
@@ -217,7 +219,7 @@ class MiniSearch(CardWindow):
         from app.ui.widgets.mini_search_rows import MiniRowDelegate
 
         card = QVBoxLayout(self.card)
-        card.setContentsMargins(4, 4, 4, 4)
+        card.setContentsMargins(SPACE_XS, SPACE_XS, SPACE_XS, SPACE_XS)
         card.setSpacing(0)
 
         # --- the top bar: the handle, the box, three buttons. Dragged to move.
@@ -225,7 +227,7 @@ class MiniSearch(CardWindow):
         self.header.setObjectName("miniHeader")
         head = QVBoxLayout(self.header)
         head.setContentsMargins(14, 6, 10, 8)
-        head.setSpacing(4)
+        head.setSpacing(SPACE_XS)
         self.handle = QFrame()
         self.handle.setObjectName("miniHandle")
         self.handle.setFixedSize(40, 4)
@@ -233,7 +235,7 @@ class MiniSearch(CardWindow):
         self.handle.setCursor(Qt.CursorShape.OpenHandCursor)
         head.addWidget(self.handle, 0, Qt.AlignmentFlag.AlignHCenter)
         line = QHBoxLayout()
-        line.setSpacing(8)
+        line.setSpacing(SPACE_S)
         self.search_icon = QLabel()
         self.search_icon.setObjectName("miniSearchIcon")
         self.search_icon.setFixedSize(22, 22)
@@ -412,7 +414,7 @@ class MiniSearch(CardWindow):
         self.hints.setObjectName("miniHints")
         self._hints_layout = QHBoxLayout(self.hints)
         self._hints_layout.setContentsMargins(0, 0, 0, 0)
-        self._hints_layout.setSpacing(4)
+        self._hints_layout.setSpacing(SPACE_XS)
         foot.addWidget(self.hints)
         self.grip = QSizeGrip(footer)
         self.grip.setToolTip(words.RESIZE_TIP)
@@ -449,13 +451,13 @@ class MiniSearch(CardWindow):
         self._delegate.retint(colours)
         retint_all(colours, roots=[self])
         for button in (self.preview_button, self.expand_button, self.close_button):
-            button.setIconSize(QSize(18, 16))
+            button.setIconSize(QSize(ICON_SIZES["button"] + 2, ICON_SIZES["button"]))
         dim = colours.get("text_dim", "#888888")
-        self.search_icon.setPixmap(icon("search", colours.get("text_faint", dim)).pixmap(22, 22))
+        self.search_icon.setPixmap(icon("search", colours.get("text_faint", dim)).pixmap(ICON_SIZES["field"], ICON_SIZES["field"]))
         for chip in self._scope_buttons.values():
             ink = colours.get("accent_text", dim) if chip.isChecked() else dim
             chip.setIcon(icon(str(chip.property("glyph")), ink))
-            chip.setIconSize(QSize(14, 14))
+            chip.setIconSize(icon_size("inline"))
         self._colours = colours
         if self.preview is not None and hasattr(self.preview, "retint"):
             try:

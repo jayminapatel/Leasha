@@ -26,7 +26,7 @@ from PySide6.QtGui import QKeyEvent, QPixmap
 from PySide6.QtWidgets import QDialog, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from app.ui.presenter.photos import date_text, people_text
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_S, theme_colours
 
 __all__ = ["PhotoViewer", "caption"]
 
@@ -74,7 +74,7 @@ class PhotoViewer(QDialog):
         self.line.setWordWrap(True)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(SPACE_S, SPACE_S, SPACE_S, SPACE_S)
         layout.addWidget(self.picture, 1)
         layout.addWidget(self.line)
         screen = self.screen().availableGeometry() if self.screen() else None

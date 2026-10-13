@@ -21,8 +21,10 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from PySide6.QtCore import QEvent, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import QToolButton, QVBoxLayout, QWidget
+
+from app.ui.widgets.icons import icon_size
 
 __all__ = ["AdvancedFold", "TITLE"]
 
@@ -46,7 +48,7 @@ class AdvancedFold(QWidget):
         self.header.setText(TITLE)
         self.header.setCheckable(True)
         self.header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.header.setIconSize(QSize(16, 16))
+        self.header.setIconSize(icon_size("list"))
         self.header.setAccessibleName("Show or hide the advanced settings")
         self.header.setToolTip(
             "Settings most people never need to change. Click to show them; "

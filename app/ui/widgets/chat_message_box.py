@@ -36,6 +36,7 @@ from PySide6.QtGui import QKeyEvent, QTextCursor
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter.chat import PLACEHOLDER, WEB_LABEL, WEB_OFF_TIP, WEB_ON_TIP
+from app.ui.theme import SPACE_XS, SPACE_S, SPACE_M
 
 __all__ = ["MessageBox"]
 
@@ -149,8 +150,8 @@ class MessageBox(QWidget):
         self.frame = QFrame()
         self.frame.setObjectName("chatComposer")
         inside = QVBoxLayout(self.frame)
-        inside.setContentsMargins(12, 8, 8, 8)
-        inside.setSpacing(4)
+        inside.setContentsMargins(SPACE_M, SPACE_S, SPACE_S, SPACE_S)
+        inside.setSpacing(SPACE_XS)
         inside.addWidget(self.edit)
         self.footer = QHBoxLayout()
         self.footer.setSpacing(6)

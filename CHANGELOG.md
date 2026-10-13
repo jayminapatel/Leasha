@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.127 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.128 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,22 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### One app, phase B: tooltips, icons, spacing and the style guide (2026-10-13)
+
+- **The `/` menus show a picture for every switch** - in Search, Code, Mail, Files, Contacts and the Chat box -
+  from the same Lucide set as the rest of the window, instead of a typed character. The Chat box's `/` lines no
+  longer start with that character.
+- **One tooltip look.** The tooltip's colours and sizes are named theme tokens (`TOOLTIP`), and no other part of
+  the window styles a tooltip. Nothing changes on screen.
+- **A wording rule for tooltips**, checked on every tooltip written in the code: plain words, a capital letter
+  first, no stray spaces, and never only the control's own words. Every tooltip already met it; none was reworded.
+- **One table of icon sizes** (`ICON_SIZES`: 14 in a field or chip, 16 in menus, lists, buttons and toolbars,
+  20 on the rail, 22 for the quick search magnifier), and **one spacing scale** (`SPACE_XS` 4 to `SPACE_XL` 24),
+  both the sizes the window already used, so no pixel moved. The Contacts files are moved onto both when the
+  Contacts wave lands.
+- **`docs/UI_STYLE_GUIDE.md`, "One Leasha"**: the design rules as they are in the code, each pointing at its module
+  and the test that holds it. `CLAUDE.md` names it as the authority on how the UI looks and behaves.
 
 ### One app, phase B: a steady Search page (2026-10-13)
 

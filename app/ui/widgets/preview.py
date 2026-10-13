@@ -65,6 +65,7 @@ from app.ui.widgets.mail_card import MailBody, MailCardView
 from app.ui.widgets.spreadsheet_view import SpreadsheetView
 from app.ui.workers import CallableWorker, run
 from app.ui.widgets.buttons import ROW_SPACING, style_all
+from app.ui.theme import SPACE_XS, SPACE_S
 
 __all__ = ["PreviewPane", "PREVIEW_DEBOUNCE_MS", "attach_preview"]
 
@@ -207,7 +208,7 @@ class PreviewPane(QWidget):
         self.facts = QWidget()
         self.facts.setObjectName("inspectorFacts")
         self._facts_grid = QGridLayout(self.facts)
-        self._facts_grid.setContentsMargins(0, 4, 0, 8)
+        self._facts_grid.setContentsMargins(0, SPACE_XS, 0, SPACE_S)
         self._facts_grid.setHorizontalSpacing(14)
         self._facts_grid.setVerticalSpacing(3)
         self.facts.setVisible(False)
