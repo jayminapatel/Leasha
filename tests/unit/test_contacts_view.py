@@ -820,6 +820,7 @@ def test_a_theme_change_redraws_the_page_without_losing_anything(world):
 
 def test_typing_a_slash_or_pressing_ctrl_z_inside_the_editor_belongs_to_the_editor(world):
     from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
 
     cid = world.add(card("Ann", "Lee"))
     page = world.page()
@@ -833,6 +834,11 @@ def test_typing_a_slash_or_pressing_ctrl_z_inside_the_editor_belongs_to_the_edit
     QTest.keyClick(row.value, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
     settle(page)
     assert len(world.hub.history(cid)) == before                           # text undo, not a journal undo
+    # QTest's Ctrl+Z leaves Qt believing Ctrl is still held (`QApplication.keyboardModifiers()`,
+    # checked on PySide6, 2026-10-13). A later test's `setCurrentIndex` then toggled its pick off
+    # instead of making it - `test_ui_c_contacts`'s F2 test, whenever it ran after this one.
+    QTest.keyRelease(row.value, Qt.Key.Key_Control)
+    assert QApplication.keyboardModifiers() == Qt.KeyboardModifier.NoModifier
 
 
 # --------------------------------------------------------------- rule 5, kept by a test
