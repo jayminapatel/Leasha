@@ -24,7 +24,7 @@ from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import QAbstractItemView, QLabel, QListView, QVBoxLayout, QWidget
 
 from app.ui.presenter import (
-    KIND_LABELS, ResultGroup, ResultRow, group_results, results_terminator,
+    KIND_LABELS, ResultGroup, ResultRow, expansions_kept, group_results, results_terminator,
     row_identity, to_rows,
 )
 from app.ui.result_delegate import ROLE_PAYLOAD, ResultDelegate
@@ -211,7 +211,8 @@ class ResultsView(QWidget):
             # the same results omits this - item 4b's register must not reset
             # to "plain" on every metadata redraw that happens to follow.
             self._register = str(register)
-        self._expanded.clear()
+        # The same search redrawn keeps the groups the person opened (2026-10-13).
+        self._expanded = expansions_kept(self._expanded, self._rows, same_results=keep_scroll)
         self._summary.setText(summary)
         self._fold_summary(summary)
         self._rebuild(keep_scroll=keep_scroll)

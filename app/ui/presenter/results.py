@@ -564,6 +564,31 @@ def row_identity(payload: Any) -> Any:
     return ("chunk", getattr(payload, "chunk_id", None))
 
 
+def expansions_kept(expanded: Iterable[int], rows: Iterable[Any], *,
+                    same_results: bool) -> set[int]:
+    """Which opened groups (their `file_id`s) stay open when the list is redrawn.
+
+    **A new search starts with every group closed; a redraw of the same results
+    keeps what the person opened** (2026-10-13). A search is drawn several times:
+    the interim tier, then the full one for the same words, the reranked order
+    after that, and each time again when the mail subtitles and missing-file
+    marks arrive (`redraw_with_details`). Every one of those closed a group the
+    person had just opened with Enter - on the owner's index the reranked
+    answer lands up to 2.7 s after the first, plenty of time to open one. Found
+    by `test_the_search_page_start_to_finish_with_the_keyboard_alone`, which
+    failed about half its runs under load with "4 rows where more were
+    expected": the full tier's answer landing in the same turn as its Enter.
+
+    `same_results` is the caller's `keep_scroll`: true exactly when it is the
+    same search redrawn, never for new words. Only files still in the results
+    stay open.
+    """
+    if not same_results:
+        return set()
+    shown = {getattr(row, "file_id", None) for row in rows}
+    return {file_id for file_id in expanded if file_id in shown}
+
+
 def kind_tag(kind: str) -> str:
     """Four characters at most, so an unknown type still gets a legible tag.
 

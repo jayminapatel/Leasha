@@ -877,3 +877,36 @@ def test_no_group_of_skipped_files_shows_a_placeholder():
     assert timed_out.message == (
         "'these files' was skipped after the time allowed: "
         "each file's own reason is on its row.")
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-13: an opened group survives a redraw of the same search
+# ---------------------------------------------------------------------------
+
+def _shown(*file_ids):
+    from types import SimpleNamespace
+
+    return [SimpleNamespace(file_id=file_id) for file_id in file_ids]
+
+
+def test_a_new_search_opens_with_every_group_closed() -> None:
+    """New words start closed, whatever was open for the old ones."""
+    from app.ui.presenter import expansions_kept
+
+    assert expansions_kept({1, 2}, _shown(1, 2, 3), same_results=False) == set()
+
+
+def test_the_same_search_drawn_again_keeps_what_was_opened() -> None:
+    """The full tier after the keyword one, the reranked order, the mail
+    subtitles: each redraws the same search, and none may close a group the
+    person opened - the fault behind the keyboard scenario's flake."""
+    from app.ui.presenter import expansions_kept
+
+    assert expansions_kept({1, 2}, _shown(3, 2, 1), same_results=True) == {1, 2}
+
+
+def test_a_group_whose_file_left_the_results_does_not_stay_open() -> None:
+    from app.ui.presenter import expansions_kept
+
+    assert expansions_kept({1, 2}, _shown(2, 3), same_results=True) == {2}
+    assert expansions_kept(set(), _shown(2, 3), same_results=True) == set()
