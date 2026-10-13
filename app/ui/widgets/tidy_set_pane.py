@@ -19,13 +19,15 @@ from PySide6.QtCore import QSize, Qt, QThreadPool, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QButtonGroup, QHBoxLayout, QLabel, QListView, QListWidget,
-    QListWidgetItem, QMenu, QPushButton, QRadioButton, QStackedWidget, QTextBrowser,
+    QListWidgetItem, QPushButton, QRadioButton, QStackedWidget, QTextBrowser,
     QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from app.core.row_facts import format_size
 from app.tidy import keep
 from app.ui.presenter.tidy import set_heading
+from app.ui.widgets import list_keys, menus
+from app.ui.widgets.file_menu import copy_paths
 
 __all__ = ["TidySetPane", "TAB_ICONS"]
 
@@ -106,7 +108,8 @@ class TidySetPane(QWidget):
         self.tiles.setWordWrap(True)
         self.tiles.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.tiles.itemChanged.connect(self._tile_changed)
-        self.tiles.itemDoubleClicked.connect(self._tile_double_clicked)
+        # A double-click keeps the tile, and Enter does the same, from one signal (`list_keys`).
+        list_keys.install(self.tiles, default=self._tile_double_clicked, copy=self._copy_tile)
         self.copies = QTreeWidget()
         self.copies.setAccessibleName("Every copy")
         self.copies.setHeaderLabels(["Can go", "Where", "Size", "Modified"])
@@ -122,6 +125,7 @@ class TidySetPane(QWidget):
         self.copies.setSortingEnabled(True)
         self.copies.sortByColumn(1, Qt.SortOrder.AscendingOrder)
         self.copies.itemChanged.connect(self._row_changed)
+        list_keys.install(self.copies, copy=self._copy_row)              # Ctrl+C: the path
         for view in (self.tiles, self.copies):
             view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             view.customContextMenuRequested.connect(lambda point, v=view: self._menu(v, point))
@@ -299,11 +303,21 @@ class TidySetPane(QWidget):
     def _tile_changed(self, item: QListWidgetItem) -> None:
         self.toggled.emit(str(item.data(_PATH)), item.checkState() == Qt.CheckState.Checked)
 
-    def _tile_double_clicked(self, item: QListWidgetItem) -> None:
-        """Double-click a tile: keep it, and mark the rest of its set."""
+    def _tile_double_clicked(self, index: Any) -> None:
+        """Double-click a tile (or Enter on it): keep it, and mark the rest of its set."""
         tset = self.current()
-        if tset is not None and tset.kind in ("copies", "similar"):
-            self.keep_only.emit(str(item.data(_PATH)))
+        if tset is not None and tset.kind in ("copies", "similar") and index.isValid():
+            self.keep_only.emit(str(index.data(_PATH)))
+
+    def _copy_tile(self) -> None:
+        item = self.tiles.currentItem()
+        if item is not None:
+            copy_paths([(str(item.data(_PATH) or ""), None)])
+
+    def _copy_row(self) -> None:
+        item = self.copies.currentItem()
+        if item is not None:
+            copy_paths([(str(item.data(0, _PATH) or ""), None)])
 
     def _row_changed(self, item: QTreeWidgetItem, column: int) -> None:
         path = item.data(0, _PATH)
@@ -317,14 +331,16 @@ class TidySetPane(QWidget):
         tset = self.current()
         if not path or tset is None:
             return
-        menu = QMenu(self)
-        if tset.kind in ("copies", "similar"):
-            menu.addAction("Keep this one", lambda p=path: self.keep_only.emit(str(p)))
         from app.core.osbridge import show_in_file_manager
 
-        menu.addAction("Show in folder", lambda p=path: show_in_file_manager(str(p)))
-        self.last_menu = menu
-        menu.popup(view.viewport().mapToGlobal(point))
+        # Keep this one is what a double-click on a tile does, so there it is the bold line.
+        keeps = tset.kind in ("copies", "similar")
+        tile = view is self.tiles
+        lines = [menus.Item("Keep this one", lambda p=path: self.keep_only.emit(str(p)), group="open",
+                            default=tile, shortcut="Enter" if tile else "")] if keeps else []
+        lines.append(menus.Item("Show in folder", lambda p=path: show_in_file_manager(str(p)),
+                                group="open"))
+        menus.show(menus.build(self, lines), view, point, wait=False, keep=self)
 
     def _load_thumbnails(self, tset: Any) -> None:
         from app.ui.workers import CallableWorker, run

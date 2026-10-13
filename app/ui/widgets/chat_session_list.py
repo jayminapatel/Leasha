@@ -161,19 +161,15 @@ class SessionList(QWidget):
         session_id = str(item.data(ID_ROLE) or "")
         session = self._session(session_id)
         on = bool(getattr(session, "pinned", False))
-        menu = QMenu(self)
-        rename = menu.addAction("Rename")
-        rename.setShortcut(QKeySequence(Qt.Key.Key_F2))
-        rename.triggered.connect(lambda _c=False, i=item: self.list.editItem(i))
-        pin = menu.addAction(UNPIN_LABEL if on else PIN_LABEL)
-        pin.triggered.connect(lambda _c=False: self.pinned.emit(session_id, not on))
-        menu.addSeparator()
-        delete = menu.addAction("Delete")
-        delete.setShortcut(QKeySequence(QKeySequence.StandardKey.Delete))
-        delete.triggered.connect(lambda _c=False, i=item: self._delete(i))
-        # Shown, not bound: a menu's shortcut would fire window-wide while it lives.
-        for action in (rename, delete):
-            action.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
+        from app.ui.widgets import menus  # noqa: PLC0415 - the one menu builder (UI phase B)
+
+        # The keys are labels only (the builder's rule): the list handles F2 and Delete itself.
+        menu = menus.build(self, [
+            menus.Item("Rename", lambda i=item: self.list.editItem(i), group="act", shortcut="F2"),
+            menus.Item(UNPIN_LABEL if on else PIN_LABEL, lambda: self.pinned.emit(session_id, not on),
+                       group="remember", icon="pin"),
+            menus.Item("Delete", lambda i=item: self._delete(i), group="danger", shortcut="Del"),
+        ])
         self.last_menu = menu
         return menu
 

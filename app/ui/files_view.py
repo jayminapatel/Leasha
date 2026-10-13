@@ -40,7 +40,8 @@ from app.ui.tasks import browse_files_typed
 from app.ui.view_options import apply_to_table, available_columns, button as view_button, weak_slot
 from app.ui.widgets.chips import list_chips, say_failed, say_skipped, show_page
 from app.ui.widgets.command_popup import attach_to
-from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets import list_keys
+from app.ui.widgets.file_menu import FileActions, copy_paths, show_for, table_pairs
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
 from app.ui.widgets.status_column import STATUS_COLUMN, fill_rows
@@ -167,18 +168,17 @@ class FilesView(QWidget):
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(len(COLUMNS) - 1, QHeaderView.ResizeMode.Stretch)
-        # Double-click opens the file; right-click offers everything else; Enter
-        # does what double-click does, because a keyboard user should never have
-        # to reach for the mouse to act on a result they have already selected.
+        # Double-click and Enter open the file (`list_keys`: one signal, never two),
+        # Space previews, Ctrl+C copies the selected paths; right-click offers the rest.
         #
         # **2026-09-30: methods and `weak_slot`, never `lambda: self...`.** A
         # callback that closes over `self`, held by one of this view's own
         # children, is a cycle, and it kept a view that had been let go alive -
         # see `view_options.weak_slot`. `tests/unit/test_views_are_freed.py`.
-        self.results.itemDoubleClicked.connect(self._open_selected)
+        list_keys.install(self.results, default=self._open_selected,
+                          preview=list_keys.PAGE_PREVIEW, copy=self._copy_selected)
         self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.results.customContextMenuRequested.connect(self._on_context_menu)
-        self.results.installEventFilter(self)
         # Right-click the header for columns, density and text size. On the
         # header rather than in Settings, because it is a preference about this
         # table and the table is where people look for it.
@@ -368,20 +368,6 @@ class FilesView(QWidget):
 
     # -- opening -------------------------------------------------------------
 
-    def eventFilter(self, watched: Any, event: Any) -> bool:   # noqa: N802 - Qt's naming
-        """Enter opens the selected row.
-
-        A table that can only be acted on with a mouse fails the keyboard-only
-        requirement, and this one could not even be opened without one.
-        """
-        from PySide6.QtCore import QEvent
-
-        if watched is self.results and event.type() == QEvent.Type.KeyPress:
-            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                self._open_selected()
-                return True
-        return super().eventFilter(watched, event)
-
     def selected_path(self) -> Optional[str]:
         """The path of the highlighted row, or None. Never raises.
 
@@ -413,16 +399,16 @@ class FilesView(QWidget):
         open_row_async(self._store, row, reveal=reveal,
                        on_error=self.error.emit, component="ui.files.open")
 
+    def _copy_selected(self) -> None:
+        """Ctrl+C: every selected line's path, one a line."""
+        copy_paths(table_pairs(self.results))
+
     def _on_context_menu(self, point: Any) -> None:
         """The same menu the search results use - see widgets/file_menu.py."""
-        # **Viewport coordinates, not widget coordinates.** The signal gives a
-        # point relative to the table; `rowAt` wants one relative to the
-        # viewport, and the header sits between them. Without this the menu
-        # acted on the row below the one clicked, and on the last row found no
-        # row at all and silently did nothing.
-        row = self.results.rowAt(viewport_point(self.results, point).y())
-        if row >= 0:
-            self.results.selectRow(row)
+        # `point` is in the viewport's coordinates, as Qt gives it on a table, and
+        # `rowAt` takes it as it is (`menus.global_point`). A line among several
+        # selected keeps them all: Copy path and Show in folder act on every one.
+        row = self.results.right_clicked(point)
         # Right-clicking below the last row, or pressing the Menu key, lands on
         # no row. Falling back to the selection means both still work, rather
         # than the menu appearing to be broken in exactly the places people
@@ -433,7 +419,9 @@ class FilesView(QWidget):
 
         # `row`: its Offline mark, and its real path to copy.
         show_for(self.results, point, path, FileActions(
-            open_file=self._open_selected, reveal=self._reveal_selected, row=self.results.current_row(),
+            open_file=self._open_selected, reveal=self._reveal_selected, row=row,
+            selected=table_pairs(self.results), reveal_one=weak_slot(
+                self, lambda view, _path, one: view._open(one, reveal=True)),
             search_inside=lambda: self.search_inside_requested.emit(path),
             index_file=lambda: self.index_file_requested.emit(path),
             find_copies=lambda: self.find_copies_requested.emit(path)))

@@ -682,6 +682,7 @@
     <Compile Include="app\ui\widgets\indexing_layout.py" />
     <Compile Include="app\ui\widgets\indexing_workers.py" />
     <Compile Include="app\ui\widgets\interpret.py" />
+    <Compile Include="app\ui\widgets\list_keys.py" />
     <Compile Include="app\ui\widgets\log_window.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />
     <Compile Include="app\ui\widgets\machine_card.py" />
@@ -691,6 +692,7 @@
     <Compile Include="app\ui\widgets\mail_open.py" />
     <Compile Include="app\ui\widgets\mcp_box.py" />
     <Compile Include="app\ui\widgets\media_box.py" />
+    <Compile Include="app\ui\widgets\menus.py" />
     <Compile Include="app\ui\widgets\mini_search.py" />
     <Compile Include="app\ui\widgets\mini_search_frame.py" />
     <Compile Include="app\ui\widgets\mini_search_rows.py" />
@@ -1126,6 +1128,7 @@
     <Compile Include="tests\unit\test_libraries_before_converters.py" />
     <Compile Include="tests\unit\test_limits_changed_applies_live.py" />
     <Compile Include="tests\unit\test_list_chips_qt.py" />
+    <Compile Include="tests\unit\test_list_keys.py" />
     <Compile Include="tests\unit\test_live_progress.py" />
     <Compile Include="tests\unit\test_llm_host.py" />
     <Compile Include="tests\unit\test_lo_session.py" />
@@ -1164,6 +1167,7 @@
     <Compile Include="tests\unit\test_media_picture_lane_gpu_gate.py" />
     <Compile Include="tests\unit\test_media_real.py" />
     <Compile Include="tests\unit\test_media_tail_end.py" />
+    <Compile Include="tests\unit\test_menu_system.py" />
     <Compile Include="tests\unit\test_merge_notes.py" />
     <Compile Include="tests\unit\test_message_index_trigger.py" />
     <Compile Include="tests\unit\test_message_tails.py" />

@@ -121,7 +121,7 @@ class OfflineMediaView(LineActions, QWidget):
         # table would stretch the button's cell and push Name narrow.
         header.setStretchLastSection(False)
         self.tree.itemSelectionChanged.connect(self._sync_buttons)
-        self.tree.itemDoubleClicked.connect(lambda _item, _col: self._rescan_selected())
+        self._install_line_keys()            # double-click and Enter rescan, Ctrl+C (`LineActions`)
         # 2026-10-02: the line's actions on the line - right-click a source.
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._row_menu)

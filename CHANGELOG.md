@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.125 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.126 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,22 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### One app, phase B: one right-click menu and one way every list behaves (2026-10-13)
+
+- **Every right-click menu is built the same way**: an icon on every line (the button's own where a button does
+  the same thing), the default line first and bold, groups in one order - open, act on it, copy, remember - and
+  anything that removes last, with a warning-coloured icon. The words on each line are unchanged.
+- **Menus open where you clicked, on the row you clicked.** In Files, Mail, Code, Search and the photo grid a
+  right-click acted on the row above the pointer and opened the menu a header's height too high; Name people
+  placed its menu wrongly too.
+- **Every list answers the same keys**: double-click and Enter do the default; Space is Preview (on Photos, the
+  info panel); F2 and Delete where a list has something to rename or remove (Name people, file types); Ctrl+C
+  copies the paths (in Offline, the drive's ID).
+- **Several rows at once**: in Files, Mail, Code and Browse, Copy path and Show in folder act on every selected
+  row, and a right-click on a selected row keeps the selection (Show in folder opens at most ten windows).
+- Not yet seen in the real window: the bold default line, the warning colour, the shortcut column, where menus
+  open, the keyboard's Menu key, and Explorer with several folders.
 
 ### One app, phase B: Chat behaves like a chat (2026-10-13)
 

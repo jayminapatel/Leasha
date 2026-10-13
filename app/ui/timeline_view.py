@@ -258,18 +258,23 @@ class TimelineView(QWidget):
     # -- right-click ------------------------------------------------------------
 
     def _show_menu(self, fold: Any, where: Any) -> None:
-        """The right-click menu for one entry, with Show all for a folded group."""
+        """The right-click menu for one entry, with Show all for a folded group. `where` is global.
+
+        In the table, a line among several selected acts with all of them for Copy path and
+        Show in folder (UI phase B); every other line is this entry's.
+        """
         entry = fold.head
+        picked = self.table.selected_folds() if self.stack.currentIndex() == 1 else []
+        apart = [(f"Show all {len(fold.older) + 1} separately",
+                  "Take this group apart so every photo or copy has its own line.",
+                  lambda: self.unfold(fold))] if fold.folded else []
         actions = FileActions(open_file=lambda: self.opened.emit(entry),
                               reveal=lambda: self.reveal_requested.emit(entry),
-                              offline=not entry.reachable)     # never a stat (2026-10-04)
-        menu = build_menu(self, entry.real_path or entry.path, actions)
-        if fold.folded:
-            menu.addSeparator()
-            show = menu.addAction(f"Show all {len(fold.older) + 1} separately")
-            show.setToolTip("Take this group apart so every photo or copy has its own line.")
-            show.triggered.connect(lambda: self.unfold(fold))
-        open_menu(menu, where)
+                              offline=not entry.reachable,     # never a stat (2026-10-04)
+                              selected=[(f.head.real_path or f.head.path, f.head) for f in picked]
+                              if any(f is fold for f in picked) else None,
+                              reveal_one=lambda _path, one: self.reveal_requested.emit(one), extra=apart)
+        open_menu(build_menu(self, entry.real_path or entry.path, actions), where)
 
     def unfold(self, fold: Any) -> None:
         """Replace one group with its members, oldest first, keeping the scroll position."""

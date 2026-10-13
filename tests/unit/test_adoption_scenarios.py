@@ -79,14 +79,14 @@ def _shown(qtbot, results, terms=("safety",)) -> ResultsView:
 def _row_point(view: ResultsView, row: int):
     """Where a right-click on `row` lands, in the coordinates the signal uses.
 
-    `customContextMenuRequested` delivers a point relative to the *widget*;
-    `visualRect` answers in viewport coordinates. Mapping back is what makes
-    this a click on the first row rather than a click near it - the bug
-    `file_menu.viewport_point` exists for, driven from the other end.
+    On a list Qt delivers `customContextMenuRequested` in the *viewport's*
+    coordinates (its documented exception for QAbstractScrollArea, checked in
+    `test_menu_system.py`) - the same ones `visualRect` answers in. This said
+    the opposite until UI phase B (2026-10-13) and mapped the point through the
+    widget, matching a `viewport_point` helper that made the same mistake.
     """
     index = view._model.index(row, 0)
-    centre = view._list.visualRect(index).center()
-    return view._list.viewport().mapTo(view._list, centre)
+    return view._list.visualRect(index).center()
 
 
 # ---------------------------------------------------------------------------

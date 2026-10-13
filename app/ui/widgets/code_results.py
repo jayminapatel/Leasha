@@ -27,7 +27,8 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from app.ui.editors import copyable
 from app.ui.view_options import apply_to_table, available_columns, weak_slot
-from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets import list_keys
+from app.ui.widgets.file_menu import FileActions, copy_paths, show_for, table_pairs
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
 from app.ui.widgets.status_column import fill_rows
@@ -99,10 +100,10 @@ class CodeResults(QWidget):
         self.table.setAccessibleName("Code files and repository history")
         # 2026-09-30: methods and `weak_slot`, never `lambda: self...` - see
         # `view_options.weak_slot` for the view that could not be freed.
-        self.table.itemDoubleClicked.connect(self.open_selected)
-        # Order 0y §2c: Enter opens the row, as a double-click does. The table
-        # had no key for it, which fails the keyboard-only requirement.
-        self.table.installEventFilter(self)
+        # Order 0y §2c: Enter opens the row, as a double-click does - one signal for
+        # both (`list_keys`); Space previews, Ctrl+C copies the selected paths.
+        list_keys.install(self.table, default=self.open_selected,
+                          preview=list_keys.PAGE_PREVIEW, copy=self._copy_selected)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
 
@@ -179,22 +180,15 @@ class CodeResults(QWidget):
         elif path:
             self.open_requested.emit(path)
 
-    def eventFilter(self, watched: Any, event: Any) -> bool:   # noqa: N802 - Qt's naming
-        """Enter opens the selected row - the same rule `files_view` has."""
-        from PySide6.QtCore import QEvent
-
-        if watched is self.table and event.type() == QEvent.Type.KeyPress:
-            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                self.open_selected()
-                return True
-        return super().eventFilter(watched, event)
+    def _copy_selected(self) -> None:
+        """Ctrl+C: every selected line's full path, one a line (a commit has none)."""
+        copy_paths(table_pairs(self.table, "full_path"))
 
     def _on_context_menu(self, point: Any) -> None:
         """The same menu as every other list - see widgets/file_menu.py."""
-        row_at = self.table.rowAt(viewport_point(self.table, point).y())
-        if row_at >= 0:
-            self.table.selectRow(row_at)
-        row = self.table.current_row()
+        # The viewport's point, as Qt gives it; a line among several selected keeps
+        # them all, for Copy path and Show in folder (`ResultTable.right_clicked`).
+        row = self.table.right_clicked(point)
         if row is None:
             return
 
@@ -207,6 +201,8 @@ class CodeResults(QWidget):
             # offering a command that fails.
             open_file=self.open_selected if path else None,
             reveal=(lambda: self.reveal_requested.emit(path)) if path else None,
+            selected=table_pairs(self.table, "full_path"),
+            reveal_one=lambda one, _row: self.reveal_requested.emit(one),
             # It searches the whole repository, not this file, so it says so (the owner, 2026-10-12).
             search_inside=((lambda: self.search_repo_requested.emit(name))
                            if name else None), search_words="Search this repository",
