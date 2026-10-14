@@ -40,6 +40,7 @@ from typing import (
 from app.storage.like import contains as like_contains, has_wildcard, like_escape
 
 from app.core.errors import AppError, AppErrorException, make_error
+from app.core.face_size import SMALLEST_FACE_PX
 from app.core.identifiers import symbol_tokens
 
 
@@ -650,6 +651,9 @@ class PileRecord:
     name: Optional[str]
     face_count: int
     samples: tuple[PileSample, ...]
+    #: When this pile's newest face was found (epoch seconds) - the People
+    #: window's "Recently found" order (2026-10-14).
+    last_found: int = 0
 
 
 @dataclass(frozen=True)
@@ -4957,9 +4961,10 @@ class SqliteStore:
                   (SELECT count(*) FROM files WHERE ext IN ({marks}) AND status != 'PENDING'),
                   (SELECT count(*) FROM face_scans),
                   (SELECT count(*) FROM faces),
-                  (SELECT count(*) FROM piles),
+                  (SELECT count(DISTINCT pile_id) FROM faces WHERE pile_id IS NOT NULL),
                   (SELECT count(*) FROM faces
-                     WHERE pile_id IS NULL AND suggested_pile_id IS NULL),
+                     WHERE pile_id IS NULL AND suggested_pile_id IS NULL
+                       AND min(bbox_w, bbox_h) >= ?),
                   (SELECT count(*) FROM files
                      WHERE status = 'SKIPPED' AND ext IN ({marks}) AND (
                        (skip_code = 'ERR_NO_TEXT_LAYER' AND COALESCE(skip_detail, '') != ?)
@@ -4969,7 +4974,7 @@ class SqliteStore:
                      WHERE status = 'SKIPPED'
                        AND skip_code IN ('ERR_PICTURE_TEXT_LATER', 'ERR_PAGE_TEXT_LATER')
                        AND ext IN ({marks}))
-                """, [*cleaned, *cleaned, *cleaned, self.PHOTO_TAGS_TRIED,
+                """, [*cleaned, *cleaned, SMALLEST_FACE_PX, *cleaned, self.PHOTO_TAGS_TRIED,
                       self.PICTURE_DESCRIBED, *cleaned]).fetchone()
         except sqlite3.OperationalError:
             return empty
@@ -5252,6 +5257,52 @@ class SqliteStore:
             "WHERE f.pile_id = ? ORDER BY f.id", (int(pile_id),)).fetchall()
         return [(int(r[0]), str(r[1]), (r[2], r[3], r[4], r[5])) for r in rows]
 
+    def faces_seen_once(self, limit: int = 2000) -> list[tuple[int, str, tuple]]:
+        r"""`(face_id, photo path, bbox)` for every face in no group - the People
+        window's "Faces seen once" tile and its dialog. Newest first. 2026-10-14.
+
+        Clustering only makes a group from two faces that look alike, so a
+        person photographed once never reached the page and could not be
+        named: 228 of the owner's 377 faces. Left out: a face waiting on an
+        "Is this ...?" question (it has a chip already), and one under
+        `SMALLEST_FACE_PX`, found before the face finder dropped them."""
+        rows = self.conn.execute(
+            "SELECT f.id, files.path, f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h "
+            "FROM faces f JOIN files ON files.id = f.file_id "
+            "LEFT JOIN piles s ON s.id = f.suggested_pile_id "
+            "WHERE f.pile_id IS NULL AND s.name IS NULL "
+            "AND min(f.bbox_w, f.bbox_h) >= ? "
+            "ORDER BY f.created_at DESC, f.id DESC LIMIT ?",
+            (SMALLEST_FACE_PX, int(limit))).fetchall()
+        return [(int(r[0]), str(r[1]), (r[2], r[3], r[4], r[5])) for r in rows]
+
+    def name_faces(self, face_ids: Sequence[int], name: str) -> Optional[int]:
+        r"""Faces in no group, named: they join the person already called
+        `name`, or become a new group with that name. Returns the group's id,
+        `None` for no faces or no name. 2026-10-14, "Faces seen once"."""
+        ids = [int(i) for i in face_ids]
+        cleaned = (name or "").strip()
+        if not ids or not cleaned:
+            return None
+        taken = self.pile_id_named(cleaned)
+        if taken is None:
+            return self.split_pile(ids, new_name=cleaned)
+        # One transaction for the whole selection, as `split_pile` does: a
+        # failure files none of them, and an index run cannot slip in between.
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.conn.execute(
+            f"SELECT DISTINCT file_id FROM faces WHERE id IN ({placeholders})", ids
+        ).fetchall()
+        with self.write() as conn:
+            conn.execute(
+                f"UPDATE faces SET pile_id = ?, confidence = NULL, suggested_pile_id = NULL "
+                f"WHERE id IN ({placeholders})",
+                (taken, *ids),
+            )
+        for row in rows:
+            self.sync_people_segment(int(row["file_id"]))
+        return taken
+
     def remove_face_from_pile(self, face_id: int) -> None:
         """Section 2b's "remove-from-pile" - back to the unclustered pool,
         not deleted. Re-clustering (section 1b) may put it straight back;
@@ -5395,8 +5446,8 @@ class SqliteStore:
         file ids the UI draws crops from. `samples` per pile, not the whole
         set - the grid shows a handful of thumbnails, not every photo."""
         rows = self.conn.execute(
-            "SELECT p.id, p.name, COUNT(f.id) AS n FROM piles p "
-            "JOIN faces f ON f.pile_id = p.id "
+            "SELECT p.id, p.name, COUNT(f.id) AS n, MAX(f.created_at) AS last "
+            "FROM piles p JOIN faces f ON f.pile_id = p.id "
             "GROUP BY p.id, p.name ORDER BY n DESC, p.id LIMIT ?",
             (limit,),
         ).fetchall()
@@ -5411,6 +5462,7 @@ class SqliteStore:
             ).fetchall()
             out.append(PileRecord(
                 id=row["id"], name=row["name"], face_count=row["n"],
+                last_found=int(row["last"] or 0),
                 samples=tuple(
                     PileSample(
                         file_id=r["file_id"], path=r["path"],

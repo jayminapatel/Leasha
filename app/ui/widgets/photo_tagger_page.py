@@ -28,12 +28,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 from PySide6.QtCore import QMimeData, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QDrag, QIcon, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QDrag, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
     QGridLayout,
     QHBoxLayout, QInputDialog, QLabel, QListView, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QMenu, QMessageBox, QPushButton, QScrollArea, QSpinBox, QToolButton, QVBoxLayout,
+    QWidget,
 )
 
 from app.core.logging import logger
@@ -67,6 +68,21 @@ ROLE_PILE_ID = int(Qt.ItemDataRole.UserRole)
 #: The face a pile's tile shows, or has asked for (`face_crops.face_key`).
 ROLE_FACE_KEY = int(Qt.ItemDataRole.UserRole) + 8
 ROLE_MIME = "application/x-leasha-pile-id"
+#: The "Faces seen once" tile's id where a pile's would be - no pile has it.
+SEEN_ONCE = -1
+#: Where the chosen order is remembered (`store.get_state`).
+SORT_STATE_KEY = "people.sort"
+#: 2026-10-14, the owner: "sort the naming by most matches ... and the ability
+#: to change sorting". The orders, as `(key, words in the box)`; the first is
+#: the default. Most faces puts the people worth naming first; Name finds
+#: somebody already named; Unnamed first is the naming still to do; Recently
+#: found follows a run that is still finding people.
+SORTS: tuple[tuple[str, str], ...] = (
+    ("faces", "Most faces"),
+    ("name", "Name (A to Z)"),
+    ("unnamed", "Unnamed first"),
+    ("recent", "Recently found"),
+)
 
 
 def _warn_write_failed(widget: QWidget, title: str, error: Any) -> None:
@@ -89,6 +105,39 @@ def _pile_label(pile: Any, rank: int) -> str:
     if pile.name:
         return f"{pile.name} — {pile.face_count} face(s)"
     return f"Person {rank} — {pile.face_count} face(s)"
+
+
+def sort_piles(piles: Any, how: str) -> list:
+    r"""The piles in the order `how` names (`SORTS`). 2026-10-14.
+
+    Every order ends on the biggest pile and then its id, so two piles never
+    swap places between two reads of the same index. Unknown `how` is Most
+    faces - a remembered order this build no longer has must not empty the page.
+    """
+    def size(pile: Any) -> tuple:
+        return (-int(pile.face_count), int(pile.id))
+
+    piles = list(piles or [])
+    if how == "name":
+        return sorted(piles, key=lambda p: (not p.name, (p.name or "").casefold(), *size(p)))
+    if how == "unnamed":
+        return sorted(piles, key=lambda p: (bool(p.name), *size(p)))
+    if how == "recent":
+        return sorted(piles, key=lambda p: (-int(getattr(p, "last_found", 0) or 0), *size(p)))
+    return sorted(piles, key=size)
+
+
+def size_ranks(piles: Any) -> dict[int, int]:
+    r"""`{pile id: its place, biggest first}` - the N in "Person N".
+
+    2026-10-14: the number is a pile's place by size whatever order the page
+    shows, so changing the order never renames "Person 3" to "Person 7"."""
+    return {pile.id: rank for rank, pile in enumerate(sort_piles(piles, "faces"), start=1)}
+
+
+def _seen_once_label(count: int) -> str:
+    """The "Faces seen once" tile's words."""
+    return f"Faces seen once — {count:,} face(s)"
 
 
 class _PileList(QListWidget):
@@ -116,6 +165,8 @@ class _PileList(QListWidget):
         if item is None:
             return
         pile_id = item.data(ROLE_PILE_ID)
+        if pile_id == SEEN_ONCE:
+            return                                   # not a person: nothing to combine
         mime = QMimeData()
         mime.setData(ROLE_MIME, str(int(pile_id)).encode("ascii"))
         drag = QDrag(self)
@@ -150,6 +201,9 @@ class _PileList(QListWidget):
             event.ignore()
             return
         target_id = int(target_item.data(ROLE_PILE_ID))
+        if target_id == SEEN_ONCE:
+            event.ignore()
+            return
         event.acceptProposedAction()
         if source_id != target_id:
             self.combine_requested.emit(source_id, target_id)
@@ -236,6 +290,11 @@ class PhotoTaggerPage(QWidget):
         #: The piles as last read, by id - what an instant rename or combine
         #: works out its new label from before the store has answered.
         self._piles: dict[int, Any] = {}
+        #: Each pile's "Person N" number, biggest first (`size_ranks`).
+        self._ranks: dict[int, int] = {}
+        #: The faces in no group, as last read (`SqliteStore.faces_seen_once`).
+        self._seen_once: list = []
+        self._sort = self._remembered_sort()
         #: 2026-10-05: face crops kept beside the photo thumbnails, made once.
         data = getattr(store, "db_path", None)
         self._faces_dir = Path(data).parent / "thumbs" / "faces" if data else None
@@ -288,9 +347,34 @@ class PhotoTaggerPage(QWidget):
             "date gets one. A camera's own date is never overridden.")
         self._batch_era_button.clicked.connect(self._open_batch_era_dialog)
 
+        # The house sort control (`widgets/sort_button.py` on the Search toolbar,
+        # View > Sort by on Photos): a button naming the order, opening the
+        # orders with the chosen one ticked.
+        self._sort_button = QToolButton()
+        self._sort_button.setObjectName("sortButton")
+        self._sort_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._sort_button.setToolTip(
+            "Put the people in another order. Most faces puts the people in the "
+            "most photos first; Leasha remembers your choice.")
+        self._sort_button.setAccessibleName("Sort the people")
+        sort_menu = QMenu(self._sort_button)
+        group = QActionGroup(sort_menu)
+        group.setExclusive(True)
+        self._sort_actions: dict[str, QAction] = {}
+        for key, words in SORTS:
+            action = QAction(words, sort_menu)
+            action.setCheckable(True)
+            action.triggered.connect(lambda _c=False, k=key: self.choose_sort(k))
+            group.addAction(action)
+            sort_menu.addAction(action)
+            self._sort_actions[key] = action
+        self._sort_button.setMenu(sort_menu)
+        self._show_sort()
+
         top_bar = QHBoxLayout()
         top_bar.addWidget(self._batch_era_button)
         top_bar.addStretch(1)
+        top_bar.addWidget(self._sort_button)
 
         #: Section 2c: "Is this Daddy?" - a row of chips above the grid,
         #: nothing here until `reload()` finds a suggestion to ask about.
@@ -419,6 +503,14 @@ class PhotoTaggerPage(QWidget):
             lambda _error, g=generation: self._suggestions_ready([], g))
         run(self._pool, suggestions_worker)
 
+        seen_worker = CallableWorker(
+            self._store.faces_seen_once, component="ui.photo_tagger")
+        seen_worker.signals.finished.connect(
+            lambda faces, g=generation: self._seen_once_ready(faces, g))
+        seen_worker.signals.failed.connect(
+            lambda _error, g=generation: self._seen_once_ready([], g))
+        run(self._pool, seen_worker)
+
         counts_worker = CallableWorker(
             self._store.suggestion_counts, component="ui.photo_tagger.suggestions")
         counts_worker.signals.finished.connect(
@@ -439,13 +531,14 @@ class PhotoTaggerPage(QWidget):
         """
         if generation != self._generation:
             return                               # a later reload won
-        piles = list(piles or [])
+        piles = sort_piles(piles, self._sort)
         self._piles = {pile.id: pile for pile in piles}
         self._pile_names = {pile.id: pile.name or "" for pile in piles}
-        self._empty_note.setVisible(not piles)
-        self._list.setVisible(bool(piles))
+        self._ranks = size_ranks(piles)
 
         wanted = {pile.id for pile in piles}
+        if self._seen_once:
+            wanted.add(SEEN_ONCE)
         scroll = self._list.verticalScrollBar().value()
         current = self._list.currentItem()
         current_id = current.data(ROLE_PILE_ID) if current is not None else None
@@ -466,14 +559,90 @@ class PhotoTaggerPage(QWidget):
                     self._list.insertItem(rank - 1, item)
                 elif self._list.row(item) != rank - 1:
                     self._list.insertItem(rank - 1, self._list.takeItem(self._list.row(item)))
-                self._dress(item, pile, rank)
+                self._dress(item, pile, self._ranks[pile.id])
             if current_id in wanted:
                 self._list.setCurrentItem(self._item_for(current_id))
         finally:
             self._list.setUpdatesEnabled(True)
         self._list.verticalScrollBar().setValue(scroll)
-
+        self._place_seen_once()
         self._load_crops(piles)
+
+    def _show_or_hide_empty(self) -> None:
+        """The grid when there is anything to name, the note when there is not."""
+        anything = bool(self._piles) or bool(self._seen_once)
+        self._empty_note.setVisible(not anything)
+        self._list.setVisible(anything)
+
+    # -- order (2026-10-14) ---------------------------------------------------
+
+    def _remembered_sort(self) -> str:
+        """The order chosen last time, or Most faces. Never raises."""
+        try:
+            value = self._store.get_state(SORT_STATE_KEY)
+        except Exception:                          # noqa: BLE001 - a store without it
+            value = None
+        known = {key for key, _words in SORTS}
+        return value if value in known else SORTS[0][0]
+
+    def _show_sort(self) -> None:
+        """The button names the order in use; its line in the menu is ticked."""
+        words = dict(SORTS).get(self._sort, SORTS[0][1])
+        self._sort_button.setText(f"Sort: {words}")
+        self._sort_actions[self._sort].setChecked(True)
+
+    def choose_sort(self, key: str) -> None:
+        """Put the grid in the order `key` names (`SORTS`) now; it is remembered off the UI thread."""
+        if key not in self._sort_actions:
+            return
+        self._sort = key
+        self._show_sort()
+        self._piles_ready(list(self._piles.values()), self._generation)
+        from app.ui.state_writes import save_state
+
+        save_state(self._store, SORT_STATE_KEY, self._sort, component="ui.photo_tagger",
+                   owner=self)
+
+    # -- faces seen once (2026-10-14) -------------------------------------------
+
+    def _seen_once_ready(self, faces: Any, generation: int) -> None:
+        """UI thread: the faces in no group landed; the tile follows them."""
+        if generation != self._generation:
+            return
+        self._seen_once = list(faces or [])
+        self._place_seen_once()
+
+    def _place_seen_once(self) -> None:
+        r"""The "Faces seen once" tile: last in the grid whatever the order,
+        because it is not a person; gone when there are none. Its picture is
+        the newest face, cut as a pile's is."""
+        item = self._item_for(SEEN_ONCE)
+        if not self._seen_once:
+            if item is not None:
+                self._list.takeItem(self._list.row(item))
+            self._show_or_hide_empty()
+            return
+        if item is None:
+            item = QListWidgetItem(blank_tile(CELL - 20, round_=True), "")
+            item.setData(ROLE_PILE_ID, SEEN_ONCE)
+            self._list.addItem(item)
+        elif self._list.row(item) != self._list.count() - 1:
+            self._list.addItem(self._list.takeItem(self._list.row(item)))
+        label = _seen_once_label(len(self._seen_once))
+        if item.text() != label:
+            item.setText(label)
+        item.setToolTip(
+            "Faces Leasha found only once, so it could not put them with anyone. "
+            "Click to look through them and name the people you know.")
+        self._show_or_hide_empty()
+        _face_id, path, bbox = self._seen_once[0]
+        self._load_crop(SEEN_ONCE, path, bbox)
+
+    def _open_seen_once(self) -> None:
+        """The faces seen once, to name or put with somebody."""
+        dialog = _ManageFacesDialog(self._store, None, self)
+        dialog.exec()
+        self.reload()
 
     def _dress(self, item: QListWidgetItem, pile: Any, rank: int) -> None:
         """A pile's words - set only when they changed, so nothing repaints for nothing."""
@@ -499,31 +668,32 @@ class PhotoTaggerPage(QWidget):
         otherwise on a worker (from disk when it was made before). A tile
         whose face is unchanged is not touched; one whose face changed keeps
         its old picture until the new one is ready - never a blank between."""
+        for pile in piles:
+            if pile.samples:
+                self._load_crop(pile.id, pile.samples[0].path, pile.samples[0].bbox)
+
+    def _load_crop(self, pile_id: int, path: str, bbox: Any) -> None:
+        """One tile's face - `_load_crops`, for one tile."""
         from app.ui.workers import CallableWorker, run
 
-        for pile in piles:
-            if not pile.samples:
-                continue
-            sample = pile.samples[0]
-            key = face_key(sample.path, sample.bbox)
-            item = self._item_for(pile.id)
-            if item is None or item.data(ROLE_FACE_KEY) == key:
-                continue                         # showing it, or already asked for it
-            item.setData(ROLE_FACE_KEY, key)
-            pixmap = remembered(key)
-            if pixmap is not None:
-                item.setIcon(QIcon(round_pixmap(pixmap)))
-                continue
-            worker = CallableWorker(
-                cached_face_crop, sample.path, sample.bbox, self._faces_dir,
-                component="ui.photo_tagger")
-            # `when_done`, not a bare connect: a crop that finishes after this page
-            # has been closed used to reach `_list` on a deleted widget and raise in
-            # the Qt event loop (2026-10-09, found by the Photos tests).
-            when_done(self, worker,
-                      finished=lambda image, p=pile.id, k=key: self._crop_ready(p, k, image))
-            # A face that will not cut keeps its blank tile; the worker logged why.
-            run(self._pool, worker)
+        key = face_key(path, bbox)
+        item = self._item_for(pile_id)
+        if item is None or item.data(ROLE_FACE_KEY) == key:
+            return                               # showing it, or already asked for it
+        item.setData(ROLE_FACE_KEY, key)
+        pixmap = remembered(key)
+        if pixmap is not None:
+            item.setIcon(QIcon(round_pixmap(pixmap)))
+            return
+        worker = CallableWorker(
+            cached_face_crop, path, bbox, self._faces_dir, component="ui.photo_tagger")
+        # `when_done`, not a bare connect: a crop that finishes after this page
+        # has been closed used to reach `_list` on a deleted widget and raise in
+        # the Qt event loop (2026-10-09, found by the Photos tests).
+        when_done(self, worker,
+                  finished=lambda image, p=pile_id, k=key: self._crop_ready(p, k, image))
+        # A face that will not cut keeps its blank tile; the worker logged why.
+        run(self._pool, worker)
 
     def _crop_ready(self, pile_id: int, key: str, image: Any) -> None:
         """A face is ready - shown on its pile if that pile still wants it,
@@ -685,8 +855,12 @@ class PhotoTaggerPage(QWidget):
 
     def _on_activated(self, index: Any) -> None:
         item = self._list.itemFromIndex(index)
-        if item is not None:
-            self._rename(int(item.data(ROLE_PILE_ID)), item.text())
+        if item is None:
+            return
+        if item.data(ROLE_PILE_ID) == SEEN_ONCE:
+            self._open_seen_once()
+            return
+        self._rename(int(item.data(ROLE_PILE_ID)), item.text())
 
     def _rename(self, pile_id: int, current_label: str) -> None:
         # The label is `_pile_label`'s "Name - 47 photo(s)"; the name is what is
@@ -786,7 +960,7 @@ class PhotoTaggerPage(QWidget):
             return
         pile = replace(pile, name=name.strip() or None)
         self._piles[pile_id] = pile
-        self._dress(item, pile, self._list.row(item) + 1)
+        self._dress(item, pile, self._ranks.get(pile_id, self._list.row(item) + 1))
 
     def _show_combined(self, source_id: int, target_id: int) -> None:
         """Take the dragged tile off and add its count to the target, before the store has."""
@@ -801,7 +975,7 @@ class PhotoTaggerPage(QWidget):
         self._piles[target_id] = target
         kept = self._item_for(target_id)
         if kept is not None:
-            self._dress(kept, target, self._list.row(kept) + 1)
+            self._dress(kept, target, self._ranks.get(target_id, self._list.row(kept) + 1))
 
     # -- context menu: forget, manage faces ----------------------------------
 
@@ -815,6 +989,11 @@ class PhotoTaggerPage(QWidget):
         if item is None:
             return
         pile_id = int(item.data(ROLE_PILE_ID))
+        if pile_id == SEEN_ONCE:
+            menus.show(menus.build(self, [
+                menus.Item("Look through these faces…", self._open_seen_once, default=True),
+            ]), self._list, point)
+            return
         name = item.text().split(" — ", 1)[0]
         label = item.text()
         menu = menus.build(self, [
@@ -831,12 +1010,14 @@ class PhotoTaggerPage(QWidget):
 
     def _rename_current(self) -> None:
         item = self._list.currentItem()
-        if item is not None:
+        if item is not None and item.data(ROLE_PILE_ID) == SEEN_ONCE:
+            self._open_seen_once()
+        elif item is not None:
             self._rename(int(item.data(ROLE_PILE_ID)), item.text())
 
     def _forget_current(self) -> None:
         item = self._list.currentItem()
-        if item is not None:
+        if item is not None and item.data(ROLE_PILE_ID) != SEEN_ONCE:
             self._forget(int(item.data(ROLE_PILE_ID)), item.text().split(" — ", 1)[0])
 
     def _combine_with(self, pile_id: int, name: str) -> None:
@@ -848,7 +1029,7 @@ class PhotoTaggerPage(QWidget):
         for row in range(self._list.count()):
             other = self._list.item(row)
             other_id = int(other.data(ROLE_PILE_ID))
-            if other_id != pile_id:
+            if other_id not in (pile_id, SEEN_ONCE):
                 others.append((other.text(), other_id))
         if not others:
             QMessageBox.information(
@@ -1006,23 +1187,34 @@ class _ManageFacesDialog(QDialog):
     face. Now: a grid that scrolls and wraps, a window that resizes and
     maximizes, everything read on workers, and three answers for a selection -
     not this person (and never again), a new person, or another named person.
+
+    *2026-10-14:* `pile_id=None` is the faces in no group ("Faces seen once").
+    There is no person to say "not" to, so that answer is hidden and "Name
+    them" takes its place: the selected faces join whoever has that name, or
+    become a new person called it.
     """
 
     FACE = 112
 
-    def __init__(self, store: Any, pile_id: int, parent: Optional[QWidget] = None,
+    def __init__(self, store: Any, pile_id: Optional[int], parent: Optional[QWidget] = None,
                  *, pile_name: str = "") -> None:
         super().__init__(parent, Qt.WindowType.Window
                          | Qt.WindowType.WindowMaximizeButtonHint
                          | Qt.WindowType.WindowCloseButtonHint)
         who = pile_name or "this person"
-        self.setWindowTitle(f"Faces of {who}" if pile_name else "Manage faces")
+        seen_once = pile_id is None
+        self.setWindowTitle("Faces seen once" if seen_once else
+                            f"Faces of {who}" if pile_name else "Manage faces")
         self._store = store
         self._pile_id = pile_id
         self._pool = QThreadPool.globalInstance()
         self._changed = False
 
         intro = QLabel(
+            "Leasha found each of these faces only once, so it could not put them with "
+            "anyone. Select the faces of one person - click, Ctrl-click or Shift-click "
+            "for several - then name them or add them to someone you have named."
+            if seen_once else
             f"Select the faces that are not {who} - click, Ctrl-click or Shift-click "
             f"for several - then choose what they are instead.")
         intro.setWordWrap(True)
@@ -1046,6 +1238,13 @@ class _ManageFacesDialog(QDialog):
             f"The selected faces leave {who} and go back to the unsorted faces - "
             f"and Leasha will not put them with {who} again.")
         self._not_this.clicked.connect(self._not_this_person)
+        self._not_this.setVisible(not seen_once)
+        self._name_them = QPushButton("Name them…")
+        self._name_them.setToolTip(
+            "The selected faces are one person: type the name. If you have named "
+            "them before, the faces join that person.")
+        self._name_them.clicked.connect(self._name_selected)
+        self._name_them.setVisible(seen_once)
         self._new_person = QPushButton("Make a new person")
         self._new_person.setToolTip(
             "The selected faces become a group of their own, ready to be named - "
@@ -1058,8 +1257,8 @@ class _ManageFacesDialog(QDialog):
         self._move.clicked.connect(self._move_selected)
 
         actions = QHBoxLayout()
-        for widget in (select_all, self._not_this, self._new_person, self._move,
-                       self._move_to):
+        for widget in (select_all, self._name_them, self._not_this, self._new_person,
+                       self._move, self._move_to):
             actions.addWidget(widget)
         actions.addStretch(1)
 
@@ -1093,8 +1292,11 @@ class _ManageFacesDialog(QDialog):
         self._scroll = self._list.verticalScrollBar().value()
         self._list.clear()
         self._count.setText("Reading the faces...")
-        faces = CallableWorker(self._store.faces_in_pile, self._pile_id,
-                               component="ui.photo_tagger.manage")
+        faces = (CallableWorker(self._store.faces_seen_once,
+                                component="ui.photo_tagger.manage")
+                 if self._pile_id is None else
+                 CallableWorker(self._store.faces_in_pile, self._pile_id,
+                                component="ui.photo_tagger.manage"))
         when_done(self, faces, finished=self._faces_ready)
         run(self._pool, faces)
         people = CallableWorker(self._store.piles_with_counts,
@@ -1160,6 +1362,7 @@ class _ManageFacesDialog(QDialog):
     def _selection_changed(self) -> None:
         some = bool(self._list.selectedItems())
         self._not_this.setEnabled(some)
+        self._name_them.setEnabled(some)
         self._new_person.setEnabled(some)
         self._move.setEnabled(some and self._move_to.count() > 0)
 
@@ -1189,6 +1392,18 @@ class _ManageFacesDialog(QDialog):
 
         if face_ids:
             self._apply(work, "Could not take them out")
+
+    def _name_selected(self) -> None:
+        """Ask for a name, then file the selected faces under it (`SqliteStore.name_faces`)."""
+        face_ids = self._selected_face_ids()
+        if not face_ids:
+            return
+        name, ok = QInputDialog.getText(
+            self, "Name this person",
+            f"Who is this? The {len(face_ids):,} selected face(s) are filed under the name.")
+        if not ok or not name.strip():
+            return
+        self._apply(lambda: self._store.name_faces(face_ids, name), "Could not name them")
 
     def _split_selected(self) -> None:
         face_ids = self._selected_face_ids()

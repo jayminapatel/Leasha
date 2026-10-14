@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.132 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 4.133 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,24 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### People: faces seen once can be named, tiny faces are not kept, and a Sort button (2026-10-14)
+
+- **A face found only once can now be named.** Grouping makes a pile only from two faces that look
+  alike, so a person photographed once never reached the People window: 228 of the owner's 377 faces.
+  They now wait on a last tile, "Faces seen once"; its window shows them newest first, and **Name
+  them…** files the selected faces under a name - joining the person already called that, or starting
+  one (`SqliteStore.faces_seen_once`, `name_faces`). Make a new person and Move to work there too.
+- **Newly found faces smaller than 40 pixels are not kept**; small faces already in the index stay
+  there, only hidden (below). Measured on the owner's index: the faces left unsorted
+  had a median shortest side of 21 pixels, against 180 for the faces that grouped; 159 of the 228 were
+  under 40. The face finder drops them (`app/core/face_size.py`); any found before are left out of
+  "Faces seen once" and of the indexing line's "still to sort". A small face already in a group stays.
+- **The People window has a Sort button**, the same kind as the Search toolbar's: Most faces (the
+  default), Name (A to Z), Unnamed first, Recently found - remembered (`people.sort`). "Person 3" is a
+  pile's place by size, so it no longer changes when the order does.
+- **Fixed in passing:** the indexing line's "N people" counted every group ever made, emptied ones
+  too - 53 on the owner's index, where 26 hold faces. It now counts groups with faces in them.
 
 ### A merged contact keeps where its details came from (2026-10-13)
 
