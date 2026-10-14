@@ -28,13 +28,16 @@ from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPainter, QPainterPath
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 
+from app.ui.theme import radius_px
+
 __all__ = ["CardWindow", "SHADOW", "CARD_RADIUS", "screens_now"]
 
 #: Room around the card for its shadow, in pixels.
 SHADOW = 18
 
-#: The card's corner radius.
-CARD_RADIUS = 14
+#: The card's corner radius: the sheet's `radius_window`, which the box's own rule for
+#: `#miniCard` uses too, so the shadow and the edge it is drawn round agree (DS-10).
+CARD_RADIUS = int(radius_px("radius_window"))
 
 #: How close to the card's edge a press starts a resize.
 _EDGE = 6
