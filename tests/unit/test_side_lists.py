@@ -259,6 +259,60 @@ def test_a_tick_change_restyles_the_rows_in_place_and_keeps_folders_open(qtbot):
     assert side._by_key["a"] is not row_a and side._by_key["a"].isExpanded()   # rebuilt, and still open
 
 
+def _rows_made(side) -> int:
+    stack = [side.topLevelItem(i) for i in range(side.topLevelItemCount())]
+    made = 0
+    while stack:
+        item = stack.pop()
+        made += 1
+        stack.extend(item.child(i) for i in range(item.childCount()))
+    return made
+
+
+def test_a_big_places_tree_makes_only_the_rows_that_can_be_seen(qtbot):
+    """2026-10-14 06:56, the lag monitor: `set_entries` -> `_rebuild` -> `_item` held the window 5 s
+    at start-up. Every folder three levels down was made a row - 19,533 for 18,750 folders - though
+    only the roots and their children can be seen until one is opened."""
+    from app.ui.presenter.side_entries import files_entries, folder_tree
+    from app.ui.widgets.side_list import _ENTRY, SideList
+
+    counts = [(rf"D:\Data\Company {a}\Project {b}\Docs {c}", 3)
+              for a in range(30) for b in range(25) for c in range(25)]            # 18,750 folders
+    tree = folder_tree([r"D:\Data"], counts)
+    entries = files_entries([r"D:\Data"], counts, [], [("pdf", 3)], tree=tree)
+    assert len(entries) > 19_000
+    side = SideList("filesSide", accessible="t", shown=12)
+    qtbot.addWidget(side)
+    side.set_entries(entries)
+
+    # All files, two headings, the root, its 30 companies, one kind: not nineteen thousand.
+    assert _rows_made(side) < 100, f"{_rows_made(side)} rows made for a list showing about 35"
+    root = side._by_key[r"place:D:\Data"]
+    assert root.childCount() == 30                                    # the root still shows its arrow and children
+
+    root.setExpanded(True)                                            # opened: the rows below its children appear
+    company = root.child(0)
+    assert company.childCount() == 25 and company.child(0).childCount() == 0   # Docs wait for Project's opening
+    company.setExpanded(True)
+    assert company.child(0).childCount() == 25
+    company_key = company.data(0, _ENTRY).key
+
+    # A deep folder chosen (a restore) is found, made with the rows above it, from today's entry.
+    deep = next(e for e in entries if e.key.endswith(r"Company 29\Project 24\Docs 24"))
+    recount = [e if e.key != deep.key else SideEntry(e.key, e.label, section=e.section, icon=e.icon,
+                                                       count=77, parent=e.parent, value=e.value, tip=e.tip)
+               for e in entries]
+    side.set_entries(recount)                                         # a count moved: updated in place
+    side.select(deep.key)
+    assert side.currentItem() is not None and side.currentItem().text(1) == "77"
+
+    # Opened folders stay open across a rebuild.
+    grown = recount + [SideEntry("kind:txt", "Text", section="Kinds", icon="file", count=1)]
+    side.set_entries(grown)
+    assert side._by_key[r"place:D:\Data"].isExpanded()
+    assert side._by_key[company_key].isExpanded()
+
+
 def test_a_tree_follows_the_index_only_while_it_is_on_screen_and_only_when_it_moved(qtbot):
     """"Make sure this is on all trees" (the owner, 2026-10-12): Mail, Files, Code, Browse and Photos."""
     from PySide6.QtWidgets import QWidget
