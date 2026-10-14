@@ -45,6 +45,7 @@ from app.ui.widgets.face_crops import (blank_tile, cached_face_crop, face_key, r
                                        remembered, round_pixmap)
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 from app.ui.widgets import list_keys, menus
+from app.ui.theme import SPACE_S
 
 #: How often the page looks for faces grouped since it last read them, while
 #: it is on screen. 2026-10-04.
@@ -332,7 +333,7 @@ class PhotoTaggerPage(QWidget):
         self._list.setGridSize(QSize(CELL, CELL))
         self._list.setResizeMode(QListView.ResizeMode.Adjust)
         self._list.setMovement(QListView.Movement.Static)
-        self._list.setSpacing(6)
+        self._list.setSpacing(SPACE_S)
         self._list.setWordWrap(True)
         self._list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         # A double-click or Enter names the pile, as F2 does; Delete forgets it, through

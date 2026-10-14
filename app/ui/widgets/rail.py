@@ -43,7 +43,7 @@ from app.ui.rail_state import PillState
 from app.ui.widgets.icons import icon as themed_icon
 from app.ui.widgets.icons import ICON_SIZES
 from app.ui.widgets.shimmer_bar import ShimmerBar
-from app.ui.theme import SPACE_XS, SPACE_M
+from app.ui.theme import SPACE_XS, SPACE_S, SPACE_M
 
 __all__ = ["Rail", "RAIL_WIDTH", "ICON_SIZE"]
 
@@ -112,7 +112,7 @@ class _Pill(QFrame):
         # same room above and below as a rail button's 7 + 5, and the full
         # 60px width is left for the word.
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)
+        layout.setSpacing(SPACE_XS)
         #: The icon with its status dot, drawn by `_draw_glyph`.
         self.glyph = QLabel()
         self.glyph.setObjectName("railPillGlyph")
@@ -291,7 +291,7 @@ class Rail(QWidget):
         self.column.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.column.setAccessibleName("Pages")
         col = QVBoxLayout(self.column)
-        col.setContentsMargins(6, 12, 6, 10)
+        col.setContentsMargins(SPACE_XS, SPACE_M, SPACE_XS, SPACE_S)
         col.setSpacing(SPACE_XS)
         self.mark = QLabel("L")
         self.mark.setObjectName("railMark")
@@ -314,7 +314,7 @@ class Rail(QWidget):
                     Qt.TransformationMode.SmoothTransformation))
                 self.mark.setText("")
         col.addWidget(self.mark, 0, Qt.AlignmentFlag.AlignHCenter)
-        col.addSpacing(10)
+        col.addSpacing(SPACE_S)
         self._top = QVBoxLayout()
         self._top.setSpacing(SPACE_XS)
         col.addLayout(self._top)

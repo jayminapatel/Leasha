@@ -26,6 +26,7 @@ from PySide6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter import format_count
 from app.ui.widgets.buttons import style_button
+from app.ui.theme import SPACE_S
 
 __all__ = ["SkipRow"]
 
@@ -48,7 +49,7 @@ class SkipRow(QWidget):
         fix.setObjectName("skipFix")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(SPACE_S, SPACE_S, SPACE_S, SPACE_S)
         layout.addWidget(self._heading)
         layout.addWidget(fix)
 

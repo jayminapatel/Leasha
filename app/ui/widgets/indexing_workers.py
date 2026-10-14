@@ -42,6 +42,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWi
 
 from app.ui.presenter.live_progress import heartbeat_line, live_view
 from app.ui.widgets.buttons import style_button
+from app.ui.theme import SPACE_XS
 
 __all__ = ["FORCE_SKIP_LABEL", "HEARTBEAT_REDRAW_MS", "IndexingWorkers"]
 
@@ -71,7 +72,7 @@ class IndexingWorkers(QWidget):
         self.setObjectName("indexWorkers")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(SPACE_XS)
 
         #: One line per reader, joined with newlines into one label: a label
         #: per reader would be created and destroyed as the pool grows and

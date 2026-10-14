@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QPushBu
 
 from app.ui.presenter.photos import date_text, people_text, size_text
 from app.ui.widgets.page_states import EmptyState
+from app.ui.theme import SPACE_S
 
 __all__ = ["PhotoInfo", "gather", "CAMERA_TAGS"]
 
@@ -181,7 +182,7 @@ class PhotoInfo(QWidget):
         self.scroll = scroll
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 0, 0, 0)
+        layout.setContentsMargins(SPACE_S, 0, 0, 0)
         layout.addWidget(scroll, 1)
         layout.addLayout(buttons)
         self.setMinimumWidth(260)

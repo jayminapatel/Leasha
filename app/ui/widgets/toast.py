@@ -28,6 +28,8 @@ from typing import Any, Optional
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
 
+from app.ui.theme import SPACE_S, SPACE_M
+
 __all__ = ["Toast", "LEVELS", "DEFAULT_TIMEOUT_MS"]
 
 LEVELS = ("info", "warning", "danger")
@@ -50,8 +52,8 @@ class Toast(QFrame):
         self._timer.timeout.connect(self._advance)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 6, 14, 6)
-        layout.setSpacing(10)
+        layout.setContentsMargins(SPACE_M, SPACE_S, SPACE_M, SPACE_S)
+        layout.setSpacing(SPACE_S)
         self.dot = QFrame()
         self.dot.setObjectName("toastDot")
         self.dot.setProperty("level", "info")
