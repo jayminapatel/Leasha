@@ -765,6 +765,8 @@ class MiniSearch(CardWindow):
             self._outlook_current()
             return True
         if ctrl and key == Qt.Key.Key_P:
+            # Ctrl+Shift+P, the main window's preview key (IA-3, 2026-10-14), and plain
+            # Ctrl+P, this box's own since it was built - both, so no habit breaks.
             self.toggle_preview()
             return True
         if ctrl and Qt.Key.Key_1 <= key <= Qt.Key.Key_5:
