@@ -249,14 +249,15 @@ Tooltips built at run time from data (a file's path, a count) are held only by
 **Module:** `app/ui/theme.py` - the 8px rhythm: `SPACE_XS` 4, `SPACE_S` 8, `SPACE_M` 12,
 `SPACE_L` 16, `SPACE_XL` 24 (`SPACING`), and 0 for flush.
 
-- **A layout gap or margin is written by its `theme.SPACE_*` name.** A call whose every number
-  the scale can name fails `tests/unit/test_ui_style_rules.py`, over every file in `app/ui`
-  except the Contacts files listed there (a list that may only shrink).
-- **What is still off the scale is held by a ceiling.** A call with any number off the scale -
-  a 6, a 2, a 10 - is counted, mixed calls included, by `tests/unit/test_ux_guards.py`
-  (`test_gaps_off_the_scale_never_grow`) against `OFF_SCALE_CEILING`. The ceiling may only go
-  down: a new off-scale gap fails it, and moving a file onto the scale lowers it. The rest are
-  older than the scale or deliberate - the brand's clear space round the About box among them.
+- **A layout gap or margin is written by its `theme.SPACE_*` name**, in every file in `app/ui`.
+  A number the scale can name fails `tests/unit/test_ui_style_rules.py`.
+- **No gap is off the scale.** A call with any number off the scale - a 6, a 2, a 10, mixed
+  calls included - fails `tests/unit/test_ux_guards.py` (`test_gaps_off_the_scale_never_grow`,
+  `OFF_SCALE_CEILING` = 0). The only exceptions are geometries, not rhythm, each named with its
+  reason in `OFF_SCALE_OK`: the brand's clear space round the About box, the insides of a 1 px
+  border (code block, contact token), the address lines under their field and the 1 px hairline
+  between timeline bars. A gap that lines text up under an icon is written from the icon's
+  size (`icon_size(role).width() + SPACE_XS`), not as a number.
 
 ## 10. Questions and errors
 
