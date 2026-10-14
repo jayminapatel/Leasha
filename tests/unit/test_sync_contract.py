@@ -188,3 +188,78 @@ def test_a_server_in_trouble_ends_the_run_once_and_lists_no_contact_as_refused(w
     assert out.status == "failed" and out.error.code == "ERR_ACCOUNT_TROUBLE"
     assert len(calls) == 1 and out.plan.failed_out == 0
     assert world.accounts.failures(g) == []
+
+
+# ----------------------------------------------------------------------------------------------------- CS-5
+def _limit(retry_after_s):
+    from app.core.errors import AppErrorException, make_error
+    return AppErrorException(make_error("ERR_PROVIDER_LIMIT", "fake", account="Google",
+                                        reason="too many requests, HTTP 429", retry_after_s=retry_after_s))
+
+
+def test_the_providers_retry_after_reaches_the_schedule_of_a_contacts_sync(world):
+    import time
+    g = world.account("Google")
+    world.providers[g].fail_with = _limit(900.0)
+    before = time.time()
+    out = only(world.engine.sync(), g)
+    assert out.status == "failed" and out.error.code == "ERR_PROVIDER_LIMIT"
+    at = world.accounts.state(g, "contacts").next_retry_at
+    assert at is not None and before + 900 <= at <= time.time() + 901
+
+
+def test_without_a_retry_after_the_schedule_backs_off_as_before(world):
+    g = world.account("Google")
+    world.providers[g].fail_with = _limit(None)
+    world.engine.sync()
+    assert world.accounts.state(g, "contacts").next_retry_at is None
+    world.providers[g].fail_with = None
+    world.engine.sync()                                     # a success clears it
+    assert world.accounts.state(g, "contacts").next_retry_at is None
+
+
+def test_the_providers_retry_after_reaches_the_schedule_of_a_mail_fetch(tmp_path):
+    from app.accounts.mail_sync import MailSyncer
+    from app.accounts.service import AccountService
+    from tests.unit.mail_sync_fakes import secret_store
+    store = SqliteStore(tmp_path / "m.db").connect()
+    try:
+        svc = AccountService(store, secrets=secret_store())
+        aid = svc.accounts.add("google", "me@x.com", "Home", mail_on=True, contacts_on=False)
+
+        def limited(_account):
+            raise _limit(600.0)
+        out = MailSyncer(svc, provider_for=limited, clock=lambda: 1_000_000.0)(svc.accounts.get(aid))
+        assert out.status == "failed"
+        assert svc.accounts.state(aid, "mail").next_retry_at == 1_000_600
+    finally:
+        store.close()
+
+
+def test_the_activity_line_says_the_provider_asked_for_the_wait():
+    from datetime import datetime
+    from app.ui.presenter.account_activity import describe
+    now = datetime(2026, 10, 12, 8, 14).timestamp()
+    run = {"status": "failed", "error_text": "Home asked Leasha to slow down (too many requests, HTTP 429)."}
+    base = {"account_id": 1, "name": "Home", "kind": "contacts", "enabled": True, "live": False, "hold": None,
+            "signin_expired": False, "mode": "interval", "last_success": now - 600, "failures": 1, "run": run}
+    asked = describe({**base, "next": now + 900, "retry_at": now + 900}, now)
+    assert asked.state == "failed"
+    assert "trying again in 15 min (08:29), as the provider asked" in asked.detail
+    later = describe({**base, "next": now + 2700, "retry_at": now + 900}, now)  # the schedule is later still
+    assert "trying again in 45 min" in later.detail and "provider asked" not in later.detail
+    assert "provider asked" not in describe({**base, "next": now + 900}, now).detail
+
+
+def test_the_activity_snapshot_carries_the_retry_time(tmp_path):
+    from app.accounts.service import AccountService
+    from tests.unit.mail_sync_fakes import secret_store
+    store = SqliteStore(tmp_path / "s.db").connect()
+    try:
+        svc = AccountService(store, secrets=secret_store())
+        aid = svc.accounts.add("google", "me@x.com", "Home", mail_on=False, contacts_on=True)
+        svc.accounts.record_failure(aid, "contacts", "ERR_PROVIDER_LIMIT", "slow down", next_retry_at=2_000_000_000)
+        snap = next(s for s in svc.activity_snapshot() if s["account_id"] == aid and s["kind"] == "contacts")
+        assert snap["retry_at"] == 2_000_000_000
+    finally:
+        store.close()

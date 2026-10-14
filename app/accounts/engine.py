@@ -51,6 +51,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from app.accounts.http import retry_at_of
 from app.accounts.provider import (ContactProvider, RemoteContact, TokenExpired, VersionConflict, WriteResult)
 from app.accounts.store import Account, AccountSettings, AccountStore
 from app.contacts.card import Card, merge, project, units
@@ -996,7 +997,9 @@ class ContactSyncEngine:
                 self.accounts.record_success(acct.id, "contacts")
             return
         if out.status == "failed" and out.error is not None:
-            self.accounts.record_failure(acct.id, "contacts", out.error.code, out.error.message)
+            # A provider that said how long to wait is waited for that long, not 1, 2, 4 minutes (review CS-5).
+            self.accounts.record_failure(acct.id, "contacts", out.error.code, out.error.message,
+                                         next_retry_at=retry_at_of(out.error, self._clock()))
             self.accounts.finish_run(out.run_id, "failed", added=p.added, changed=p.changed, deleted=p.deleted,
                                      held=p.held, error_code=out.error.code, error_text=_with_fix(out.error),
                                      plan=p.to_json())

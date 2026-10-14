@@ -700,7 +700,7 @@ class AccountService:
                     snap["live_progress"] = dict(self._live_progress.get(a.id) or {})
                 snap.update(
                     mode=policy.mode, next=nxt.timestamp() if nxt else None, last_success=st.last_success_at,
-                    failures=st.failures,
+                    failures=st.failures, retry_at=st.next_retry_at,   # review CS-5: the provider's Retry-After
                     run=({"status": status, "added": run.added, "changed": run.changed, "deleted": run.deleted,
                           "error_text": run.error_text or "", "finished_at": run.finished_at,
                           "started_at": run.started_at, "error_code": run.error_code or ""} if run else None))
