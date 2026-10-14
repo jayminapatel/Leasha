@@ -19,8 +19,10 @@ from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from app.ui.contacts.logic import COLUMNS, initials
 from app.ui.contacts.model import RowRole
-from app.ui.theme import theme_colours
 from app.ui.widgets.icons import icon
+from app.ui.widgets.paint_kit import (
+    paint_focus_ring, paint_row_state, points_for_pixels, row_radius, scaled_font, set_weight, tok,
+)
 
 __all__ = ["NameDelegate", "ChipsDelegate", "CardDelegate", "CARD_SIZE", "draw_avatar", "name_font", "NAME_POINTS"]
 
@@ -40,8 +42,8 @@ class _Base(QStyledItemDelegate):
         self._icons.clear()
 
     def tok(self, name: str) -> QColor:
-        # Before the first `retint` the theme's own value, not a literal grey.
-        return QColor(self.c.get(name) or theme_colours()[name])
+        # Before the first `retint` the theme's own value, not a literal grey (`paint_kit.tok`).
+        return tok(self.c, name)
 
     def glyph(self, name: str, colour: str) -> Any:
         key = (name, colour)
@@ -63,8 +65,7 @@ _DEFAULT_BASE_POINTS = 9.0
 def name_font(base: QFont) -> QFont:
     """The card name's font: `base`'s family, bold, 12 points - and scaled with the person's
     "Make text bigger" setting (a base larger than the default makes it larger in proportion)."""
-    font = QFont(base)
-    font.setBold(True)
+    font = set_weight(QFont(base), "bold")
     points = base.pointSizeF()
     font.setPointSizeF(NAME_POINTS * (points if points > 0 else _DEFAULT_BASE_POINTS) / _DEFAULT_BASE_POINTS)
     return font
@@ -86,9 +87,10 @@ def draw_avatar(painter: QPainter, rect: QRect, row: Any, photos: Any, c: dict[s
                            rect.y() - (scaled.height() - rect.height()) // 2, scaled)
     else:
         painter.fillPath(path, QColor(c.get("accent_soft", "#dddddd")))
-        font = QFont(painter.font())
-        font.setBold(True)
-        font.setPixelSize(max(9, int(rect.height() * 0.38)))
+        # Sized to the circle it sits in - 0.38 of its height - but in points, which
+        # is the house rule (review 2026-10-14, DS-8); at 96 DPI the same size it was.
+        font = set_weight(QFont(painter.font()), "bold")
+        font.setPointSizeF(points_for_pixels(max(9, int(rect.height() * 0.38))))
         painter.setFont(font)
         painter.setPen(QColor(c.get("accent_text", "#444444")))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, initials(row.display_name))
@@ -141,10 +143,9 @@ class NameDelegate(_Base):
         if row is None:
             return
         painter.save()
-        if selected:
-            painter.fillRect(option.rect, self.tok("accent_soft"))
-        elif option.state & QStyle.StateFlag.State_MouseOver:
-            painter.fillRect(option.rect, self.tok("surface_hover"))
+        # A table cell meets its neighbours: square, no inset. The ring is the one
+        # every painted list draws (`paint_kit`, DS-2), round the current cell.
+        paint_row_state(painter, option.rect, option, self.c, radius=0, inset=(0, 0))
         r = option.rect
         side = min(26, r.height() - 6)
         draw_avatar(painter, QRect(r.x() + 6, r.y() + (r.height() - side) // 2, side, side), row, self.photos, self.c)
@@ -175,14 +176,10 @@ class ChipsDelegate(_Base):
         if row is None:
             return
         painter.save()
-        if option.state & QStyle.StateFlag.State_Selected:
-            painter.fillRect(option.rect, self.tok("accent_soft"))
-        elif option.state & QStyle.StateFlag.State_MouseOver:
-            painter.fillRect(option.rect, self.tok("surface_hover"))
+        paint_row_state(painter, option.rect, option, self.c, radius=0, inset=(0, 0))
         kind = COLUMNS[index.column()][0]
-        font = QFont(option.font)
-        font.setPixelSize(max(9, int(QFontMetrics(font).height() * 0.82)))
-        painter.setFont(font)
+        # The chips' words: the scale's small step (they were 0.82 of a line, in pixels).
+        painter.setFont(scaled_font(option.font, "small"))
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         draw_chips(painter, option.rect.adjusted(6, 0, -4, 0), model.chips(row, kind), self)
         painter.restore()
@@ -203,12 +200,18 @@ class CardDelegate(_Base):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         card = QRectF(option.rect.adjusted(6, 6, -6, -6))
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        hover = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        radius = row_radius()
         path = QPainterPath()
-        path.addRoundedRect(card, 8, 8)
-        painter.fillPath(path, self.tok("accent_soft" if selected else "surface_hover" if hover else "surface"))
-        painter.setPen(QPen(self.tok("focus_ring" if selected else "border"), 2 if selected else 1))
-        painter.drawPath(path)
+        path.addRoundedRect(card, radius, radius)
+        # The card's ground, then the one hover and selection fill (`paint_kit`, DS-2),
+        # then its edge: the hairline, or the one ring when it is chosen or has the keys.
+        painter.fillPath(path, self.tok("surface"))
+        paint_row_state(painter, card.toRect(), option, self.c, inset=(0, 0), ring=False)
+        if selected or option.state & QStyle.StateFlag.State_HasFocus:
+            paint_focus_ring(painter, card, self.c, radius)
+        else:
+            painter.setPen(QPen(self.tok("border"), 1))
+            painter.drawPath(path)
         # The account colours down the left edge (6b): equal bands, top to bottom.
         stripes = [chip[1] for chip in model.chips(row, "accounts")]
         painter.save()
@@ -267,8 +270,6 @@ class CardDelegate(_Base):
             y += line
         chips = model.chips(row, "tags")
         if chips:
-            small = QFont(base)
-            small.setPixelSize(max(9, int(fm.height() * 0.82)))
-            painter.setFont(small)
+            painter.setFont(scaled_font(base, "small"))
             draw_chips(painter, QRect(x0, int(card.bottom()) - 24, wide, 20), chips, self)
         painter.restore()

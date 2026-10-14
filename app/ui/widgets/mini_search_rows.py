@@ -20,9 +20,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtGui import QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate
+
+from app.ui.widgets.paint_kit import paint_badge, paint_row_state, scaled_font, tok
 
 __all__ = ["MiniRowDelegate", "ROLE_LINES", "BADGE_ICONS"]
 
@@ -43,7 +45,6 @@ _FAMILY_TOKEN = {"doc": "kind_doc", "mail": "kind_mail", "code": "kind_code",
 _PAD_X = 8
 _PAD_Y = 6
 _GAP = 10
-_RADIUS = 8.0
 
 
 class MiniRowDelegate(QStyledItemDelegate):
@@ -73,12 +74,13 @@ class MiniRowDelegate(QStyledItemDelegate):
     # -- sizes -------------------------------------------------------------------
 
     def _fonts(self, base: QFont) -> tuple[QFont, QFont]:
-        """The title font (a little larger, semibold) and the small font for the rest."""
-        title = QFont(base)
-        title.setPointSizeF(max(8.0, base.pointSizeF() * 13.0 / 12.0))
-        title.setWeight(QFont.Weight.DemiBold)
-        small = QFont(base)
-        small.setPointSizeF(max(7.0, base.pointSizeF()))
+        """The title font (the scale's `large` step, semibold) and the body font for the rest.
+
+        The title was `base` times 13/12, a step of its own; it is the nearest step of
+        `theme.SCALE` now, `large` (15/13), so it is the size the search box's own text is
+        (review 2026-10-14, DS-8)."""
+        title = scaled_font(base, "large", minimum=8.0, weight="semibold")
+        small = scaled_font(base, "body", minimum=7.0)
         return title, small
 
     def sizeHint(self, option: Any, index: Any) -> QSize:          # noqa: N802 - Qt's name
@@ -107,37 +109,20 @@ class MiniRowDelegate(QStyledItemDelegate):
         colours = self._colours
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        tile = QRectF(option.rect.adjusted(2, 1, -2, -1))
+        # The keyboard lives in the box above, not in this list, so the chosen row
+        # carries the ring whether or not the list has focus - drawn by the one
+        # helper every painted list uses (review 2026-10-14, DS-2).
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
-        path = QPainterPath()
-        path.addRoundedRect(tile, _RADIUS, _RADIUS)
-        if selected:
-            painter.fillPath(path, QBrush(QColor(colours.get("accent_soft", "#e9e4fb"))))
-            ring = QPen(QColor(colours.get("focus_ring", "#4a37b0")))
-            ring.setWidthF(1.6)
-            painter.setPen(ring)
-            painter.drawRoundedRect(tile.adjusted(0.8, 0.8, -0.8, -0.8), _RADIUS, _RADIUS)
-        elif hovered:
-            painter.fillPath(path, QBrush(QColor(colours.get("surface_hover", "#e8eaed"))))
+        paint_row_state(painter, option.rect, option, colours, ring=selected)
 
         recent = isinstance(lines, dict)
         bucket = lines.get("kind", "recent") if recent else lines.bucket
         side = self._badge_side(option)
         rect = option.rect
         badge = QRect(rect.left() + _PAD_X, rect.top() + (rect.height() - side) // 2, side, side)
-        badge_path = QPainterPath()
-        badge_path.addRoundedRect(QRectF(badge), 7.0, 7.0)
-        if recent:
-            painter.fillPath(badge_path, QBrush(QColor(colours.get("surface_alt", "#f0f1f3"))))
-        else:
-            token = _FAMILY_TOKEN.get(lines.family, "kind_other")
-            painter.fillPath(badge_path, QBrush(QColor(colours.get(token, "#6c6685"))))
-        glyph = self._icons.get(bucket)
-        if glyph is not None and not glyph.isNull():
-            inner = max(14, side * 9 // 16)
-            glyph.paint(painter, badge.left() + (side - inner) // 2,
-                        badge.top() + (side - inner) // 2, inner, inner)
+        fill = tok(colours, "surface_alt" if recent else _FAMILY_TOKEN.get(lines.family, "kind_other"))
+        paint_badge(painter, badge, fill, glyph=self._icons.get(bucket),
+                    glyph_side=max(14, side * 9 // 16))
 
         title_font, small_font = self._fonts(option.font)
         text_left = badge.right() + _GAP
@@ -154,9 +139,9 @@ class MiniRowDelegate(QStyledItemDelegate):
         subtitle = lines.get("note", "") if recent else lines.subtitle
         title_metrics = QFontMetrics(title_font)
         small_metrics = QFontMetrics(small_font)
-        ink = QColor(colours.get("text", "#1b1d20"))
-        dim = QColor(colours.get("text_dim", "#585e66"))
-        faint = QColor(colours.get("text_faint", "#6b7178"))
+        ink = tok(colours, "text")
+        dim = tok(colours, "text_dim")
+        faint = tok(colours, "text_faint")
 
         if recent and not subtitle:
             block = title_metrics.height()
