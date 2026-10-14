@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.22 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 1.23 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -288,6 +288,9 @@ Everything here is in **Settings > Accounts**. The account list shows each accou
 the **Sync log** under it records every sync, what it did and, for one that went wrong, the fix.
 Each message below is the one Leasha shows, with its code (`ERR_...`) in the log and in
 `logs\errors\`. A failing account never stops the others, and nothing already in Leasha is lost.
+What a sync is doing now is in the Sync window, opened by the sync chip on the Contacts toolbar or the
+Mail page, the account line in the tray menu, or **Open sync status** on Settings > Accounts; its rows
+and each account's panel offer the same buttons.
 
 **Where the sync log and Undo are.** Settings > Accounts, at the bottom, under **Sync log**. Pick a
 row: **Undo this sync** puts the contact book back as it was before that sync and writes the
@@ -333,13 +336,23 @@ connection and the server details, then press **Test connection** in the account
 ### "(account) refused the request" - `ERR_ACCOUNT_REJECTED`
 
 The server answered and said no. Press **Test connection**; it reports each permission granted. If
-it keeps happening, send the newest file in `logs\errors\`.
+it keeps happening, send the newest file in `logs\errors\`. A server error at the provider's end is
+not this message but the next one.
+
+### "(account) is having trouble at its end" - `ERR_ACCOUNT_TROUBLE`
+
+The provider's own server failed (HTTP 500, 502 or 504) - an outage or a bad moment at Google,
+Microsoft or the mail server, not something you did and not a refusal of your contacts. Leasha tries a
+read again a few times first; still failing, the whole account waits for the next sync. Nothing to do.
+If it lasts for hours, press **Test connection**. A 500 answered to one contact's write is that
+contact's refusal instead, listed in the Sync window with the others.
 
 ### "(account) asked Leasha to slow down" - `ERR_PROVIDER_LIMIT`
 
 Nothing to do. The provider limits how fast one person may ask; Leasha waits as long as the provider
-says and tries again by itself. Other accounts carry on meanwhile. If a first fetch of a big
-mailbox is the cause, Settings > Accounts > **First fetch of mail** has a speed cap.
+says and tries again by itself - the account's row gives the time of the next try, "as the provider
+asked". Other accounts carry on meanwhile. If a first fetch of a big mailbox is the cause, Settings >
+Accounts > **First fetch of mail** has a speed cap.
 
 ### "Windows Credential Manager could not be used" - `ERR_ACCOUNT_SECRET_STORE`
 
@@ -356,17 +369,35 @@ book, changed under Settings > Accounts > **Safety**; either limit stops it) del
 account, and writes every other change. Leasha says: "Check the list in the sync log. If it is right,
 press Allow in the sync log and sync again; if not, press Undo." The account's row in the Sync window
 says **Waiting for you**; the Sync log row marked **Held** names the contacts it was about to delete.
-**Allow** (on either) lets the deletes go ahead; **Undo this sync** is for a sync that already ran. A
-brake that keeps firing usually means an account was emptied or a folder was unsubscribed at the
-provider: look before you press Allow.
+**Allow** (on either, or on the account's row under Settings > Accounts) asks first, naming those
+contacts, with **Allow and delete N** and Cancel the default. **Undo this sync** on the held row is the
+other answer: the contacts the brake held come back out of the Bin, so nothing is deleted at the
+account and the next sync does not hold them again. A brake that keeps firing usually means an
+account was emptied or a folder was unsubscribed at the provider: look before you press Allow.
 
 ### "(account) returned (N) of its contacts changed in the same way" - `ERR_SYNC_CHANGES_HELD`
 
 One account sent back most of its contacts changed in one and the same way (more than the share set
 under **Safety**, half by default) - almost always the server rewriting its cards, not a person. Nothing
 was written to any account, so the change has not spread. Open a few of those contacts: if the change
-is right, press **Allow** on the account's row in the Sync window and it goes through; if not, undo
-that sync in the Sync log. `accounts config --churn-guard 0` turns the guard off.
+is right, press **Allow** on the account's row in the Sync window (it asks first: **Allow and sync**)
+and it goes through; if not, undo that sync in the Sync log, which puts the changes back and lifts the
+hold this account caused. `accounts config --churn-guard 0` turns the guard off.
+
+### "Up to date - (N) contacts could not be written"
+
+The account's row says **Done, with problems**: the last sync wrote everything except the contacts the
+account refused, one by one. They are listed in the Sync window with the account's reason; double-click
+one, or **Open contact**, to see it. **Retry these** syncs the account again now and sends each one
+again; each also stays listed, and is tried at every sync, until it goes through. The contact's **Kept
+in** row marks that account **refused**.
+
+### "Up to date here - the accounts are not mirrored until (N) duplicate groups are merged"
+
+**Keep every contact in every account** is on, and the book still holds the same person twice, so
+nothing is copied to the other accounts yet (one person must never be written to an account twice).
+The row says **Waiting for duplicates**; press **Find duplicates**, then **Merge all safe matches**, and
+the next sync writes every account.
 
 ### "My contact counts are different in Google, Outlook and Leasha"
 
@@ -395,7 +426,10 @@ the last sync. Open **Contacts > Changed in two places**. Each such contact show
 of its editor. Under the default rule (**The newest edit wins**) the newest value was kept and the
 other is in the contact's **History**, where **Undo** puts it back. Press **Acknowledge** when you
 have looked, and the marker goes. The rule is under Settings > Accounts > **When the same contact
-changed in two places**.
+changed in two places**. With **Ask me every time** the contact waits for you instead: the account's row
+says **Waiting for you** with a **Changed in two places** button, which opens the window that lists
+every clash. A value you choose there is the one both sides agree on from then, so the next sync does
+not ask about it again.
 
 ### A sync failed - `ERR_SYNC_FAILED`
 

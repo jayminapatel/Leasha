@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 4.5 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.6 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
 
 <p align="center">
   <img src="assets/leasha-lockup.png" width="420" alt="Leasha">
@@ -96,7 +96,8 @@ Both are single self-contained files: open them in any browser, offline.
 
 Help › About Leasha says which version this is, who makes it, and what it is built on.
 
-Plus a search box that appears over any program (`Ctrl+Shift+Space`), folder watching that indexes a
+Plus a command palette (`Ctrl+K`) that reaches every page, setting and menu action by a few letters,
+a search box that appears over any program (`Ctrl+Shift+Space`), folder watching that indexes a
 file seconds after it is saved (off by default), and `leasha://` links.
 
 <p align="center">
@@ -122,7 +123,7 @@ model missing, search works exactly as it always does.
 - **Accounts.** If you add a Google, Microsoft, Apple, IMAP or CardDAV account, Leasha signs in
   and fetches that account's mail (read only) and contacts to this computer, and writes contact
   changes back to the same account. It talks only to that provider's own hosts, and only when you
-  press Sync now or choose a schedule (the default is manual). Everything fetched is stored and
+  press Sync now or its schedule comes round (every hour by default; Manual is one setting away). Everything fetched is stored and
   searched here; mail is never changed on the server.
 - **Enrichment.** The contact tools can propose extra details. Looking in your own mail needs no
   connection; the three internet look-ups (Gravatar, a company's icon, Wikidata) are separate

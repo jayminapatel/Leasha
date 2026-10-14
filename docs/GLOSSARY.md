@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.17 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.18 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -195,11 +195,17 @@ Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, l
 | Age window | How far back enrichment reads mail for suggestions: **Look at mail from the last** 3, 6, 12 or 24 months, or Any age; 6 months by default. A hard cut: older mail is not read, not offered and not counted, and an undated message is inside only Any age. A vCard counts from its file's modified date, an invitation or a LinkedIn connection from its own date | `AccountSettings.enrich_max_months`; `run.window_of`, `base.window_start`; Settings > Accounts > Enrichment. Order 1s D1 |
 | App password | A password made at the provider for one program (iCloud, Gmail over IMAP, Yahoo, Fastmail ...), so the real password is never given to Leasha | Used by Apple, IMAP and CardDAV accounts; kept in Credential Manager |
 | Bin | Where a deleted contact waits for 30 days. Deleting a contact in Leasha also removes it from every account it is kept in; restoring it from the Bin writes it back | Contacts sidebar, **Bin** |
-| Changed in two places | A contact whose same field was edited in Leasha and at an account (or at two accounts) since the last sync. Under the default rule the newest edit wins, the other value stays in History, and the contact carries a marker until the person presses Acknowledge | `ERR_SYNC_CONFLICT_HELD`; Contacts sidebar, **Changed in two places**; Settings > Accounts, **When the same contact changed in two places** |
+| Changed in two places | A contact whose same field was edited in Leasha and at an account (or at two accounts) since the last sync. Under the default rule the newest edit wins, the other value stays in History, and the contact carries a marker until the person presses Acknowledge. Under "Ask me every time" the clash waits, the run records it and the account's row says **Waiting for you**; a choice made in the Changed in two places window is not asked again | `ERR_SYNC_CONFLICT_HELD`; Contacts sidebar, **Changed in two places**; Settings > Accounts, **When the same contact changed in two places** |
 | Client ID | The code that identifies the sign-in registration a person makes in their own name at Google or Microsoft. Leasha ships with none | Settings > Accounts, **Sign-in set-up**; the user guide walks through making one |
 | Contact | One person (or company) in Leasha's contact book: typed, repeatable fields (email, phone, address, website, dates, related people, handles), a photo, notes, groups, tags and the accounts it is kept in | `contacts`, `contact_fields`; `app/contacts/card.py` |
-| Delete brake | The hold on a sync's deletes when they are more than the safety limit (20 contacts or 5% of the book by default). Those deletes wait until the person presses Allow; every other change is written | `ERR_SYNC_DELETE_BRAKE`; Settings > Accounts > **Safety** |
-| Churn guard | The hold on a whole sync when one account returns more than a set share of its contacts (half, by default) changed in the same way: nothing is written to any account until the person presses Allow | `ERR_SYNC_CHANGES_HELD`; `churn_guard_percent`; Settings > Accounts > **Safety** |
+| Delete brake | The hold on a sync's deletes when they are more than the safety limit (20 contacts or 5% of the book by default). Those deletes wait until the person presses Allow, which first names them and asks ("Allow and delete N", Cancel the default); every other change is written. Undo on the held run brings the held contacts back out of the Bin instead | `ERR_SYNC_DELETE_BRAKE`; Settings > Accounts > **Safety**; `presenter/account_actions.allow_question`, `engine.release_held` |
+| Churn guard | The hold on a whole sync when one account returns more than a set share of its contacts (half, by default) changed in the same way: nothing is written to any account until the person presses Allow ("Allow and sync"). Undo on the held run lifts the hold when that account caused it | `ERR_SYNC_CHANGES_HELD`; `churn_guard_percent`; Settings > Accounts > **Safety** |
+| Held (run) | A sync the delete brake or the churn guard stopped short. Its row says **Waiting for you**; Allow carries it out, Undo puts back what it wrote | Sync log result **Held**; `accounts/logic.can_undo` |
+| Provider trouble | The provider's own server failing (HTTP 500, 502 or 504), for the whole account - not a refusal of one contact. A read is tried again first; the row says the account "is having trouble at its end" and the next sync tries again | `ERR_ACCOUNT_TROUBLE`; `provider.SERVER_TROUBLE` |
+| Done, with problems | An activity row's state after a run that wrote all but some contacts the account refused: "Up to date - N contacts could not be written", with **Retry these** | `presenter/account_activity.py`, state `partial` |
+| Waiting for duplicates | An activity row's state while the mirror waits for safe duplicate groups to be merged, with **Find duplicates** | state `mirror`; the plan's `mirror_waiting` |
+| Sync chip | The few words on the Contacts toolbar and the Mail page (and a line in the tray menu) saying what account sync is doing - "Syncing 2 accounts - writing 120 of 1,436", "Held - look", "Mail: fetching 40%"; a click opens the Sync window | `widgets/sync_chip.py`, `presenter/sync_chip.py` |
+| Link mark | The mark and words beside each Kept in account of a contact: synced, waiting to be written, deleted there, refused | `presenter/link_marks.py`; `ContactHub.kept_in_states` |
 | In step | An account holds exactly the contacts Leasha has linked there, at the versions last read, with nothing waiting to be written - what the check after every sync looks for | `ContactSyncEngine.check`; `check_after_sync` |
 | Kept (contacts) | The live contacts kept in an account: the number beside it in the Contacts list and under **Kept here**. One definition for every screen | `ContactHub.account_counts()["kept"]` |
 | Waiting (to be written) | Contacts kept in an account but not written there yet, and contacts in the Bin not yet removed from it | `waiting_create`, `waiting_delete` |
@@ -222,11 +228,33 @@ Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, l
 
 ---
 
+## 12. Getting around the window
+
+The code is the authority: `app/ui/controllers/navigation_controller.py` and the modules named.
+How each looks and the tests that hold it are in `docs/UI_STYLE_GUIDE.md`.
+
+| Term | Means | Notes |
+|---|---|---|
+| Command palette | The box Ctrl+K opens over the window: every rail page, every Settings category, the menu bar's actions and Sync now, found by a few letters. `>` first shows actions only; plain text always ends with "Search for '…'" | `widgets/command_palette.py`, `presenter/actions.py`; Go > Command palette… |
+| Page history | Back and forward between the pages visited (Alt+Left / Alt+Right, the mouse's side buttons), with the Photos naming page and the Settings category put back; 50 places | `presenter/page_history.py` |
+| Hidden page | A rail page taken off the rail with "Hide from the rail"; the Go menu and the palette still open it, Ctrl+1..9 skip it, "Show hidden pages" brings every one back | `rail.page_order()`, `ui:rail_hidden` |
+| Quick look | Space on a result: the row opens in a window of its own, and Space again closes it. The docked preview pane stays on Ctrl+Shift+P. On Photos Space opens the viewer and I the info panel | `widgets/quick_look.py`, `list_keys.py` |
+| Forwarded arrows | Down, Up, Page Down and Page Up typed in a page's box move its list; Enter then opens the chosen row | `widgets/arrow_keys.forward_arrows`; Files, Mail, Code, Photos |
+| Scope | What a search box narrows to: Everything, Mail only, Documents only, Photos only, Code only on Search; All, Files, Mail, Photos, Code chips in the quick search. One table for both | `presenter/scopes.py` `SCOPES`; Photos is documents with `type:image` |
+| Busy line | The thin moving line over results already on screen while a newer search is out | `widgets/search_flight.py`, `presenter/search_feedback.BUSY_DELAY_MS` |
+| Photo strip | The row of thumbnails above mixed search results, for the pictures among them | `widgets/photo_strip.py`, drawn through `widgets/search_photos.py` |
+| Aspect view | The Photos view that lays photos in rows at their own shape instead of square crops; never the default | `presenter/photo_rows.py`, `widgets/photo_aspect.py` |
+| Paint kit | The one set of helpers every self-painted list draws its hover, selection, focus ring, badge and fonts with | `widgets/paint_kit.py` |
+| Card | A raised block of related facts: surface, hairline edge, box radius. The answer card, the mail header, the contact card and This machine are all one | `widgets/card.py`, `card="true"` |
+| Focus ring | The 2px edge a control or a painted row shows while it has the keyboard; quieted on a button or tab that was clicked | `theme.FOCUS_WIDTH`, `widgets/focus_visible.py` (`pointerFocus`) |
+
+---
+
 ## Added 1 October 2026
 
 | Term | Means | Notes |
 |---|---|---|
-| Rail | The column of page buttons down the left of the window: Search, Mail, Photos, Files, Contacts, Code, Browse (the timeline), Chat, Tidy, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
+| Rail | The column of page buttons down the left of the window: Search, Mail, Photos, Files, Contacts, Code, Browse (the timeline), Chat, Tidy, then the Indexing pill and Settings. The pages can be reordered and, except Search, hidden from it (still in Go and the palette) | `app/ui/widgets/rail.py`, `rail_order.py`; `ui:rail_hidden` |
 | Tidy | The rail page (Reports until order 1q) for what is indexed and for clearing exact copies, similar photos, large files and leftovers on this computer. It moves a file only to the Recycle Bin, only after the plan is reviewed, never the last copy, and can put a batch back | `app/tidy/`, `app/ui/tidy_view.py` |
 | Keep rule | Which file of a Tidy set stays: Leasha picks, Keep the oldest, Keep the newest, or I'll choose (nothing marked until you tick) | `app/tidy/keep.py` |
 | Indexing pill | The rail's status button: "Up to date", "Indexing", "Paused", with a coloured dot | Opens the Indexing page |
@@ -262,7 +290,7 @@ Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, l
 
 | Term | Means | Notes |
 |---|---|---|
-| Photos tab | The rail tab for pictures: narrowing lists on the left, the photos as Details or Small/Medium/Large thumbnails, an info panel, a full-size viewer, and People to name | `app/ui/photos_view.py`; the Photo Tagger page now opens inside it |
+| Photos tab | The rail tab for pictures: narrowing lists on the left, the photos as Details, Small/Medium/Large thumbnails or Aspect (rows of photos at their own shape), an info panel, a full-size viewer, and People to name | `app/ui/photos_view.py`; the Photo Tagger page now opens inside it |
 | `only:` | The shared switch for what a picture has: named, unnamed, no-faces, described, undescribed, text, screenshots | `ParsedQuery.only`, `storage.filters.ONLY_SQL`; the one operator not told to the translation model |
 | Accept all | Yes to every waiting "Is this ...?" suggestion, for everyone or one person, after the numbers are shown | `SqliteStore.accept_all_suggestions` |
 | Write names into photos | Option b: the people and the description written into a photo's own XMP, on demand only - the owner's exception to non-negotiable 10 | `app/index/photo_metadata.py`; CLI `photos --write-names` |
