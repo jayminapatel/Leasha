@@ -32,7 +32,7 @@ from app.ui.contacts.review import ReviewBox
 from app.ui.theme import theme_colours
 from app.ui.widgets.buttons import action_button, button_row
 from app.ui.widgets.flow_layout import FlowLayout
-from app.ui.widgets.icons import icon
+from app.ui.widgets.icons import icon, icon_size
 from app.ui.widgets.scroll import scrollable
 
 __all__ = ["ContactEditor", "SaveRequest", "PHOTO_SIDE"]
@@ -322,8 +322,12 @@ class ContactEditor(QWidget):
         """Every account's name (also those that no longer sync contacts), for the review bars."""
         self._names = dict(names)
 
+    #: {account id: `LinkMark`} of the contact shown (CS-9); empty for a new or no contact.
+    _marks: dict = {}
+
     def clear(self) -> None:
         self.cid = None
+        self._marks = {}
         self.review.clear()
         self.banner_detail.hide()
         self._load(Card(), [], [], {}, {}, "")
@@ -336,6 +340,7 @@ class ContactEditor(QWidget):
         """Ctrl+N: an empty card, kept in the default account (D5)."""
         self.setEnabled(True)
         self.cid = None
+        self._marks = {}
         kept = [default_account] if default_account in self._accounts else []
         self._load(Card(), kept, [], {}, {}, "")
         self.index_panel.clear()
@@ -351,9 +356,13 @@ class ContactEditor(QWidget):
         self.setEnabled(True)
         self.cid = d.id
         flagged = bool((d.meta or {}).get("conflict_at")) or bool(d.conflicts)
+        names = {**{i: (a.name or a.address) for i, a in self._accounts.items()}, **self._names}
+        # Review 2026-10-14 CS-9: each chip's link state, as a mark beside it.
+        from app.ui.presenter.link_marks import link_marks  # noqa: PLC0415
+        self._marks = {m.account_id: m for m in link_marks(getattr(d, "link_states", {}) or {}, names,
+                                                            getattr(d, "refused", {}) or {})}
         self._load(d.card, d.kept_in, d.tags, d.sources, d.meta, display_name(d.card))
         self.banner.setVisible(flagged)
-        names = {**{i: (a.name or a.address) for i, a in self._accounts.items()}, **self._names}
         self.review.show_for(d.id, list(d.links), list(d.conflicts), names)
         # Under "Ask me every time" the choice is the review box's; the newest-edit banner keeps its
         # words and its Acknowledge, and says which value won and where the other one is kept.
@@ -521,9 +530,14 @@ class ContactEditor(QWidget):
             if item is not None and item.widget() is not None:
                 item.widget().deleteLater()
         self.kept_buttons = {}
+        self.kept_marks: dict[int, QLabel] = {}
         from app.ui.contacts.logic import account_glyph
 
         for aid, a in self._accounts.items():
+            mark = QLabel()                    # CS-9: synced / waiting / deleted there / refused, beside the chip
+            mark.setObjectName("keptMark")
+            mark.setVisible(False)
+            self.kept_marks[aid] = mark
             b = QToolButton()
             b.setText(a.name or a.address)
             b.setCheckable(True)
@@ -535,6 +549,7 @@ class ContactEditor(QWidget):
             b.clicked.connect(lambda checked, i=aid: self._kept_clicked(i, checked))
             self.kept_buttons[aid] = b
             self.kept_row.addWidget(b)
+            self.kept_row.addWidget(mark)
         self._paint_kept()
 
     def _paint_kept(self) -> None:
@@ -550,6 +565,15 @@ class ContactEditor(QWidget):
             fill = c.get("accent_soft", "#eeeeee") if on else "transparent"
             b.setStyleSheet(f"QToolButton {{ border: 2px solid {border}; border-radius: 11px; "
                             f"padding: 2px 8px; background: {fill}; }}")
+            mark, state = getattr(self, "kept_marks", {}).get(aid), self._marks.get(aid)
+            if mark is not None:
+                shown = on and state is not None and aid in self._orig_kept
+                mark.setVisible(shown)
+                if shown:
+                    side = icon_size("inline").width()
+                    mark.setPixmap(icon(state.glyph, c.get(state.tone, c.get("text_dim", "#888888"))).pixmap(side, side))
+                    mark.setToolTip(state.tip)
+                    mark.setAccessibleName(f"{state.name}: {state.words}")
 
     def confirm_removal(self, account_name: str) -> bool:
         """D4: taking a contact out of an account deletes it from that account. Asks first."""

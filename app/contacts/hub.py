@@ -217,6 +217,15 @@ class ContactHub:
             "SELECT account_id FROM contact_links WHERE contact_id = ? "
             "AND state IN ('synced','pending_create','deleted_remote') ORDER BY account_id", (cid,))]
 
+    def kept_in_states(self, cid: int) -> dict[int, str]:
+        """The accounts of `kept_in`, each with its own link state: "synced", "pending_create" (waiting to be
+        written) or "deleted_remote" (deleted there, kept here). `kept_in` merges the three into one list, which is
+        what "where is it kept" means; this keeps them apart, for the mark on each account chip (review 2026-10-14
+        CS-9)."""
+        return {int(r[0]): str(r[1]) for r in self.conn.execute(
+            "SELECT account_id, state FROM contact_links WHERE contact_id = ? "
+            "AND state IN ('synced','pending_create','deleted_remote') ORDER BY account_id", (cid,))}
+
     def links(self, cid: int) -> list[LinkRow]:
         return [self._link(r) for r in self.conn.execute(
             "SELECT * FROM contact_links WHERE contact_id = ? ORDER BY account_id", (cid,))]

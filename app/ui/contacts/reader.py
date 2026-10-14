@@ -159,7 +159,7 @@ class ContactReader(QWidget):
     def clear(self) -> None:
         self.cid = None
         self._card = Card()
-        self._kept, self._tags = [], []
+        self._kept, self._tags, self._marks = [], [], []
         self.heading.setText("")
         self.work.setText("")
         self.work.hide()
@@ -168,11 +168,14 @@ class ContactReader(QWidget):
         self._rebuild()
 
     def show_contact(self, cid: int, card: Card, *, kept_in: Iterable[str] = (), tags: Iterable[str] = (),
-                     editable: bool = True) -> None:
-        """Show one contact. `kept_in` are the account names; `editable` is False in the bin."""
+                     editable: bool = True, kept_marks: Iterable[Any] = ()) -> None:
+        """Show one contact. `kept_in` are the account names; `editable` is False in the bin. `kept_marks`
+        (`presenter.link_marks.LinkMark`, review 2026-10-14 CS-9) gives each account's link state - synced,
+        waiting to be written, deleted there, refused - as a mark and a tooltip; without them, the names alone."""
         self.cid = int(cid)
         self._card = card
         self._kept = list(kept_in)
+        self._marks = list(kept_marks)
         self._tags = list(tags)
         self.heading.setText(display_name(card))
         line = work_line(card)
@@ -183,9 +186,13 @@ class ContactReader(QWidget):
         self._rebuild()
 
     def set_kept(self, names: Iterable[str]) -> None:
-        """After the editor changed where the contact is kept."""
+        """After the editor changed where the contact is kept. The marks are of the old set: dropped until the
+        contact is read again."""
         self._kept = list(names)
+        self._marks = []
         self._rebuild()
+
+    _marks: list = []
 
     def retint(self, colours: dict[str, str]) -> None:
         self.star.setPixmap(icon("star", colours.get("warning", "#b06000")).pixmap(16, 16))
@@ -216,7 +223,11 @@ class ContactReader(QWidget):
         notes = self._card.get("notes")
         if notes:
             self._details.addWidget(self._section("sticky-note", "Notes", [("", notes, "")], ink))
-        if self._kept:
+        if self._marks:
+            self._details.addWidget(self._section(
+                "cloud", "Kept in", [(m.glyph, m.name, m.words) for m in self._marks], ink,
+                inks=[c.get(m.tone, ink) for m in self._marks], tips=[m.tip for m in self._marks]))
+        elif self._kept:
             self._details.addWidget(self._section("cloud", "Kept in", [("", ", ".join(self._kept), "")], ink))
         if self._card.groups:
             self._details.addWidget(self._section("users", "Groups", [("", ", ".join(self._card.groups), "")], ink))
@@ -224,8 +235,10 @@ class ContactReader(QWidget):
             self._details.addWidget(self._section("tag", "Tags", [("", ", ".join(self._tags), "")], ink))
 
     @staticmethod
-    def _section(glyph: str, words: str, lines: list[tuple[str, str, str]], ink: str) -> QWidget:
-        """A titled block: the kind's icon and name, then one line per value with its label beside it."""
+    def _section(glyph: str, words: str, lines: list[tuple[str, str, str]], ink: str, *,
+                 inks: Optional[list[str]] = None, tips: Optional[list[str]] = None) -> QWidget:
+        """A titled block: the kind's icon and name, then one line per value with its label beside it. `inks`
+        colours each line's mark and `tips` is its tooltip (the "Kept in" marks, CS-9)."""
         box = QWidget()
         box.setObjectName("contactReadSection")
         box.setAccessibleName(words)
@@ -248,13 +261,23 @@ class ContactReader(QWidget):
         grid.setVerticalSpacing(3)
         grid.setColumnStretch(1, 1)
         for row, (line_glyph, value, label) in enumerate(lines):
+            tip = tips[row] if tips and row < len(tips) else ""
             if line_glyph:
                 mark = QLabel()
-                mark.setPixmap(icon(line_glyph, ink).pixmap(14, 14))
+                mark.setPixmap(icon(line_glyph, inks[row] if inks and row < len(inks) else ink).pixmap(14, 14))
+                if tip:
+                    mark.setToolTip(tip)
+                    mark.setAccessibleName(tip)
                 grid.addWidget(mark, row, 0, Qt.AlignmentFlag.AlignTop)
-            grid.addWidget(_selectable(value), row, 1)
+            shown = _selectable(value)
+            if tip:
+                shown.setToolTip(tip)
+            grid.addWidget(shown, row, 1)
             if label:
-                grid.addWidget(_selectable(label, dim=True), row, 2, Qt.AlignmentFlag.AlignTop)
+                said = _selectable(label, dim=True)
+                if tip:
+                    said.setToolTip(tip)
+                grid.addWidget(said, row, 2, Qt.AlignmentFlag.AlignTop)
         col.addLayout(grid)
         return box
 

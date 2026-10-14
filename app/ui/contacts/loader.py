@@ -83,14 +83,27 @@ class Detail:
     conflicts: list
     row: Optional[ContactRow] = None
     links: list = field(default_factory=list)       # D7.1: which account deleted it
+    link_states: dict = field(default_factory=dict)  # CS-9: {account id: synced | pending_create | deleted_remote}
+    refused: dict = field(default_factory=dict)      # CS-9: {account id: why that account refused it}
 
 
-def load_detail(hub: Any, cid: int) -> Optional[Detail]:
+def load_detail(hub: Any, cid: int, accounts: Any = None) -> Optional[Detail]:
     card = hub.get_card(cid)
     if card is None:
         return None
+    states = hub.kept_in_states(cid) if hasattr(hub, "kept_in_states") else {}
+    refused: dict[int, str] = {}
+    read = getattr(accounts, "failures", None)
+    for aid in states if callable(read) else ():
+        try:
+            why = next((str(f.get("reason") or "") for f in read(aid) if int(f.get("contact_id") or 0) == cid), None)
+        except Exception:                                     # noqa: BLE001 - a mark, never a reason not to open
+            why = None
+        if why is not None:
+            refused[aid] = why or "no reason given"
     return Detail(cid, card, hub.kept_in(cid), hub.tags_of(cid), hub.sources(cid),
-                  hub.contact_meta(cid) or {}, hub.open_conflicts(cid), hub.get_row(cid), hub.links(cid))
+                  hub.contact_meta(cid) or {}, hub.open_conflicts(cid), hub.get_row(cid), hub.links(cid),
+                  states, refused)
 
 
 def load_history(hub: Any, cid: int) -> list:
