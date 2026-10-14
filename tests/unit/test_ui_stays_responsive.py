@@ -169,6 +169,28 @@ def test_a_watcher_that_was_itself_held_up_says_so():
     assert "this watcher itself could not run for" in report
 
 
+def test_a_stall_inside_an_import_names_the_line_that_imported(tmp_path, monkeypatch):
+    """2026-10-14 (10:45:08, 17:25:10, 23:46:49): three 2 s stalls were reported as six frames of
+    `<frozen importlib...>` and nothing else - which import, asked for where, was cut off. The
+    import machinery's frames are left out now, so the frames kept reach the line that imported."""
+    import importlib
+
+    from app.core.lag_monitor import stack_text
+
+    seen = {}
+    (tmp_path / "lag_probe_module.py").write_text(
+        "import sys\nsys.modules['lag_probe_seen']['frame'] = sys._getframe()\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setitem(sys.modules, "lag_probe_seen", seen)
+    monkeypatch.delitem(sys.modules, "lag_probe_module", raising=False)
+    importlib.import_module("lag_probe_module")
+
+    text = stack_text(seen["frame"], 6)
+    assert "<frozen importlib" not in text
+    assert "test_a_stall_inside_an_import_names_the_line_that_imported" in text, text
+    assert "lag_probe_module.py" in text
+
+
 def test_a_watcher_on_time_does_not_claim_it_was_held_up():
     monitor, clock = _monitor()
     for _ in range(30):                          # a stall the watcher saw growing
