@@ -27,19 +27,19 @@ from app.ui.presenter import (
     IDLE_DEBOUNCE_MS, TYPING_DEBOUNCE_MS, Tier, federated_summary, notice_register_for,
     result_view_state, search_options, search_shape, tier_for,
 )
+from app.ui.presenter.scopes import by_key, engine_request
 from app.ui.presenter.search import draws_answer
 from app.ui.widgets.history_pass import run_history_pass
 from app.ui.widgets.interpret import interpret_into
 from app.ui.widgets.result_table import offer_filters, redraw_with_details
 from app.ui.widgets.skeleton import arm as arm_skeleton, gone as results_gone
-from app.ui.widgets.result_tools import build_results_pane
+from app.ui.widgets.result_tools import build_results_pane, current_list
 from app.ui.widgets.search_bar import (
     build_controls, build_input, build_toolbar, scope_value, select_scope,
 )
 from app.ui.workers import (
     SearchWorker,
     decorate_results_async,
-    run,
     stop_timers,
 )
 
@@ -130,11 +130,9 @@ class SearchView(QWidget):
         self._full_timer.setInterval(IDLE_DEBOUNCE_MS)
         self._full_timer.timeout.connect(lambda: self._maybe_dispatch(submitted=False, waited_ms=IDLE_DEBOUNCE_MS))
 
+    # Show the Interpret button only when it can do something. Hidden rather
+    # than greyed - see `search_bar.build_interpret`.
     def set_interpret_enabled(self, enabled: bool) -> None:
-        """Show the Interpret button only when it can do something.
-
-        Hidden rather than greyed - see `search_bar.build_interpret`.
-        """
         self.interpret_button.setVisible(bool(enabled))
 
     def shutdown(self) -> None:
@@ -154,10 +152,12 @@ class SearchView(QWidget):
     # `ResultsView` (`forward_key`, `open_current`); this is only dispatch.
     def eventFilter(self, obj: Any, event: Any) -> bool:
         if obj is not self.input or event.type() != QEvent.Type.KeyPress: return False
+        # Review 2026-10-14, MS-2: to whichever view is in front - the list, or the photo grid.
+        target = current_list(self.split, self.results)
         if event.key() in (Qt.Key.Key_Down, Qt.Key.Key_Up):
-            self.results.forward_key(event); return True
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.results.current_row():
-            self.results.open_current(reveal=bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)); return True
+            target.forward_key(event); return True
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and target.current_row():
+            target.open_current(reveal=bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)); return True
         if event.key() == Qt.Key.Key_Escape and self.input.text():
             # order 0m Section1 item b: the M9 fix (`_on_text_changed`'s empty
             # branch, below) has always cleared results and status once the
@@ -196,23 +196,18 @@ class SearchView(QWidget):
     def _apply_preview(self, prefs: Any) -> None:
         self.preview.apply_preference(prefs, self.results.current_row())
 
+    # Re-run immediately rather than waiting for the next keystroke. Changing
+    # the scope is an explicit instruction about results already on screen;
+    # leaving them there until something else is typed makes the control look broken.
     def _on_scope_changed(self, _index: int) -> None:
-        """Re-run immediately rather than waiting for the next keystroke.
-
-        Changing the scope is an explicit instruction about results already on
-        screen. Leaving them there until something else is typed makes the
-        control look broken.
-        """
         if self.input.text().strip():
             self._dispatch(Tier.FULL)
 
+    # Run the full search immediately, as if Enter had been pressed - for
+    # anything that starts a search on the user's behalf (a filter chosen from a
+    # menu, a suggestion accepted). An explicit choice should not wait out a
+    # debounce meant for someone still typing.
     def search_now(self) -> None:
-        """Run the full search immediately, as if Enter had been pressed.
-
-        For anything that starts a search on the user's behalf - a filter chosen
-        from a menu, a suggestion accepted. An explicit choice should not wait
-        out a debounce meant for someone still typing.
-        """
         self._dispatch(Tier.FULL)
 
     def _on_text_changed(self, text: str) -> None:
@@ -263,14 +258,15 @@ class SearchView(QWidget):
             self._index_count = 0
             self.results.clear()
             self.status.setText("")
+            self.flight.idle()                 # MS-1/MS-8: nothing in flight matters now
             return
 
         self._generation += 1
-        options = search_options(tier, scope=self.current_scope(), rerank=self.rerank_toggle.isChecked(),
+        # IA-4: "Photos only" is documents with `type:image` - the one scope table's rule.
+        scope, asked = engine_request(by_key(self.current_scope()), query)
+        options = search_options(tier, scope=scope, rerank=self.rerank_toggle.isChecked(),
                                  surface="search", preferences=self._search_preferences, declined=self.chips.declined)
-        worker = SearchWorker(
-            self._engine, query, tier=tier, generation=self._generation, **options
-        )
+        worker = SearchWorker(self._engine, asked, tier=tier, generation=self._generation, **options)
         arm_skeleton(self.results)                 # §6d: bars if this takes >300ms
         # 2026-10-08, the owner: the rows at once, before the reranker has
         # ordered them, then redrawn in place - see `SearchWorker._rerank_follows`.
@@ -283,7 +279,9 @@ class SearchView(QWidget):
         # worth saying; it is not worth stopping the window for. `self.error`
         # stays for things the person actually asked for, like opening a file.
         worker.signals.failed.connect(self._search_failed)
-        run(self._pool, worker)
+        # MS-8: any search of this page's not yet started is taken back first;
+        # MS-1: the busy line from 120 ms on, until this one's finished answer.
+        self.flight.launch(worker)
 
         # The repository half. `run_history_pass` decides nothing: it asks
         # `presenter.git_pass` and starts a worker if the answer is yes.
@@ -335,6 +333,7 @@ class SearchView(QWidget):
         notices, terms, summary, status = result_view_state(
             response, self.input.text(),
             interpret_enabled=self.interpret_button.isVisible())
+        notices = [*notices, *self.flight.offers(response)]      # MS-5: the grid, offered
         self.notices.show_notices(notices)
         self._shown_anything = self._shown_anything or bool(response.results)
         self.status.counted(response, status)          # UI phase B: timing in its tooltip
@@ -352,10 +351,13 @@ class SearchView(QWidget):
             # **Keep what is on screen.** Mail feels better than this tab
             # because it never blanks, and a search that momentarily finds
             # nothing - mid-word, or while the interim tier is still running -
-            # should not empty a list somebody is reading.
-            if not self._shown_anything:
-                self.results.clear(summary)
+            # should not empty a list somebody is reading. Review 2026-10-14,
+            # MS-7: kept rows are dimmed and the status line says why; the full
+            # tier's own "nothing" empties the list (`search_flight`).
+            self._shown_anything = self.flight.nothing_found(
+                response, summary, early=early, shown=self._shown_anything)
             return
+        self.flight.found()
 
         # **The metadata is fetched on a worker.** `mail_details` is a SQLite
         # query and `missing_paths` is one filesystem stat per result; both were
