@@ -99,6 +99,7 @@ MENU_ICONS: dict[str, str] = {
     "Combine with another person…": "merge",
     "Manage the faces in this pile…": "users",
     "Forget this person…": "trash-2",
+    "Look through these faces…": "users",
     # The rail's page buttons (`rail_order.py`).
     "Move up": "chevron-up",
     "Move down": "chevron-down",

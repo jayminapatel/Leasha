@@ -264,3 +264,33 @@ def test_the_file_menu_is_built_by_the_builder_with_an_icon_on_every_line(qapp) 
     words = ["-" if a.isSeparator() else a.text() for a in menu.actions()]
     assert words.index("Show in folder") < words.index("Search inside this file") \
         < words.index("Copy path") < words.index("Pin")
+
+
+def test_every_written_menu_line_has_an_icon_before_anyone_right_clicks() -> None:
+    """2026-10-14: People's "Seen once" pile raised `ValueError` on every
+    right-click - "Look through these faces…" had no icon, and the builder
+    refuses such a line only when the menu is built, so no test that never
+    opened that menu saw it. Every `Item("...")` written in `app/ui` without
+    its own `icon=` must find one in the tables now, not at the right-click."""
+    import ast
+
+    from app.ui.widgets.icons import ICON_NAMES
+
+    missing = []
+    for path in UI.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if name != "Item" or not node.args:
+                continue
+            words = node.args[0]
+            if not (isinstance(words, ast.Constant) and isinstance(words.value, str)):
+                continue
+            if any(keyword.arg == "icon" for keyword in node.keywords):
+                continue
+            if glyph_for(words.value) not in ICON_NAMES:
+                missing.append(f"{path.relative_to(ROOT)}:{node.lineno} {words.value!r}")
+    assert not missing, "menu lines with no icon:\n" + "\n".join(missing)
