@@ -260,6 +260,16 @@ class ClipImageEmbedder:
             [p if hasattr(p, "convert") else str(p) for p in paths])
         return self._encoder
 
+    def size_threads(self, count: Optional[int]) -> bool:
+        """Ask for `count` intra-op threads when the model loads - the index
+        run's conductor's share for one picture caller (order 5c, 2026-10-14).
+        Only before the model loads and only when nobody chose a number on
+        construction; True when it will be used."""
+        if self._model is not None or self._threads_wanted is not None or not count:
+            return False
+        self._threads_wanted = max(1, int(count))
+        return True
+
     def _decide_threads(self) -> Optional[int]:
         """The intra-op thread count to ask for, or None for the library's own.
 

@@ -528,6 +528,11 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
         recheck_days=int(setting("archive_recheck_days", 30)),
         # Resolved for this machine and this mode, by the caller.
         embed_batch=tuned.embed_batch,
+        # 2026-10-14: §6g's growth ceiling, resolved at last. A count typed
+        # for this run (`--workers`) is the floor; the ceiling never below it.
+        worker_ceiling=(max(int(getattr(tuned, "worker_ceiling", 0) or 0),
+                            int(limits.workers or 0))
+                        if getattr(tuned, "worker_ceiling", 0) else 0),
         dedup_chunks=bool(setting("embed_dedup", True)),
         two_phase=bool(setting("index_two_phase", True)),
         spreadsheet_meaning=bool(setting("index_spreadsheet_meaning", False)),
