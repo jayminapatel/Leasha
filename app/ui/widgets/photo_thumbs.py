@@ -216,14 +216,18 @@ class ThumbLoader(QObject):
 
     ready = Signal(str)
 
-    def __init__(self, cache_dir: Optional[Path], parent: Optional[QObject] = None) -> None:
+    def __init__(self, cache_dir: Optional[Path], parent: Optional[QObject] = None, *,
+                 pool: Optional[QThreadPool] = None) -> None:
         super().__init__(parent)
         self._cache_dir = Path(cache_dir) if cache_dir else None
         self._pixmaps: "OrderedDict[str, QPixmap]" = OrderedDict()
         self._waiting: "OrderedDict[str, tuple[int, int]]" = OrderedDict()
         self._running: set[str] = set()
         self._failed: set[str] = set()
-        self._pool = QThreadPool.globalInstance()
+        #: The global pool unless told: the Search page's loader brings its own
+        #: (`search_photos.shared_loader`, review 2026-10-14 MS-6), so its decodes
+        #: never queue ahead of an Open or a preview.
+        self._pool = pool if pool is not None else QThreadPool.globalInstance()
         #: Blurred previews: encoded, by `cache_name`; and decoded, as shown.
         self._tiny: dict[str, bytes] = {}
         self._tiny_shown: "OrderedDict[str, QPixmap]" = OrderedDict()
