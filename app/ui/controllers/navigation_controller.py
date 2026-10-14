@@ -363,6 +363,14 @@ class NavigationController(QObject):
                 "Sync now", self.open_sync, icon="refresh-cw",
                 tip="Sync the accounts that keep contacts now",
                 words=("accounts", "contacts", "mail", "fetch")))
+        # The Sync window without starting a sync - Settings > Accounts' "Open sync status".
+        runtime = getattr(w, "account_runtime", None)
+        if callable(getattr(runtime, "open_sync", None)):
+            verbs.append(palette_words.action_entry(
+                "Open sync status", lambda: runtime.open_sync(), icon="gauge",
+                tip="Open the Sync window: what every account's contacts and mail are doing now, "
+                    "with Stop, Allow and Retry",
+                words=("accounts", "contacts", "mail", "sync", "progress")))
         return palette_words.build(pages, settings, verbs)
 
     def _show_setting(self, name: str) -> None:

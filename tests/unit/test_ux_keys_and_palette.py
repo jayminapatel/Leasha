@@ -156,6 +156,20 @@ def test_sync_now_opens_the_door_the_contacts_toolbar_uses(win, monkeypatch):
     assert asked == ["sync"]
 
 
+def test_open_sync_status_opens_the_sync_window_without_a_sync(win, monkeypatch):
+    """The palette reaches the Sync window the way Settings > Accounts' button does:
+    `AccountRuntime.open_sync`, which starts nothing."""
+    app, window = win
+    runtime = getattr(window, "account_runtime", None)
+    if runtime is None:
+        pytest.skip("no account runtime in this window")
+    opened = []
+    monkeypatch.setattr(runtime, "open_sync", lambda *a, **k: opened.append(True))
+    entry = next(e for e in window.nav.palette_entries() if e.text == "Open sync status")
+    entry.run()
+    assert opened == [True]
+
+
 # ---------------------------------------------------------------------------
 # IA-2 / MS-3 - Esc clears the page in front, and only that page
 # ---------------------------------------------------------------------------
