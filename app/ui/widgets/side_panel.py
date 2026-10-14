@@ -224,7 +224,7 @@ def _files_counts(store: Any) -> tuple:
     roots, folders = c.saved_roots(store), c.folder_counts(store)
     shown, always = _kinds_setting()
     return (roots, folders, c.drive_counts(store), c.kind_counts(store, limit=shown, always=always),
-            folder_tree(roots, folders))
+            folder_tree(roots, folders), always)
 
 
 def _kinds_setting() -> tuple[int, tuple[str, ...]]:
@@ -261,7 +261,8 @@ def wire_files(view: Any) -> SideList:
     side = SideList("filesSide", accessible="Folders, drives and kinds",
                     tip="Click to narrow the files; click again to take it away", shown=12)
     return _box_side(view, side, page="files", words="Places", tip=FILES_TIP, read=_files_counts,
-                     build=lambda counts, box: files_entries(*counts[:4], box=box, tree=counts[4]),
+                     build=lambda counts, box: files_entries(*counts[:4], box=box, tree=counts[4],
+                                                            always=counts[5]),
                      switches=("path", "on", "type"), target=view.split)
 
 

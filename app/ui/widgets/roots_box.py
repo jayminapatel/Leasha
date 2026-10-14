@@ -212,7 +212,7 @@ class RootsBox(QGroupBox):
         self.leftovers = QLabel()
         self.leftovers.setWordWrap(True)
         self.clear_leftovers = QPushButton("Remove them from the index")
-        style_button(self.clear_leftovers, "folder-minus", "secondary")
+        style_button(self.clear_leftovers)          # its icon and kind from `BUTTONS` (2026-10-14)
         self.clear_leftovers.setToolTip(
             "Take what was read from folders that are no longer on this list out "
             "of the index. Leasha asks first. Your files are not touched.")

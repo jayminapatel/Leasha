@@ -733,6 +733,9 @@ class _CodeBlock(QFrame):
         self.copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.copy_button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.copy_button.clicked.connect(self.copy)
+        from app.ui.widgets.buttons import give_icon
+
+        give_icon(self.copy_button, size="inline")    # Copy's icon; it stays while the words say Copied (2026-10-14)
         self.view = _CodeText()
         self.view.setObjectName("answerCodeText")
         self.view.setAccessibleName("Code")

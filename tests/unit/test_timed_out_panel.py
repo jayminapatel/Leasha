@@ -92,13 +92,16 @@ def test_the_panel_is_hidden_until_something_has_timed_out(qtbot) -> None:
 
     view = _view(qtbot)
     panel = view.timed_out
-    assert not panel.isVisible()
+    # 2026-10-14, the cockpit: the panel is in the Notices tab, so whether it
+    # shows is its own flag (`isHidden`) - `isVisible` was also false whenever
+    # another tab was in front.
+    assert panel.isHidden()
 
     paint_totals(view, {"error": "", "stats": {}, "timed_out": []})
-    assert not panel.isVisible()
+    assert panel.isHidden()
 
     paint_totals(view, {"error": "", "stats": {}, "timed_out": GROUPS})
-    assert panel.isVisible()
+    assert not panel.isHidden()
     assert panel.title() == "15 files timed out"
     for ext in ("pdf", "pst", ""):
         assert panel.button_for(ext).text() == "Retry with a longer time limit"
@@ -107,10 +110,10 @@ def test_the_panel_is_hidden_until_something_has_timed_out(qtbot) -> None:
 
     # A summary that could not be read (no key) leaves the rows alone...
     paint_totals(view, {"error": "OperationalError: database is locked"})
-    assert panel.isVisible() and panel.button_for("pdf") is not None
+    assert not panel.isHidden() and panel.button_for("pdf") is not None
     # ...and one that says nothing is timed out any more hides the panel.
     paint_totals(view, {"error": "", "stats": {}, "timed_out": []})
-    assert not panel.isVisible() and panel.button_for("pdf") is None
+    assert panel.isHidden() and panel.button_for("pdf") is None
 
 
 def test_a_press_asks_for_that_type_with_the_number_in_the_box(qtbot) -> None:

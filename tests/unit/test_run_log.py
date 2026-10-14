@@ -311,8 +311,17 @@ def test_the_page_has_the_log_on_its_status_shelf(qtbot, monkeypatch) -> None:
     from app.ui.widgets.run_log import RunLog
 
     assert isinstance(view.run_log, RunLog)
-    shelf = view.notices.parentWidget()
-    assert view.run_log.parentWidget() is shelf, "beside the notices, on Status"
+    # 2026-10-14, the cockpit: the log has the first tab of the Status shelf's
+    # tab panel, and the notices a tab of their own in the same panel. It was:
+    # the log and the notices with the same parent widget.
+    from app.ui.indexing_view import CATEGORY_STATUS
+    from app.ui.widgets.cockpit_tabs import NOTICES, RUN_LOG
+
+    shelf = view._nav.page(CATEGORY_STATUS)
+    tabs = view.cockpit_tabs
+    assert shelf.isAncestorOf(tabs), "on Status"
+    assert tabs.widget(RUN_LOG).isAncestorOf(view.run_log)
+    assert tabs.widget(NOTICES).isAncestorOf(view.notices)
 
 
 def test_repaints_stay_within_the_throttle_and_drop_no_lines(qtbot, monkeypatch) -> None:

@@ -106,9 +106,11 @@ def folder_tree(roots: Iterable[str], counts: Iterable[tuple[str, int]],
 
 def files_entries(roots: Iterable[str], folders: Iterable[tuple[str, int]],
                   drives: Iterable[tuple[str, str, int]], kinds: Iterable[tuple[str, int]],
-                  box: str = "", tree: Optional[list] = None) -> list[SideEntry]:
+                  box: str = "", tree: Optional[list] = None, always: Iterable[str] = ()) -> list[SideEntry]:
     """Files (D3): All files, Places, Drives, Kinds. `tree` is `folder_tree(roots, folders)` when the
-    caller has already made it (once, on a worker): only the ticks depend on the box."""
+    caller has already made it (once, on a worker): only the ticks depend on the box. The kinds in
+    `always` (`FILE_KINDS_ALWAYS`) are pinned: never behind the Kinds list's "More..."."""
+    pinned = {str(e).strip().lower().lstrip(".") for e in always if str(e).strip()}
     if tree is None:
         tree = folder_tree(roots, folders)
     total = sum(count for key, parent, _f, count in tree if not parent)
@@ -129,7 +131,8 @@ def files_entries(roots: Iterable[str], folders: Iterable[tuple[str, int]],
     for ext, count in kinds:
         entries.append(SideEntry(
             f"kind:{ext}", kind_label(ext), section="Kinds", icon=_icon_for(ext), count=count,
-            value=("type", ext), tip=f"Only .{ext} files", checked=box_holds(box, "type", ext)))
+            value=("type", ext), tip=f"Only .{ext} files", checked=box_holds(box, "type", ext),
+            pinned=ext.lower() in pinned))
     return entries
 
 

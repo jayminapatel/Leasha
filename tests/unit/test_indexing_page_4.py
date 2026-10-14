@@ -256,9 +256,25 @@ def test_the_now_line_follows_the_run_and_clears_after_it(qtbot) -> None:
     assert not view.now_line.isVisible()
 
 
+def _layout_holding(widget):
+    """The layout `widget` was added to, however deeply it is nested."""
+    pending = [widget.parentWidget().layout()]
+    while pending:
+        layout = pending.pop()
+        if layout.indexOf(widget) >= 0:
+            return layout
+        pending.extend(child for child in (layout.itemAt(i).layout()
+                                           for i in range(layout.count()))
+                       if child is not None)
+    raise AssertionError("the widget is in no layout")
+
+
 def test_the_now_line_sits_under_the_counts(qtbot) -> None:
     view = _view(qtbot, show=False)
-    layout = view.headline.parentWidget().layout()
+    # 2026-10-14, the cockpit: the headline and the "now" line are a column of
+    # their own in the header row, beside the state pill - a layout inside the
+    # page's. This asked the page's own layout, which now holds neither.
+    layout = _layout_holding(view.headline)
     assert layout.indexOf(view.now_line) == layout.indexOf(view.headline) + 1
 
 
@@ -545,12 +561,18 @@ def test_the_new_log_controls_are_labelled_for_a_screen_reader(qtbot) -> None:
         "All", "Warnings and errors"]
 
 
-def test_tab_reaches_the_log_controls_before_the_buttons_below_them(qtbot) -> None:
+def test_tab_goes_from_the_buttons_through_the_tabs_to_the_run_log(qtbot) -> None:
+    """2026-10-14, the cockpit: the buttons are at the top of the page now and
+    the run log in the tab panel at the bottom, so Tab follows the page down -
+    the row left to right, the tab bar, then the log's filter, Copy and the
+    log. It was the log's three first, then the row under them (0x §4e).
+    The reader rows' skip buttons come between the row and the tabs once a
+    run has readers (`test_the_skip_buttons_join_the_tab_order_in_reader_order`)."""
     view = _view(qtbot, show=False)
     # The row as it reads since 3ddb128: Start, Pause, Stop, Scan, Reset.
-    chain = [view.run_log.filter, view.run_log.copy_button, view.run_log.view,
-             view.start_button, view.pause_button, view.stop_button,
-             view.scan_button, view.reset_button]
+    chain = [view.start_button, view.pause_button, view.stop_button,
+             view.scan_button, view.reset_button, view.cockpit_tabs.tabBar(),
+             view.run_log.filter, view.run_log.copy_button, view.run_log.view]
     for first, second in zip(chain, chain[1:]):
         assert _tab_after(first) is second, (type(first).__name__,
                                              type(second).__name__)

@@ -53,6 +53,12 @@ class SegmentedControl(QFrame):
         self._data.append(data if data is not None else label)
         self._group.addButton(button, index)
         self._layout.addWidget(button)
+        # A segment carries its icon beside its words when the table names one (2026-10-14: Browse's
+        # Thumbnails / Table and Search's scope were words alone). Tidy's segments draw their own.
+        from app.ui.widgets.buttons import control_glyph, give_icon
+
+        if control_glyph(label):
+            give_icon(button)
         if index == 0:
             button.setChecked(True)
             self._current = 0

@@ -13,7 +13,7 @@ What a click means is the page's business: `picked` carries the entry and the pa
 narrows (D2). A *door* (`kind="door"`) emits `door` instead and the highlight stays
 where it was. Entries may nest (`parent`), be ticked (`checked`, for a list whose clicks
 toggle, as Photos'), and a long section shows its first `shown` entries behind
-"More...". Nothing here reads the store.
+"More...", except those marked `pinned`. Nothing here reads the store.
 """
 
 from __future__ import annotations
@@ -154,8 +154,10 @@ class SideList(QTreeWidget):
                         sections[entry.section] = self._heading(entry.section)
                     holder = sections[entry.section]
                     counted[entry.section] = counted.get(entry.section, 0) + 1
+                    # A pinned entry is one the person asked to see always (Files' kinds in
+                    # FILE_KINDS_ALWAYS): putting it behind More is hiding what they asked for.
                     if (self._shown is not None and entry.section not in self._more
-                            and counted[entry.section] > self._shown):
+                            and counted[entry.section] > self._shown and not entry.pinned):
                         hidden[entry.section] = hidden.get(entry.section, 0) + 1
                         continue
                 item = self._item(entry)
@@ -168,6 +170,7 @@ class SideList(QTreeWidget):
                 more = QTreeWidgetItem([f"More... ({count:,})", ""])
                 more.setData(0, _MORE, section)
                 more.setToolTip(0, f"Show every entry under {section}")
+                self._more_icon(more)
                 sections[section].addChild(more)
             for name, heading in sections.items():
                 default = self._default_open is None or name in self._default_open
@@ -315,6 +318,12 @@ class SideList(QTreeWidget):
                 and current.parent() == index.parent()):
             paint_focus_ring(painter, option.rect.adjusted(1, 0, -1, 0), self._colours or None)
 
+    def _more_icon(self, item: QTreeWidgetItem) -> None:
+        """The More line carries an icon like every other line of a side list (order 1p)."""
+        from app.ui.widgets.icons import icon
+
+        item.setIcon(0, icon("ellipsis", self._ink("text_dim", "#888888")))
+
     def _find(self, key: str) -> Optional[QTreeWidgetItem]:
         stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
         while stack:
@@ -331,6 +340,11 @@ class SideList(QTreeWidget):
         more = item.data(0, _MORE)
         if more:
             self._more.add(str(more))
+            # Forget what was drawn, so the list is rebuilt. `set_entries` with the same entries only
+            # restyles the ticks (the shape is unchanged - only `_more` moved), so More did nothing at
+            # all on any page (the owner, 2026-10-14: Files > Kinds "More... (2)", Photos > Years
+            # "More... (44)").
+            self._shape = self._structure = ()
             self.set_entries(self._entries)
             return
         entry = item.data(0, _ENTRY)

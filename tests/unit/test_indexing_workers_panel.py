@@ -84,12 +84,18 @@ def _layout_holding(widget):
 def test_two_readers_show_as_two_lines_under_the_bar(qtbot) -> None:
     view = _view(qtbot)
     panel = view.workers_panel
-    assert not panel.isVisible() and not panel.beating, "nothing before a run"
+    # 2026-10-14, the cockpit: the table is always on the page (its rows say
+    # "-" between runs, so nothing moves when a run starts); "nothing before a
+    # run" is now no reader rows and no clock. It was: the panel hidden.
+    assert not panel.readers and not panel.beating, "nothing before a run"
 
     _tick(view, _reading(last_activity=time.time()))
 
     assert panel.isVisible() and panel.beating
-    lines = panel.lines.text().split("\n")
+    # Each reader is a row of the table now; its whole line - the words the
+    # panel's one label used to hold, line by line - is the row's tooltip.
+    assert panel.readers == ["1", "2", "3"]
+    lines = [panel.reader_rows[key].toolTip() for key in panel.readers]
     assert lines[0].startswith(
         "Reader 1: Archive2019.pst › Inbox/Projects › message 4,512 of 18,300 · 3 min")
     assert lines[1].startswith("Reader 2: report.docx · ")
@@ -101,11 +107,20 @@ def test_two_readers_show_as_two_lines_under_the_bar(qtbot) -> None:
     assert view.now_line.text() == (
         "Reading Archive2019.pst › Inbox/Projects — message 4,512 of 18,300")
     # Under the detail line, as the layout promises.
-    # 2026-10-05: the Status page became two columns that day, so the two sit
-    # in the run column - a layout inside the page's own. This asked the page's
-    # own layout, which holds neither, and compared -1 with 0.
-    layout = _layout_holding(view.detail)
-    assert layout.indexOf(panel) == layout.indexOf(view.detail) + 1
+    # 2026-10-14, the cockpit: the bar and its detail line are a pair of their
+    # own, and the lanes table is the next row of the page under them. It was:
+    # the panel at the detail line's index + 1 in the same layout.
+    bar_pair = _layout_holding(view.detail)
+    page = _layout_holding(panel)
+    assert bar_pair.indexOf(view.bar) == bar_pair.indexOf(view.detail) - 1
+    following = [page.itemAt(i).layout() for i in range(page.count())]
+    assert following.index(bar_pair) + 1 == page.indexOf(panel)
+    # The row shows where the reader is, a column at a time.
+    first = panel.reader_rows["1"]
+    assert first.on.text() == "Archive2019.pst › Inbox/Projects"
+    assert first.done.text() == "message 4,512 of 18,300"
+    assert first.on.toolTip() == "D:/Mail/Archive2019.pst"
+    assert first.took.text().startswith("3 min")
 
 
 @pytest.mark.slow
@@ -129,8 +144,10 @@ def test_a_finished_run_leaves_no_lines_and_no_timer(qtbot) -> None:
     _tick(view, _reading(last_activity=time.time()))
     view._on_finished(IndexStats(phase=pipeline_module.PHASE_WORD_INDEX).snapshot())
     panel = view.workers_panel
-    assert not panel.isVisible() and not panel.beating
-    assert panel.lines.text() == "" and panel.heartbeat.text() == ""
+    # 2026-10-14: the rows stay, back to "-" (it was: the panel hidden).
+    assert not panel.busy_readers() and not panel.beating
+    assert all(panel.reader_rows[k].on.text() == "-" for k in panel.readers)
+    assert panel.heartbeat.text() == "" and panel.writer.text() == ""
 
 
 def test_a_failed_run_leaves_no_lines_and_no_timer(qtbot) -> None:
@@ -138,7 +155,7 @@ def test_a_failed_run_leaves_no_lines_and_no_timer(qtbot) -> None:
     _tick(view, _reading(last_activity=time.time()))
     view._on_failed(SimpleNamespace(message="The index could not be opened.",
                                     suggestion="Check the disk."))
-    assert not view.workers_panel.isVisible() and not view.workers_panel.beating
+    assert not view.workers_panel.busy_readers() and not view.workers_panel.beating
 
 
 def test_a_stop_under_way_clears_the_lines(qtbot) -> None:
@@ -146,7 +163,7 @@ def test_a_stop_under_way_clears_the_lines(qtbot) -> None:
     _tick(view, _reading(last_activity=time.time()))
     view._stopping = True
     _tick(view, _reading(last_activity=time.time()))
-    assert not view.workers_panel.isVisible() and not view.workers_panel.beating
+    assert not view.workers_panel.busy_readers() and not view.workers_panel.beating
     assert view.headline.text() == "Stopping after the current file…"
 
 
@@ -175,4 +192,5 @@ def test_an_older_snapshot_without_readers_keeps_the_old_words(qtbot) -> None:
                           recent_files_per_minute=None)
     _tick(view, old)
     assert view.now_line.text() == READING_WORDS
-    assert not view.workers_panel.isVisible()
+    # 2026-10-14: no reader rows (it was: no panel) - nothing said about readers.
+    assert not view.workers_panel.readers

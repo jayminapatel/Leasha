@@ -175,5 +175,8 @@ class SpaceTables(QWidget):
                 column.addWidget(note, 1)
             index = self.tabs.addTab(page, table.title)
             self.tabs.setTabToolTip(index, table.hint)
+        from app.ui.widgets.buttons import give_tab_icons
+
+        give_tab_icons(self.tabs)                    # a tab carries its icon (2026-10-14)
         if 0 <= keep < self.tabs.count():
             self.tabs.setCurrentIndex(keep)

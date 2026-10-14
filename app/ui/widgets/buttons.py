@@ -66,7 +66,8 @@ from typing import Iterable, Optional
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QDialogButtonBox, QHBoxLayout, QPushButton, QSizePolicy, QWidget,
+    QAbstractButton, QApplication, QDialogButtonBox, QHBoxLayout, QPushButton, QSizePolicy, QTabWidget,
+    QToolButton, QWidget,
 )
 
 from app.ui.widgets.icons import ICON_PX as ICON_RENDER_PX
@@ -78,6 +79,7 @@ __all__ = [
     "BUTTONS", "ROLES", "ICON_PX", "ROW_SPACING", "action_button", "style_button",
     "style_all", "retint_all", "button_row", "is_exempt", "clean_label", "lookup",
     "refresh_icon", "put_on_row", "icon_button",
+    "CONTROLS", "CONTROL_PREFIXES", "control_glyph", "give_icon", "give_tab_icons", "mark_value", "is_value",
 ]
 
 #: The three kinds of button. See rule 5 in the module docstring.
@@ -130,6 +132,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     # 2026-10-02: on each line of the folder list - that folder, now.
     "Index now": ("play", "secondary"),
     "Rescan these folders now": ("refresh-cw", "secondary"),
+    # 2026-10-14: styled by hand in `roots_box.py` until now; the icon it already had, now in the table.
+    "Remove them from the index": ("folder-minus", "secondary"),
     # -- Settings > Search > Your words (order smarter-answers 4d, 2026-10-12) --
     "Add word": ("plus", "secondary"),
     # Order smarter-answers 3a: the Search page's answer card, on to Chat.
@@ -255,6 +259,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     # 2026-10-12: Manage faces' row had no icon on these two.
     "Make a new person": ("user-plus", "secondary"),
     "Move to": ("folder-input", "secondary"),
+    # 2026-10-14: the faces seen once are named from the same row; it was the one button there with no icon.
+    "Name them…": ("users", "secondary"),
     # 2026-10-05: the Photos tab, and Accept all on its naming page.
     "Accept all": ("list-checks", "primary"),
     # -- Enrichment (order 1s 7c, 7e, 8a; 2026-10-12) ------------------------------
@@ -314,6 +320,137 @@ def lookup(text: str) -> Optional[tuple[str, str]]:
         if label.startswith(start):
             return pair
     return None
+
+
+#: **Every control that is not an action button, but shows words: its words -> its icon** (2026-10-14).
+#:
+#: The owner: the Thumbnails / Table switch, list switches and the rest "should be icons as per our standard
+#: ... checked and fixed everywhere". Rule 4 said every *action button* carries an icon, and the check looked at
+#: `QPushButton`s only, so the segmented controls, toggles, tool buttons and tabs - drawn by other code, as the
+#: docstring above says - were words alone. They stay outside the button system (no kind, no fixed width, their
+#: own look in `theme.py`); this table only gives each its picture, by the words it already has. A control whose
+#: words are an action button's (Copy, Remove) takes that button's icon from `BUTTONS`.
+#:
+#: **A data value carries no icon**: a month, a year band, a sheet's name, a filter chip. Those say so with
+#: `mark_value`, the side list's precedent - its years carry a calendar, its months nothing.
+CONTROLS: dict[str, str] = {
+    # Browse: how the page is shown, and the whole year as against one month.
+    "Thumbnails": "layout-grid",
+    "Table": "sheet",
+    "Whole year": "calendar",
+    # Search: the scope (`search_bar.SCOPES`).
+    "Everything": "database",
+    "Documents only": "file-text",
+    "Mail only": "mail",
+    "Code only": "code",
+    # Chat: a reply's own actions, and a document's chip on the shelf.
+    "Regenerate": "refresh-cw",
+    "Try again": "rotate-cw",
+    "Edit": "pencil",
+    "Copied": "copy",
+    "Keep": "pin",
+    "Kept": "pin",
+    # Contacts' clean-up dialogs: the menu of what to tick.
+    "Tick": "list-checks",
+    # Tabs. An account's settings.
+    "General": "settings",
+    "Contacts": "contact",
+    "Mail": "mail",
+    # Add a file type.
+    "Use a reader we have": "file-text",
+    "Convert it first": "arrow-right-left",
+    "Write a new reader": "code",
+    # The Space Report's four tables (`presenter.space_rows`).
+    "Duplicates": "copy",
+    "Similar photos": "image",
+    "By source": "hard-drive",
+    "The only copy": "triangle-alert",
+}
+
+#: A control whose words carry a value after a fixed start ("Sort: Newest").
+CONTROL_PREFIXES: dict[str, str] = {
+    "Sort:": "list",
+}
+
+
+def control_glyph(words: str) -> Optional[str]:
+    """The icon for a control's words: `CONTROLS`, its prefixes, then the action buttons' table. None if none."""
+    label = clean_label(words)
+    if label in CONTROLS:
+        return CONTROLS[label]
+    for start, glyph in CONTROL_PREFIXES.items():
+        if label.startswith(start):
+            return glyph
+    found = lookup(label)
+    return found[0] if found is not None else None
+
+
+def mark_value(widget: QWidget) -> QWidget:
+    """Say that this control is a data value (a month, a year band, a sheet), drawn without an icon on purpose.
+    `tests/unit/test_ui_consistency.py` lets these, and only these, show words with no icon."""
+    widget.setProperty("buttonSystem", "value")
+    return widget
+
+
+def is_value(widget: QWidget) -> bool:
+    return widget.property("buttonSystem") == "value"
+
+
+def _paint_control(button: QAbstractButton, colours: dict[str, str]) -> None:
+    """Draw a control's icon in the ink its words are drawn in (`theme.py`): `text_dim`, and when it is chosen
+    `text` on a segmented strip or `accent_text` on any other tool button."""
+    glyph = button.property("controlIcon")
+    if not glyph:
+        return
+    ink = colours.get("text_dim", "#888888")
+    if button.isCheckable() and button.isChecked():
+        parent = button.parentWidget()
+        on_strip = parent is not None and parent.objectName() == "segmented"
+        ink = colours.get("text" if on_strip else "accent_text", ink)
+    painted = f"{glyph}|{ink}"
+    if button.property("controlPainted") == painted:
+        return
+    button.setIcon(themed_icon(str(glyph), ink))
+    button.setProperty("controlPainted", painted)
+
+
+def give_icon(button: QAbstractButton, glyph: Optional[str] = None, *, words: Optional[str] = None,
+              size: str = "button") -> QAbstractButton:
+    """Give a segment, toggle, tool button or flat button its icon, beside its words. Returns the button.
+
+    The glyph is the one `CONTROLS` (or `BUTTONS`) gives `words` - the button's own words by default; a control
+    whose words are made at run time (a search suggestion) passes `glyph`. The words are never changed. A
+    `QToolButton` shows the icon *beside* its words: Qt's default for one is the icon alone, and the words
+    would vanish the moment it had a picture. `retint_all` redraws it on a theme change.
+    """
+    from app.ui.widgets.icons import icon_size
+
+    glyph = glyph or control_glyph(words if words is not None else button.text())
+    if not glyph:
+        raise ValueError(f"no icon for {(words or button.text())!r}: add its words to CONTROLS")
+    button.setProperty("controlIcon", glyph)
+    button.setProperty("controlPainted", None)
+    button.setIconSize(icon_size(size))
+    if isinstance(button, QToolButton) and button.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly:
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+    if button.isCheckable() and not button.property("controlFollows"):
+        button.setProperty("controlFollows", True)
+        button.toggled.connect(lambda _on, b=button: _paint_control(b, _colours()))
+    _paint_control(button, _colours())
+    return button
+
+
+def give_tab_icons(tabs: QTabWidget) -> QTabWidget:
+    """Give every tab of `tabs` the icon `CONTROLS` names for its words; `retint_all` redraws them."""
+    glyphs = []
+    colour = _colours().get("text_dim", "#888888")
+    for index in range(tabs.count()):
+        glyph = control_glyph(tabs.tabText(index)) or ""
+        glyphs.append(glyph)
+        if glyph:
+            tabs.setTabIcon(index, themed_icon(glyph, colour))
+    tabs.setProperty("tabIcons", "|".join(glyphs))
+    return tabs
 
 
 def is_exempt(button: QPushButton) -> bool:
@@ -597,3 +734,15 @@ def retint_all(colours: dict[str, str], roots: Optional[Iterable[QWidget]] = Non
         for button in root.findChildren(QPushButton):
             if button.property("buttonIcon"):
                 _paint_icon(button, colours)
+        # The controls `give_icon` and `give_tab_icons` drew: pictures too, so redrawn here as well.
+        controls = root.findChildren(QAbstractButton)
+        if isinstance(root, QAbstractButton):
+            controls.append(root)
+        for button in controls:
+            if button.property("controlIcon"):
+                _paint_control(button, colours)
+        for tabs in root.findChildren(QTabWidget):
+            glyphs = str(tabs.property("tabIcons") or "")
+            for index, glyph in enumerate(glyphs.split("|") if glyphs else ()):
+                if glyph and index < tabs.count():
+                    tabs.setTabIcon(index, themed_icon(glyph, colours.get("text_dim", "#888888")))

@@ -91,7 +91,14 @@ def test_one_button_per_busy_reader_and_a_press_skips_that_readers_file(qtbot) -
     shown = {key: button for key, button in panel.skip_buttons.items()
              if button.isVisible()}
     assert sorted(shown) == ["1", "2"], "reader 3 is waiting: nothing to skip"
-    assert shown["2"].text() == FORCE_SKIP_LABEL.format(n="2") == "Force skip reader 2"
+    # 2026-10-14, the cockpit: the button sits on its reader's row and shows
+    # its icon alone (style guide §2, rule 4 - a button on every line of a
+    # list), so its words are its accessible name and lead its tooltip. It
+    # was: `shown["2"].text() == ...`.
+    assert shown["2"].accessibleName() == FORCE_SKIP_LABEL.format(n="2") \
+        == "Force skip reader 2"
+    assert shown["2"].objectName() == "indexForceSkip2"
+    assert shown["2"].toolTip().startswith("Force skip reader 2")
     assert "report.pdf" in shown["2"].toolTip()
 
     shown["2"].click()
@@ -114,10 +121,11 @@ def test_a_finished_run_leaves_no_buttons(qtbot) -> None:
     view = _view(qtbot)
     view._worker = SimpleNamespace(pipeline=_Run())
     _tick(view, _reading())
-    assert view.workers_panel.skip_row.isVisible()
+    # 2026-10-14: the buttons are on the reader rows now, not in a row of
+    # their own (`skip_row`, which this asked about).
+    assert any(b.isVisible() for b in view.workers_panel.skip_buttons.values())
 
     view.workers_panel.clear()
-    assert not view.workers_panel.skip_row.isVisible()
     assert not any(b.isVisible() for b in view.workers_panel.skip_buttons.values())
 
 
@@ -131,19 +139,29 @@ def test_no_run_means_force_skip_does_nothing(qtbot) -> None:
 
 def test_force_skip_buttons_carry_an_icon_and_sit_in_reader_order(qtbot) -> None:
     """Owner, 2026-10-05: "the force skip needs icons too". The row also read
-    "1, 3, 4, 2", the order readers first got a file."""
+    "1, 3, 4, 2", the order readers first got a file.
+
+    2026-10-14, the cockpit: each button is on its reader's row, so "in reader
+    order" is the rows' order; this drove the old button row's `_show_skips`
+    and read its `_skip_layout` and the buttons' visible words."""
     from app.ui.widgets.indexing_workers import IndexingWorkers
 
     panel = IndexingWorkers()
     qtbot.addWidget(panel)
     for keys in (["1", "3"], ["1", "3", "4", "2"]):
-        panel._show_skips({k: {"file": f"f{k}.md", "started_at": 1.0} for k in keys})
-    layout = panel._skip_layout
-    shown = [layout.itemAt(i).widget() for i in range(layout.count())
-             if layout.itemAt(i).widget() is not None]
-    assert [b.text() for b in shown] == [
+        snap = SimpleNamespace(workers={k: {"file": f"f{k}.md", "started_at": 1.0}
+                                        for k in keys}, last_activity=0.0)
+        panel.show_live(snap)
+    layout = panel._readers_box
+    rows = [layout.itemAt(i).widget() for i in range(layout.count())
+            if layout.itemAt(i).widget() is not None
+            and layout.itemAt(i).widget() is not panel.no_readers]
+    assert rows == [panel.reader_rows[k] for k in ("1", "2", "3", "4")]
+    shown = [panel.skip_buttons[k] for k in panel.readers]
+    assert [b.accessibleName() for b in shown] == [
         "Force skip reader 1", "Force skip reader 2",
         "Force skip reader 3", "Force skip reader 4"]
-    for button in shown:
+    for row, button in zip(rows, shown):
+        assert row.isAncestorOf(button)
         assert button.property("buttonIcon") == "skip-forward"
         assert not button.icon().isNull()

@@ -111,6 +111,9 @@ class DuplicatesDialog(ToolDialog):
                 ("Only the ones to look at first", lambda g: not g.safe, "triangle-alert"),
                 ("Confidence 90% or more", lambda g: g.confidence >= 0.9, "filter"),
                 ("Confidence 70% or more", lambda g: g.confidence >= 0.7, "filter"))])
+        from app.ui.widgets.buttons import give_icon
+
+        give_icon(self.tick_button)                  # "Tick" was words alone (2026-10-14)
         self.ticked_label = QLabel("")
         named(self.ticked_label, "Groups ticked", "How many groups are ticked to merge")
         gl.addLayout(_row(self.tick_button, self.ticked_label))

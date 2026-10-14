@@ -66,6 +66,9 @@ def paint_external(view: Any, record: Any, *, locked: bool) -> None:
     headline, detail = external_run_text(record)
     view.headline.setText(headline)
     view.detail.setText(detail)
+    # 2026-10-14: the cockpit shows another process's run like its own - its
+    # state, steps, tiles and threads, from the published snapshot.
+    _paint_cockpit(view, snapshot, "running")
     view.start_button.setEnabled(False)
     view.start_button.setToolTip(start_blocked_reason(record, locked=True))
     # Stop reaches another process now, so it stays live - but not twice.
@@ -91,3 +94,19 @@ def _go_idle(view: Any) -> None:
     view.bar.set_active(False)
     view.headline.setText("Nothing is indexing.")
     view.detail.setText("")
+    panel = getattr(view, "workers_panel", None)
+    if panel is not None:
+        panel.clear()
+    _paint_cockpit(view, None, "idle")
+
+
+def _paint_cockpit(view: Any, snapshot: Any, state: str) -> None:
+    """The cockpit's pill, steps, tiles and threads for another process's run."""
+    from app.ui.widgets.cockpit_layout import cockpit_state, paint_cockpit
+
+    cockpit_state(view, state)
+    if snapshot is not None:
+        paint_cockpit(view, snapshot)
+        panel = getattr(view, "workers_panel", None)
+        if panel is not None:
+            panel.show_live(snapshot, stopping=bool(getattr(view, "_stopping", False)))

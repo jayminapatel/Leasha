@@ -33,6 +33,15 @@ from app.ui.theme import SPACE_XS
 __all__ = ["ChipRow"]
 
 
+def _value(button: QToolButton) -> QToolButton:
+    """A filter chip shows a value of the search ("pdf", "2019"), with its own × to take it away: a value,
+    drawn without an icon (`buttons.mark_value`, 2026-10-14), as the button system's docstring has it."""
+    from app.ui.widgets.buttons import mark_value
+
+    mark_value(button)
+    return button
+
+
 class ChipRow(QWidget):
     """The filter chips under a search box: typed operators and the filters a
     search applied from plain words. Draws only; `chips_logic` decides.
@@ -115,7 +124,7 @@ class ChipRow(QWidget):
         button.setToolTip(f"Remove the {chip.label} filter")
         button.setAccessibleName(f"{chip.label} filter, press to remove")
         button.clicked.connect(lambda _c=False, c=chip: self._remove(c))
-        return button
+        return _value(button)
 
     def _button_for_applied(self, applied) -> QToolButton:
         """A chip for a filter read from the typed words. Same shape and the
@@ -131,7 +140,7 @@ class ChipRow(QWidget):
         button.setAccessibleName(f"{applied.label} filter, read from your words, "
                                  f"press to remove")
         button.clicked.connect(lambda _c=False, a=applied: self._decline(a))
-        return button
+        return _value(button)
 
     def _decline(self, applied) -> None:
         """An applied chip removed: remember the refusal so typing on does not bring

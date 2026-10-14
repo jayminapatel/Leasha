@@ -52,7 +52,10 @@ def kind_counts(store: Any, *, limit: int = KINDS_SHOWN, always: Iterable[str] =
 
     The commonest twelve are all a Kinds list has room for, and a type with a few thousand files (Visio drawings,
     Project plans) never makes it: "visio and microsoft project file types missing" (the owner, 2026-10-12). The
-    types to always list are a setting (`FILE_KINDS_ALWAYS`); a type with no files is not listed."""
+    types to always list are a setting (`FILE_KINDS_ALWAYS`), and each is listed with its count even when that
+    is 0 (2026-10-14): a type that silently is not there reads as "Leasha does not know this type", which is the
+    complaint itself. Only plain files on disk are counted (`source_kind = 'file'`), as for every other kind - a
+    `.vsd` inside a zip or attached to a message is not one."""
     rows = [(str(ext or ""), int(count)) for ext, count in store.conn.execute(
         "SELECT ext, COUNT(*) FROM files WHERE source_kind = 'file' AND ext IS NOT NULL "
         "AND ext != '' GROUP BY ext ORDER BY 2 DESC, 1 LIMIT ?", (int(limit),))]
@@ -61,8 +64,7 @@ def kind_counts(store: Any, *, limit: int = KINDS_SHOWN, always: Iterable[str] =
     for ext in extra:
         n = int(store.conn.execute("SELECT COUNT(*) FROM files WHERE source_kind = 'file' AND ext = ?",
                                    (ext,)).fetchone()[0])
-        if n:
-            rows.append((ext, n))
+        rows.append((ext, n))
     return rows[:int(limit)] + sorted(rows[int(limit):], key=lambda r: (-r[1], r[0]))
 
 

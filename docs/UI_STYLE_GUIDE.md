@@ -81,10 +81,19 @@ unified look ... icons are must.* Every screen should feel like one app.
    `secondary` (everything else).
 6. Icon colours come from theme tokens; `retint_all` redraws them when the theme changes.
 
+**Every other control that shows words carries an icon too**: segments (Thumbnails / Table,
+the Search scope), toggles, tool buttons, flat buttons and tabs. They keep their own look and
+are not given a kind; `CONTROLS` in the same module names each one's icon by its words
+(`CONTROL_PREFIXES` for words like "Sort: Newest"), `give_icon` / `give_tab_icons` draw it beside
+the words, and `retint_all` redraws it on a theme change. **A data value carries none** - a
+month, a period band, a filter chip, a spreadsheet's sheet name - and says so with `mark_value`:
+the side list's rule, where a year has a calendar and a month nothing.
+
 Labels are never changed by the system: a button is looked up by the words it already has.
-*Held by* `tests/unit/test_button_system.py` (a button not in `BUTTONS` fails it) and
-`tests/unit/test_ui_consistency.py` (every button on every page of the real window has a
-tooltip, a name and an icon).
+*Held by* `tests/unit/test_button_system.py` (a button not in `BUTTONS` fails it; the
+segments, toggles and dialog tabs are built and checked there) and
+`tests/unit/test_ui_consistency.py` (every button of any kind, and every tab, on every page
+of the real window has a tooltip, a name and an icon, unless it is marked a value).
 
 **Every dialog is built in the one frame.** `frame(dialog, title)` gives the title and the
 layout; `buttons(dialog, primary=...)` is the OK and Cancel row, its OK renamed to say what it

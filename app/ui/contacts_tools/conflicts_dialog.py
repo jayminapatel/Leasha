@@ -57,6 +57,9 @@ class ConflictsDialog(ToolDialog):
                 ("Where Leasha's value is kept", lambda r: r["winner"] == "local", "filter"),
                 ("Where the account's value is kept", lambda r: r["winner"] == "remote", "filter"),
                 ("Waiting for me", lambda r: r["winner"] == "held", "filter"))])
+        from app.ui.widgets.buttons import give_icon
+
+        give_icon(self.tick_button)                  # "Tick" was words alone (2026-10-14)
         self.ticked_label = QLabel("")
         named(self.ticked_label, "Clashes ticked", "How many clashes are ticked")
         bar = QHBoxLayout()

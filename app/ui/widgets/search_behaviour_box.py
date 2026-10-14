@@ -197,7 +197,7 @@ class SearchBehaviourBox(QGroupBox):
         self.kinds_always.setPlaceholderText("vsdx,vsd,mpp")
         self.kinds_always.setToolTip(
             "The Files page's Kinds list holds the commonest file types. Types named here, as extensions "
-            "separated by commas (vsdx,vsd,mpp), are listed as well whenever the index holds any.")
+            "separated by commas (vsdx,vsd,mpp), are always listed as well, with 0 when the index holds none.")
         self.kinds_always.editingFinished.connect(lambda: self._emit("FILE_KINDS_ALWAYS"))
         add_row(form, self.kinds_always, "Always list these file types")
         self.kinds_shown = QSpinBox()

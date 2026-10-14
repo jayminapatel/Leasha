@@ -55,6 +55,9 @@ class SortButton(QToolButton):
         self._actions: dict[str, QAction] = {value: found[label] for label, value in SORT_CHOICES}
         box.textChanged.connect(self.follow)
         self.follow(box.text())
+        from app.ui.widgets.buttons import give_icon
+
+        give_icon(self)                     # "Sort: ..." carries its icon, as every control does (2026-10-14)
 
     def choose(self, value: str) -> None:
         """Put `value`'s switch in the box (or take it out) and search now."""
