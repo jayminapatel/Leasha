@@ -682,6 +682,16 @@ class ResourceGovernor:
         #: without it a pause is a frozen progress bar with no explanation.
         self.paused = False
         self.pause_reason = ""
+        #: 2026-10-14: which limit holds the run right now ("memory", "cpu",
+        #: "battery", "manual"), "" when none. The run's conductor reads it: a
+        #: memory pause does not hold the models, whose memory it is.
+        self.pause_cause = ""
+        #: 2026-10-14: the last machine reading this governor took, and when
+        #: (`time.monotonic()`). The cockpit's resource strip is drawn from it
+        #: rather than from a probe of its own - one probe costs 26-30 ms on
+        #: Windows (`Pipeline._resources_reading`).
+        self.last_snapshot: Optional[Snapshot] = None
+        self.last_snapshot_at = 0.0
         #: The person's own pause - see `MANUAL_PAUSE_REASON`. An `Event`
         #: because it is set from the interface thread and read by the walker,
         #: every extraction worker and the consumer.
@@ -755,6 +765,7 @@ class ResourceGovernor:
             return found
 
         snapshot = self._probe()
+        self.note_snapshot(snapshot)
         self._last_rss = snapshot.rss_mb
         moment = now if now is not None else snapshot.at or time.monotonic()
 
@@ -786,6 +797,22 @@ class ResourceGovernor:
             if self._on_state_change is not None:
                 self._on_state_change(found)
         return found
+
+    def note_snapshot(self, snapshot: Snapshot) -> None:
+        """Keep `snapshot` as the latest reading (`last_snapshot`)."""
+        self.last_snapshot = snapshot
+        self.last_snapshot_at = time.monotonic()
+
+    def probe_now(self) -> Optional[Snapshot]:
+        """One reading, outside any decision, kept as the latest. For the
+        cockpit when the governor has not looked for a while (the caller
+        limits how often). Never raises."""
+        try:
+            snapshot = self._probe()
+        except Exception:                       # noqa: BLE001 - reporting only
+            return self.last_snapshot
+        self.note_snapshot(snapshot)
+        return snapshot
 
     def _log_busiest(self, moment: float) -> None:
         """Say who the machine is busy with, on the way into a CPU pause.
@@ -841,10 +868,12 @@ class ResourceGovernor:
                 # pause, which is worse than never saying it.
                 self.paused = False
                 self.pause_reason = ""
+                self.pause_cause = ""
                 return found
             if should_stop():
                 self.paused = False
                 self.pause_reason = ""
+                self.pause_cause = ""
                 return Verdict("stop", "Stopped at your request.")
 
             # **Live, not cumulative.** `paused_seconds` says how long the run
@@ -855,6 +884,7 @@ class ResourceGovernor:
             # not working" meant.
             self.paused = True
             self.pause_reason = found.reason or "Waiting for resources."
+            self.pause_cause = found.cause or ""
 
             if found.cause == "memory":
                 rss = self._last_rss

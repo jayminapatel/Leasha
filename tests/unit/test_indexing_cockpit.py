@@ -452,6 +452,7 @@ def test_the_tabs_carry_their_counts_and_the_held_files(qtbot) -> None:
     assert tabs.no_skips.isHidden() and tabs.no_notices.isHidden()
 
 
+@pytest.mark.slow
 def test_the_system_log_reads_the_file_on_a_worker_only_while_shown(qtbot, tmp_path) -> None:
     from datetime import date
 

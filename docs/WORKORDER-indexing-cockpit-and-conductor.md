@@ -1,6 +1,6 @@
 # Work order (Parallel threads): the indexing cockpit, nothing silent, and one conductor for every thread
 
-**Doc version:** 1.1 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
 **Thread:** Four parallel threads - lanes (`app/index/live_progress.py`, `pipeline.py`), the cockpit
 (`app/ui/indexing_view.py`, `app/ui/widgets/`, `app/ui/presenter/`), the found faults (Files and Photos side
 lists, file kinds, icons), and the conductor (`app/index/conductor.py`, `pipeline.py`), which starts on top of
@@ -44,7 +44,7 @@ The owner saw one thread busy, three idle, and thousands of photos with no faces
 
 - [x] **1a** The owner's `INDEX_OCR_PASS` set to `with-run` through the app's own settings writer (never by
   hand-editing `.env`), done at go-live with the owner's run stopped.
-- [ ] **1b** A test proves a `with-run` run reads a photo the earlier text pass left as `ERR_OCR_HELD`: its
+- [x] **1b** A test proves a `with-run` run reads a photo the earlier text pass left as `ERR_OCR_HELD`: its
   faces, picture vector and fingerprint are made and the row leaves `ERR_OCR_HELD`.
 - [x] **1c** The cockpit says how many files are held and why ("Held for later"), so a queue can never again
   look like nothing.
@@ -78,19 +78,24 @@ The owner saw one thread busy, three idle, and thousands of photos with no faces
 
 ## 5. One conductor for every thread
 
-- [ ] **5a** `app/index/conductor.py`: one budget of processor slots (from `envelope`, leaving the window its
+- [x] **5a** `app/index/conductor.py`: one budget of processor slots (from `envelope`, leaving the window its
   share) and the one graphics-card slot; lanes ask it for a slot before model work and give it back after;
   priority order meaning > reading > faces and pictures > describing > text in pictures > cards. Work-conserving:
   a free slot goes to the most important ready task. The resource governor stays the brake above it.
-- [ ] **5b** The end-of-run passes run side by side under the conductor instead of one after another, keeping
+- [x] **5b** The end-of-run passes run side by side under the conductor instead of one after another, keeping
   each photo's own order (faces, then description, then text - the owner's 2026-10-04 order) and the cards last.
-- [ ] **5c** Model intra-op threads are sized from the conductor's budget, so the processor is never asked for
+- [x] **5c** Model intra-op threads are sized from the conductor's budget, so the processor is never asked for
   more threads than it has.
-- [ ] **5d** Faces get a pool when they run on the processor (sized by the conductor; measured above); on the
+- [x] **5d** Faces get a pool when they run on the processor (sized by the conductor; measured above); on the
   graphics card they stay one at a time behind the existing lock. The shared decode cache and the CLIP batch
   are made safe for more than one picture thread.
-- [ ] **5e** Measured before and after on the same corpus and machine: per-lane busy time and wall time of the
+- [x] **5e** Measured before and after on the same corpus and machine: per-lane busy time and wall time of the
   run's end. A change that does not save is reverted and said so.
+  *Done 2026-10-14.* Measured with `tools/conductor_bench.py`: 24 of the owner's photos and 6 documents,
+  every model on the processor (`EMBED_DEVICE=cpu`, no device test), below-normal priority, other test
+  suites running (noisy): conductor off 339.5 s and 469.0 s wall, on 235.9 s and 259.4 s; identical output
+  (44 faces, 153 chunks). Faces alone, 47 photos: graphics card 1.62 photos/s (1 at a time) against
+  0.63-0.72 on the processor - the face device is the owner's decision.
 
 ## 6. Faults found while working
 
@@ -105,5 +110,5 @@ The owner saw one thread busy, three idle, and thousands of photos with no faces
 ## 7. Close-out
 
 - [ ] **7a** The full unit suite once, combined, on the merged branch; CI green on `main`.
-- [ ] **7b** `HANDOFF.md`, `docs/ORDER_REGISTER.md`, `CHANGELOG.md` and the user guide's Indexing section say
+- [x] **7b** `HANDOFF.md`, `docs/ORDER_REGISTER.md`, `CHANGELOG.md` and the user guide's Indexing section say
   what is true afterwards.

@@ -50,6 +50,10 @@ class Resolved:
     #: Pipeline, because this is the one place both the CLI and the window
     #: already resolve the machine off the UI thread before a run starts.
     gpu_regression_notice: str = ""
+    #: 2026-10-14 (order 5, index-tuning §6g): how far the readers may grow
+    #: mid-run - `conductor.reader_ceiling`. `0` (a machine whose cores could
+    #: not be counted) leaves growth off, as it always was.
+    worker_ceiling: int = 0
 
     def __post_init__(self) -> None:
         if self.why is None:
@@ -144,6 +148,21 @@ def resolve_for_run(settings: Any, store: Any = None,
             found.onnx_threads = value
         else:
             found.embed_batch = value
+
+    # 2026-10-14: §6g's ceiling, which nothing set, so readers never grew.
+    # From the envelope's own ceiling, leaving the meaning model its threads
+    # (`conductor.reader_ceiling` says why that does not fight the conductor).
+    if profile is not None:
+        try:
+            from app.index.conductor import reader_ceiling
+
+            found.worker_ceiling = reader_ceiling(
+                profile, readers=found.workers, meaning_threads=found.onnx_threads)
+            found.why["worker_ceiling"] = (
+                f"readers may grow to {found.worker_ceiling} while the run waits on "
+                f"reading, leaving the meaning model its {found.onnx_threads} thread(s)")
+        except Exception as exc:                 # noqa: BLE001 - growth stays off
+            _log.debug("no reader ceiling: {}", exc)
 
     # The warning belongs to the run as much as to the screen: somebody who
     # tuned by hand and then started a run from the command line never saw the
