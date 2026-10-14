@@ -70,6 +70,9 @@ class SpreadsheetView(QTabWidget):
         super().__init__(parent)
         self.setAccessibleName("Spreadsheet preview")
         self.setDocumentMode(True)
+        from app.ui.widgets.buttons import mark_value
+
+        mark_value(self.tabBar())               # each tab is a sheet's own name, the file's data: no icon (2026-10-14)
 
     def show_sheets(self, sheets: Any) -> None:
         """Rebuild the tabs from a list of `SheetGrid`. UI thread; no I/O -

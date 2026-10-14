@@ -54,6 +54,7 @@ import hashlib
 import itertools
 import os
 import queue
+import sys
 import threading
 import time
 from contextlib import contextmanager
@@ -97,13 +98,39 @@ from app.index.embedder import Embedder, length_order
 from app.index.interrupted import ARCHIVE_RESUME_PREFIX
 from app.index import live_progress
 from app.index.live_progress import (
+    DEVICE_CPU,
+    DEVICE_GPU,
+    LANE_BESIDE,
+    LANE_DONE,
+    LANE_MEANING,
+    LANE_PASS,
+    LANE_PAUSED,
+    LANE_PICTURES,
+    LANE_WAITING,
+    LANE_WALKER,
+    LANE_WORKING,
+    LANE_WRITER,
+    NULL_LANE,
+    PHASE_WORDS,
+    STAGES,  # noqa: F401 - re-exported: `pipeline.STAGES` is the one ordered list
     STAGE_CHUNKING,
     STAGE_EMBEDDING,
     STAGE_HANDING_OVER,
     STAGE_READING,
     STAGE_SAVING_RESUME,
     STAGE_WRITING,
-    STAGES,  # noqa: F401 - re-exported: `pipeline.STAGES` is the one ordered list
+    TASK_DESCRIBING,
+    TASK_DUPLICATE,
+    TASK_FACES,
+    TASK_FACE_BACKFILL,
+    TASK_FINDING,
+    TASK_GROUPING_FACES,
+    TASK_MEANING,
+    TASK_PICTURE_SEARCH,
+    TASK_SAVING_PICTURES,
+    TASK_SAVING_RESUME,
+    TASK_VIDEO,
+    TASK_WRITING,
     WorkerBoard,
 )
 from app.index.file_watch import (
@@ -562,6 +589,14 @@ class IndexStats:
     #: result is JSON as it stands. `current`/`current_item` above are still
     #: written exactly as before, for everything that reads them.
     workers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: 2026-10-14, "nothing silent". **One line per other thread** of the run,
+    #: keyed by lane id (`live_progress.LANES`: walker, pictures, meaning,
+    #: writer, pass, beside), each `{"lane", "label", "state", "task", "item",
+    #: "path", "started_at", "done", "total", "device"}` - see
+    #: `live_progress.Lane`. Filled from the live board at each snapshot,
+    #: exactly as `workers` is; the readers stay in `workers`. For "pass" and
+    #: "beside", `done`/`total` are the current pass's, reset at each phase.
+    lanes: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: Work order 0x section 3d. **When anything last moved**, as wall-clock
     #: `time.time()`; 0.0 before the first snapshot. Moved forward at snapshot
     #: time when the run's signature changed - see `live_progress` for why it
@@ -599,13 +634,15 @@ class IndexStats:
         try:
             workers = board.workers()
             self.workers = workers
+            lanes = board.lane_board.lanes()
+            self.lanes = lanes
             counters = (
                 self.seen, self.indexed, self.skipped, self.unchanged,
                 self.unchanged_documents, self.chunks, self.vectors,
                 self.deleted, self.name_only, self.phase, self.stage,
                 self.embed_batch, self.embed_batches, self.walk_complete,
             )
-            if board.moved(live_progress.signature(counters, workers)):
+            if board.moved(live_progress.signature(counters, workers, lanes)):
                 self.last_activity = (now if now is not None
                                       else live_progress.now_wall())
         except Exception:                        # noqa: BLE001 - reporting only
@@ -637,6 +674,7 @@ class IndexStats:
         # frame list is shared with the live object; and no board, so the
         # snapshot is plain data through and through.
         clone.workers = live_progress.plain_copy(self.workers)
+        clone.lanes = live_progress.plain_lanes(self.lanes)
         clone.board = None
         return clone
 
@@ -1481,8 +1519,15 @@ class _BesideMeaning:
     def __setattr__(self, name: str, value: Any) -> None:
         setattr(self._pipeline, name, value)
 
+    def _pass_lane(self) -> Any:
+        # 2026-10-14: the same passes, reported on this thread's own lane, so
+        # the run's thread and this one never write over each other's line.
+        return self._pipeline._lane(LANE_BESIDE)
+
     def _announce_phase(self, stats: Any, on_progress: Any, phase: str) -> None:
         object.__setattr__(self, "phase", phase)
+        self._pass_lane().set(task=PHASE_WORDS.get(phase, ""), item="", path="",
+                              done=0, total=0)
 
     def _drain_unembedded(self, stats: Any, **_kwargs: Any) -> None:
         object.__setattr__(self, "wrote", True)
@@ -1947,12 +1992,73 @@ class Pipeline:
         stats.phase = phase
         stats.activity.record(KIND_PHASE, phase)
         self._log.debug("phase: {}", phase)
+        self._phase_lane(phase)
         if on_progress is None:
             return
         try:
             on_progress(stats)
         except Exception as exc:                 # noqa: BLE001 - as elsewhere
             self._log.warning("progress reporting failed: {}", exc)
+
+    # -- 2026-10-14: lanes, "nothing silent" ----------------------------------
+    #
+    # Every thread a run uses says what it is doing, as data the window can
+    # show (`IndexStats.lanes`, `live_progress.Lane`). The owner saw a run
+    # that was grouping faces with nothing on the page but idle readers.
+
+    def _lane(self, lane_id: str) -> Any:
+        """This run's lane `lane_id`, or a lane that goes nowhere.
+
+        Asked for with `getattr` for the reason `_extract_worker` gives: a
+        pipeline a test built without `run()` has no stats, and must still run.
+        """
+        board = getattr(getattr(self, "_stats_ref", None), "board", None)
+        return board.lane(lane_id) if board is not None else NULL_LANE
+
+    def _pass_lane(self) -> Any:
+        """The lane the run's own thread reports its passes on.
+        `_BesideMeaning` answers "beside" instead."""
+        return self._lane(LANE_PASS)
+
+    def _drop_lane(self, lane_id: str) -> None:
+        board = getattr(getattr(self, "_stats_ref", None), "board", None)
+        if board is not None:
+            board.lane_board.drop(lane_id)
+
+    def _phase_lane(self, phase: str) -> None:
+        """The run's thread is starting `phase`: its lane says so, in the
+        progress line's own sentence. Never raises - it is reporting."""
+        try:
+            lane = self._pass_lane()
+            if phase in (PHASE_READING, PHASE_SCANNING):
+                # While reading, this thread is the writer, which has its own lane.
+                lane.idle()
+                return
+            lane.set(task=PHASE_WORDS.get(phase, ""), item="", path="", done=0,
+                     total=0, device="",
+                     # The catch-up waits on the meaning lane; it does no work itself.
+                     state=LANE_WAITING if phase == PHASE_MEANING else LANE_WORKING)
+        except Exception:                        # noqa: BLE001 - reporting only
+            return
+
+    @staticmethod
+    def _device_words(model: Any) -> str:
+        """Where `model` runs, from the choice it made when it loaded - or ""
+        before it has loaded, rather than a guess."""
+        choice = getattr(model, "choice", None)
+        if choice is None:
+            return ""
+        return DEVICE_GPU if getattr(choice, "is_gpu", False) else DEVICE_CPU
+
+    @staticmethod
+    def _face_device() -> str:
+        """The face model's device, once it has loaded. Read from the module
+        only if something already imported it: off means the import never
+        happens (`_maybe_detect_faces`), and asking must not change that."""
+        face_detect = sys.modules.get("app.extract.face_detect")
+        if face_detect is None or getattr(face_detect, "_engine", None) is None:
+            return ""
+        return DEVICE_GPU if getattr(face_detect, "_engine_is_gpu", False) else DEVICE_CPU
 
     def _copy_pause_state(self, stats: IndexStats) -> None:
         """The governor's live pause state, onto the stats the UI reads."""
@@ -2585,6 +2691,7 @@ class Pipeline:
                 "stopped" if (self._interrupted or stats.stopped_early) else "")
         if finishing:
             self._checkpoint_wal()
+        self._pass_lane().idle(LANE_DONE)
         return stats
 
     def _drain_takes_run_end(self) -> bool:
@@ -2868,6 +2975,11 @@ class Pipeline:
         waiting: list[dict] = []
         halted = False
         next_ask = 0.0
+        # 2026-10-14: the walker's lane names the folder being walked. Set only
+        # when the folder changes, so a folder of 10,000 files costs one write.
+        walker = self._lane(LANE_WALKER)
+        walker.set(task=TASK_FINDING, item="", path="")
+        walked_folder = None
         try:
             for candidate in self._candidates(mark_first_band=band is not None):
                 if self._stop.is_set():
@@ -2893,6 +3005,11 @@ class Pipeline:
                 # kind of thing that makes a prune pass delete a live file.
                 seen.add(path_key(candidate.path))
                 stats.seen += 1
+                folder = os.path.dirname(str(candidate.path))
+                if folder != walked_folder:
+                    walked_folder = folder
+                    walker.set(item=os.path.basename(folder) or folder, path=folder,
+                               done=stats.seen)
 
                 # Per-root file counts, so a skipped archive can say how many
                 # files it holds. A string prefix test per file; no I/O.
@@ -2982,6 +3099,8 @@ class Pipeline:
                 # number in the report shows.
                 self._clock.add_worker(
                     "walk", time.perf_counter() - self._run_started_pc)
+            walker.set(done=stats.seen)
+            walker.idle(LANE_DONE)
             for _ in range(self.config.worker_count()):
                 work.put((10_000, sequence + 1, _STOP, None))
 
@@ -3020,6 +3139,9 @@ class Pipeline:
         """
         stats.walk_complete = True
         self._clock.add_worker("walk", time.perf_counter() - self._run_started_pc)
+        walker = self._lane(LANE_WALKER)
+        walker.set(done=stats.seen)
+        walker.idle(LANE_DONE)
         sorting_from = time.perf_counter()
         entries = worklist.sorted()
         first = next(entries, None)             # the sort itself happens here
@@ -5170,6 +5292,7 @@ class Pipeline:
         # passes the change on, here, rather than two threads calling
         # `on_progress` at once.
         phase_told = stats.phase
+        writer = self._lane(LANE_WRITER)
         while finished < self._expected_stops:
             if stats.phase != phase_told:
                 phase_told = stats.phase
@@ -5195,6 +5318,7 @@ class Pipeline:
                 # for however long the person keeps the run paused.
                 self._commit_write_group()
                 self._report_pause(stats, on_progress)
+                writer.set(state=LANE_PAUSED)
                 held_from = time.monotonic()
                 stopped = self._hold_if_paused()
                 # **Timed here and nowhere else.** This thread waits out the
@@ -5238,6 +5362,8 @@ class Pipeline:
                 # 0x 3d: at least once a second (`HEARTBEAT_SECONDS`), so the
                 # page's "message 4,512 of 18,300" and "last activity" stay
                 # fresh while one reader is deep inside a large archive.
+                # Nothing to write: the writer waits for the readers.
+                writer.idle(LANE_WAITING)
                 now = time.monotonic()
                 beat = min(self.config.checkpoint_seconds, HEARTBEAT_SECONDS)
                 if on_progress is not None and (now - last_checkpoint) >= beat:
@@ -5352,6 +5478,7 @@ class Pipeline:
                 )
             else:
                 stats.stage = STAGE_WRITING      # 0x 3a
+                writer.set(task=TASK_WRITING, item=item.candidate.path)
                 written = True
                 try:
                     with self._clock.stage("write"):
@@ -5373,6 +5500,7 @@ class Pipeline:
                 if written:
                     stats.indexed += 1
                     stats.chunks += len(item.chunks)
+                    writer.tick()
                 else:
                     stats.skipped += 1
                     stats.skipped_by_code[item.error.code] = (
@@ -5495,11 +5623,13 @@ class Pipeline:
             # resume, which is silent loss rather than a slower resume.
             if not self._embed_abandoned:
                 stats.stage = STAGE_SAVING_RESUME        # 0x 3a
+                writer.set(task=TASK_SAVING_RESUME, item="", path="")
                 self._persist_resume_progress()
         except Exception as exc:            # noqa: BLE001 - H4: never the run
             self._log.warning("could not persist mbox resume progress: {}", exc)
         finally:
             stats.stage = ""
+            writer.idle(LANE_DONE)
         if on_progress is not None:
             try:
                 on_progress(stats)
@@ -5559,6 +5689,8 @@ class Pipeline:
         # 0x 3a: "embedding, batch n of m". `done` is this thread's own
         # count; `embed_batches` (m) is counted by whoever hands batches over.
         done = 0
+        # 2026-10-14: the meaning lane - "batch n of m", and the passages done.
+        lane = self._lane(LANE_MEANING)
         while True:
             try:
                 batch = self._feeder_queue.get(timeout=_PARKED_POLL_S)
@@ -5567,36 +5699,56 @@ class Pipeline:
                 # is free - it takes the oldest parked batch, if there is one.
                 parked = self._next_parked()
                 if parked is None:
+                    lane.idle()
                     continue
                 self._embedding_now.set()
                 self._stats_ref.embed_batch = done + 1
+                size = len(parked[0])
+                self._meaning_lane_busy(lane, done + 1)
                 try:
                     self._embed_parked(parked)
                 except BaseException as exc:          # noqa: BLE001 - reraised, not lost
                     self._feeder_errors.append(exc)
+                    lane.idle()
                     return
                 finally:
                     self._parked_done()
                     self._embedding_now.clear()
                     self._stats_ref.embed_batch = 0
                 done += 1
+                lane.tick(size)
                 continue
             if batch is _STOP:
                 self._feeder_queue.task_done()
+                lane.idle(LANE_DONE)
                 return
             self._embedding_now.set()
             self._stats_ref.embed_batch = done + 1
+            # Counted before the call: `_embed_pending` empties its argument.
+            size = len(batch)
+            self._meaning_lane_busy(lane, done + 1)
             try:
                 self._embed_pending(batch)
             except BaseException as exc:              # noqa: BLE001 - reraised, not lost
                 self._feeder_errors.append(exc)
                 self._feeder_queue.task_done()
+                lane.idle()
                 return
             finally:
                 self._embedding_now.clear()
                 self._stats_ref.embed_batch = 0
             done += 1
+            lane.tick(size)
             self._feeder_queue.task_done()
+
+    def _meaning_lane_busy(self, lane: Any, number: int) -> None:
+        """The meaning lane, about to embed batch `number`. Never raises."""
+        try:
+            lane.set(task=TASK_MEANING,
+                     item=f"batch {number:,} of {max(number, self._stats_ref.embed_batches):,}",
+                     path="", device=self._device_words(getattr(self, "embedder", None)))
+        except Exception:                        # noqa: BLE001 - reporting only
+            pass
 
     def _next_parked(self) -> Optional[tuple[list[tuple[int, int]], bool]]:
         """The oldest parked batch, marked as in hand - or None.
@@ -5803,6 +5955,9 @@ class Pipeline:
         passes_of = type(self)
 
         def passes() -> None:
+            # 2026-10-14: a line of its own while this thread lives, and none
+            # after - a pass that finished must not read as one still going.
+            view._pass_lane().idle(LANE_WAITING)
             # Each pass is already never fatal; this is for anything between
             # them, so one bad photo pass can never take the run's thread down.
             try:
@@ -5812,6 +5967,8 @@ class Pipeline:
             except Exception as exc:              # noqa: BLE001 - a repair, not the job
                 self._log.warning(
                     "the photo passes beside the meaning model stopped: {}", exc)
+            finally:
+                self._drop_lane(LANE_BESIDE)
 
         self._beside_view = view
         thread = threading.Thread(target=self._background(passes),
@@ -5908,12 +6065,15 @@ class Pipeline:
         if self._embed_abandoned:
             return
         stats.stage = STAGE_SAVING_RESUME
+        writer = self._lane(LANE_WRITER)
+        writer.set(task=TASK_SAVING_RESUME, item="", path="")
         try:
             self._persist_resume_progress()
         except Exception as exc:            # noqa: BLE001 - H4: never the run
             self._log.warning("could not persist mbox resume progress: {}", exc)
         finally:
             stats.stage = ""
+            writer.idle(LANE_DONE)
 
     def _raise_if_feeder_failed(self) -> None:
         """The feeder's exception, on the caller's own thread - or nothing.
@@ -6335,10 +6495,19 @@ class Pipeline:
         batches = (_texts_for(ids) for ids in backlog)
 
         filled = 0
+        # 2026-10-14: the pass lane, while this repair embeds on the run's thread.
+        lane = self._pass_lane()
+        of = len(backlog) if hasattr(backlog, "__len__") else 0
+        lane.set(task=TASK_MEANING, item="", path="", done=0, total=0,
+                 device=self._device_words(getattr(self, "embedder", None)))
+        number = 0
         try:
             for batch in batches:
                 if halted():
                     break
+                number += 1
+                lane.set(item=(f"batch {number:,} of {of:,}" if of
+                               else f"batch {number:,}"), done=filled)
                 # Work order 0i section 2b: this repair respects the same
                 # battery/CPU pacing an ordinary run does, at the same
                 # granularity `_produce` already uses it at - one wait per
@@ -6430,6 +6599,8 @@ class Pipeline:
             return
 
         described = 0
+        lane = self._pass_lane()
+        lane.set(task=TASK_DESCRIBING, item="", path="", done=0, total=0)
         try:
             for batch in self.store.iter_uncaptioned_images(
                     OcrExtractor.extensions, batch_size=8):
@@ -6450,6 +6621,7 @@ class Pipeline:
                 for file_id, path in batch:
                     if self._stop.is_set():
                         break
+                    lane.set(item=Path(str(path)).name, path=str(path), done=described)
                     with self._picture_file(path) as real:
                         if real is None:
                             continue             # its archive would not open: next run
@@ -6487,6 +6659,9 @@ class Pipeline:
 
         scanned = 0
         left_for_later = 0
+        # 2026-10-14: the owner's "silent" face work - it says so now.
+        lane = self._pass_lane()
+        lane.set(task=TASK_FACE_BACKFILL, item="", path="", done=0, total=0)
         try:
             # 2026-10-07, once per index: every picture from mail had been
             # marked as scanned without being opened (see
@@ -6515,6 +6690,8 @@ class Pipeline:
                 for file_id, path in batch:
                     if self._stop.is_set():
                         break
+                    lane.set(item=Path(str(path)).name, path=str(path), done=scanned,
+                             device=self._face_device())
                     try:
                         # A picture from mail has no file: its bytes, read
                         # from the archive (2026-10-07). An archive that would
@@ -6721,6 +6898,13 @@ class Pipeline:
         from app.index.face_clustering import centroid_of, cluster_batch
 
         resolved = 0
+        # 2026-10-14: mid-run (`paced=False`) this is the picture worker's
+        # work, between two photos; otherwise it is a pass of the run's own.
+        lane = self._pass_lane() if paced else self._lane(LANE_PICTURES)
+        if paced:
+            lane.set(task=TASK_GROUPING_FACES, item="", path="", done=0, total=0)
+        else:
+            lane.set(task=TASK_GROUPING_FACES, item="", path="")
         try:
             raw_centroids = self.store.pile_centroids()
             centroids = {
@@ -6765,6 +6949,8 @@ class Pipeline:
                 # `plan.unresolved` faces stay exactly as they were -
                 # unassigned, unsuggested - for a later batch to give them
                 # company. Nothing to do for them here.
+                if paced:
+                    lane.set(done=resolved)
         except Exception as exc:                  # noqa: BLE001 - a repair, not the job
             self._log.warning(
                 "could not finish face clustering: {}. Indexing continues.", exc)
@@ -6803,6 +6989,7 @@ class Pipeline:
             return
         tagged = 0
         announced = False
+        lane = self._pass_lane()
         # 2026-10-10, work order model-sequencing item 4c: a near-identical
         # photo (same folder, same minute, pHash under the threshold) borrows
         # the description Florence wrote for its sibling - see `photo_reuse`.
@@ -6821,6 +7008,8 @@ class Pipeline:
                 for file_id, path in batch:
                     if self._interrupted:
                         break
+                    lane.set(task=PHASE_WORDS.get(PHASE_PHOTO_TAGS, ""),
+                             item=Path(str(path)).name, path=str(path), done=tagged)
                     if self._copy_sibling_description(reuse, file_id):
                         self.store.mark_indexed(file_id)
                         tagged += 1
@@ -6879,8 +7068,12 @@ class Pipeline:
             verdict = self.governor.wait_while_throttled(should_stop=lambda: self._interrupted)
             return verdict.action != "stop"
 
+        lane = self._pass_lane()
+
         def on_card(name: str) -> None:
             stats.current = name
+            lane.set(task=PHASE_WORDS.get(PHASE_DOC_CARDS, ""), item=name, path="")
+            lane.tick()
             if on_progress is not None:
                 on_progress(stats)
 
@@ -6960,6 +7153,9 @@ class Pipeline:
         # queries below must see them.
         self._commit_write_group()
         found = 0
+        # 2026-10-14: the pictures this pass has taken up, for its lane.
+        handled = 0
+        lane = self._pass_lane()
 
         def paced() -> bool:
             if self._interrupted:
@@ -6983,6 +7179,9 @@ class Pipeline:
                 for file_id, path in batch:
                     if self._interrupted:
                         return
+                    lane.set(task=PHASE_WORDS.get(PHASE_PHOTO_TAGS, ""),
+                             item=Path(str(path)).name, path=str(path), done=handled)
+                    handled += 1
                     if tagging and self._copy_sibling_description(reuse, file_id):
                         found += 1
                         stats.chunks = int(getattr(stats, "chunks", 0) or 0) + 1
@@ -7010,6 +7209,7 @@ class Pipeline:
                         on_progress(stats)
 
             announced = False
+            handled = 0
             waiting = (("ERR_PAGE_TEXT_LATER", None), ("ERR_PICTURE_TEXT_LATER", True))
             for code, described in waiting:
                 for batch in self.store.iter_pictures_waiting(
@@ -7022,6 +7222,9 @@ class Pipeline:
                     for file_id, path in batch:
                         if self._interrupted:
                             return
+                        lane.set(task=PHASE_WORDS.get(PHASE_PICTURE_TEXT, ""),
+                                 item=Path(str(path)).name, path=str(path), done=handled)
+                        handled += 1
                         with self._picture_file(path) as real:
                             if real is None:
                                 continue         # its archive would not open: next run
@@ -7300,6 +7503,8 @@ class Pipeline:
         # 0x 3a: "saving the resume point". The wait for the embedder below
         # can take a few seconds, and this is what the page says meanwhile.
         self._stats_ref.stage = STAGE_SAVING_RESUME
+        writer = self._lane(LANE_WRITER)
+        writer.set(task=TASK_SAVING_RESUME, item="", path="")
         try:
             self._flush_pending_images()
             self._settle(pending)
@@ -7314,6 +7519,7 @@ class Pipeline:
             self._save_run_books()
         finally:
             self._stats_ref.stage = ""
+            writer.idle()
 
     def _prepare_scratch(self) -> None:
         """Point the PST reader's attachment scratch folders at this run's
@@ -7969,47 +8175,70 @@ class Pipeline:
 
     def _picture_steps(self, candidate: Candidate, file_id: int,
                        meta: Optional[dict[str, Any]], *, video: bool = True) -> None:
-        """A file's picture steps, in their old order, each on its own guard."""
-        steps: list[tuple[str, Callable[[], None]]] = [
-            ("picture search", lambda: self._maybe_embed_image(candidate, file_id)),
-            ("duplicate fingerprint", lambda: self._maybe_compute_phash(candidate, file_id)),
-            ("face scan", lambda: self._maybe_detect_faces(candidate, file_id)),
+        """A file's picture steps, in their old order, each on its own guard.
+
+        2026-10-14: each says itself on the pictures lane, with the file, so a
+        face scan of a photo is never mistaken for a run doing nothing.
+        """
+        steps: list[tuple[str, str, Callable[[], None]]] = [
+            ("picture search", TASK_PICTURE_SEARCH,
+             lambda: self._maybe_embed_image(candidate, file_id)),
+            ("duplicate fingerprint", TASK_DUPLICATE,
+             lambda: self._maybe_compute_phash(candidate, file_id)),
+            ("face scan", TASK_FACES, lambda: self._maybe_detect_faces(candidate, file_id)),
         ]
         if video:
-            steps.append(("video pictures",
+            steps.append(("video pictures", TASK_VIDEO,
                           lambda: self._maybe_embed_video(candidate, file_id, meta)))
-        for name, step in steps:
+        lane = self._lane(LANE_PICTURES)
+        clip = self._device_words(getattr(self, "image_embedder", None))
+        for name, words, step in steps:
+            lane.set(task=words, item=candidate.path,
+                     device=(self._face_device() if words == TASK_FACES
+                             else DEVICE_CPU if words == TASK_DUPLICATE else clip))
             try:
                 step()
             except Exception as exc:            # noqa: BLE001 - one capability, one photo
                 self._log.warning(
                     "the {} step failed for {}: {}. The file stays indexed; only "
                     "that step is missing for it.", name, candidate.path, exc)
+        lane.tick()
 
     def _picture_loop(self) -> None:
         """The worker: take jobs until told to finish. Never raises."""
         work = self._picture_queue
+        lane = self._lane(LANE_PICTURES)
         while True:
+            if work.empty():
+                # 2026-10-14: nothing handed over - the lane says so rather
+                # than going on naming the last photo's step.
+                lane.idle()
             job = work.get()
             try:
                 kind = job[0]
                 if kind == "finish":
+                    lane.set(task=TASK_SAVING_PICTURES, item="", path="")
                     self._flush_pending_images()
+                    lane.idle(LANE_DONE)
                     return
                 if kind == "flush":
                     try:
+                        lane.set(task=TASK_SAVING_PICTURES, item="", path="")
                         self._flush_pending_images()
                     finally:
                         job[1].set()
                     continue
                 # A held run holds this thread too, between photos; a stop does
                 # not drop what was handed over - see the notes above.
+                if self._person_paused() and not self._stop.is_set():
+                    lane.set(state=LANE_PAUSED)
                 while self._person_paused() and not self._stop.is_set():
                     time.sleep(HOLD_POLL_S)
                 _kind, candidate, file_id, meta = job
                 self._picture_steps(candidate, file_id, meta,
                                     video=kind == "steps")
                 if len(self._pending_images) >= self.config.embed_batch:
+                    lane.set(task=TASK_SAVING_PICTURES, item="", path="")
                     self._flush_pending_images()
             except Exception as exc:            # noqa: BLE001 - the worker never dies
                 self._log.error("the picture worker could not finish a job: {}", exc)

@@ -26,8 +26,8 @@ from __future__ import annotations
 import time
 from typing import Any, Mapping, Optional
 
-from PySide6.QtCore import QThreadPool
-from PySide6.QtWidgets import QLabel
+from PySide6.QtCore import QEvent, QSize, Qt, QThreadPool
+from PySide6.QtWidgets import QLabel, QSizePolicy
 
 from app.core.file_state import FUNNEL_ORDER, explain, funnel_line
 from app.ui.tasks import funnel_and_pictures
@@ -77,15 +77,30 @@ OBJECT_NAME = "indexFunnel"
 REFRESH_MIN_S = 5.0
 
 
+#: Lines the funnel can show: the files line and the pictures line.
+FUNNEL_LINES = 2
+
+
 class StatusFunnel(QLabel):
-    """One line of counts per status word. Hidden until it has counts."""
+    """One line of counts per status word, in a fixed two-line slot.
+
+    2026-10-14, the owner: *"keep the counts on top, rest in tabs is fine"*. It
+    sits under the cockpit's header row and must never move what is below it,
+    so it is always two lines tall, never word-wraps and is never hidden - it
+    is empty until it has counts. A line that does not fit ends in "…" and the
+    whole text leads the tooltip. `text()` is still the whole text.
+    """
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("", parent)
+        self._full = ""
+        self._explained = ""
         self.setObjectName(OBJECT_NAME)
-        self.setWordWrap(True)
+        super().setWordWrap(False)
         self.setAccessibleName("Files by status")
-        self.setVisible(False)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.setFixedHeight(self._slot_height())
         self._busy = False
         self._last_read = 0.0
         self.counts: dict[str, int] = {}
@@ -102,10 +117,59 @@ class StatusFunnel(QLabel):
         self._paint()
         # Every word on the line, with its sentence - "what does Deferred
         # mean" is answered where the word is.
-        self.setToolTip("\n".join(
+        self._explained = "\n".join(
             f"{word}: {explain(word)}" for word in FUNNEL_ORDER
-            if self.counts.get(word) or word == "Indexed"))
-        self.setVisible(True)
+            if self.counts.get(word) or word == "Indexed")
+        self._elide()
+
+    # -- the fixed slot (2026-10-14) -----------------------------------------
+
+    def _slot_height(self) -> int:
+        margins = self.contentsMargins()
+        return (self.fontMetrics().lineSpacing() * FUNNEL_LINES
+                + margins.top() + margins.bottom())
+
+    def setText(self, text: Any) -> None:            # noqa: N802 - Qt's name
+        """Keep the whole text; paint each line cut to the width."""
+        self._full = "" if text is None else str(text)
+        self._elide()
+
+    def text(self) -> str:                           # noqa: D102 - Qt's name
+        return self._full
+
+    def setWordWrap(self, on: bool) -> None:         # noqa: N802 - Qt's name
+        """Two fixed lines by design: wrapping is what moved the page."""
+        super().setWordWrap(False)
+
+    def sizeHint(self) -> QSize:                     # noqa: N802 - Qt's name
+        return QSize(0, self._slot_height())
+
+    def minimumSizeHint(self) -> QSize:              # noqa: N802 - Qt's name
+        return self.sizeHint()
+
+    def resizeEvent(self, event: Any) -> None:       # noqa: N802 - Qt's name
+        super().resizeEvent(event)
+        self._elide()
+
+    def changeEvent(self, event: Any) -> None:       # noqa: N802 - Qt's name
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self.setFixedHeight(self._slot_height())
+            self._elide()
+
+    def _elide(self) -> None:
+        """Paint at most `FUNNEL_LINES` lines, each cut with "…" to fit."""
+        full = self._full.split("\n") if self._full else []
+        width = self.contentsRect().width()
+        metrics = self.fontMetrics()
+        shown = [metrics.elidedText(line, Qt.TextElideMode.ElideRight, width)
+                 if width > 0 else line for line in full[:FUNNEL_LINES]]
+        QLabel.setText(self, "\n".join(shown))
+        cut = shown != full
+        tip = "\n\n".join(part for part in (self._full if cut else "", self._explained)
+                          if part)
+        if self.toolTip() != tip:
+            self.setToolTip(tip)
 
     def show_pictures(self, counts: Optional[Mapping[str, int]]) -> None:
         """The picture line under the files line. UI thread, no I/O; `None`

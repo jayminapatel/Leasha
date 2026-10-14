@@ -370,6 +370,9 @@ class PhotoTaggerPage(QWidget):
             self._sort_actions[key] = action
         self._sort_button.setMenu(sort_menu)
         self._show_sort()
+        from app.ui.widgets.buttons import give_icon
+
+        give_icon(self._sort_button, words="Sort: ")   # the Search page's Sort icon (2026-10-14)
 
         top_bar = QHBoxLayout()
         top_bar.addWidget(self._batch_era_button)

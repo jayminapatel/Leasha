@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from app.reports.timeline import KINDS, Period
 from app.reports.timeline_words import BAD_DATE, KIND_TIPS, KIND_WORDS
 from app.ui.state_writes import save_state
+from app.ui.widgets.buttons import give_icon, mark_value
 from app.ui.widgets.flow_layout import FlowLayout
 
 __all__ = ["TimelinePicker", "KIND_KEY", "FOLD_KEY"]
@@ -98,6 +99,12 @@ class TimelinePicker(QWidget):
             button.setCheckable(True)
             button.setAutoRaise(True)
             button.setToolTip("Everything from this year.")
+            # The way the side list draws the same choice (2026-10-14): a year carries a calendar, a month
+            # is a value and carries nothing - twelve calendars in a row would say nothing twelve times.
+            if index == 0:
+                give_icon(button)
+            else:
+                mark_value(button)
             self.months.addButton(button, index)
             self.month_buttons.append(button)
         self.months.idClicked.connect(self._month_chosen)

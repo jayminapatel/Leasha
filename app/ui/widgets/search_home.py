@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.ui.first_contact import SUGGESTIONS, greeting
+from app.ui.widgets.buttons import give_icon
 from app.ui.widgets.flow_layout import FlowLayout
 from app.ui.theme import SPACE_XS, SPACE_S
 
@@ -36,6 +37,12 @@ __all__ = ["SearchHome", "HEADLINE", "BOX_WIDTH"]
 #: New copy for a new control (the page had no headline before).
 HEADLINE = "What are you looking for?"
 BOX_WIDTH = 640
+
+#: Each pill is a search to run, and each row a search to run again: their words are made of what
+#: they search for, so the icon is named here rather than looked up by words (2026-10-14). The rows
+#: take the `/` menu's picture for a recent or saved search (`command_icon`, the style guide's section 5).
+SUGGESTION_ICON = "search"
+AGAIN_ICON = "rotate-ccw"
 
 
 class SearchHome(QWidget):
@@ -87,6 +94,7 @@ class SearchHome(QWidget):
             pill.setToolTip(f"Search for: {typed}")
             pill.setAccessibleName(f"Try searching: {shown}")
             pill.clicked.connect(lambda _c=False, t=typed: self._on_type(t))
+            give_icon(pill, SUGGESTION_ICON, size="inline")
             self._pills.addWidget(pill)
             self.suggestions.append(pill)
         outer.addWidget(self._pill_box)
@@ -151,6 +159,7 @@ class SearchHome(QWidget):
                 row.setFocusPolicy(Qt.FocusPolicy.TabFocus)
                 row.setToolTip(f"Search again for: {shown}")
                 row.clicked.connect(lambda _c=False, t=str(insert): self._on_type(t))
+                give_icon(row, AGAIN_ICON, size="list")
                 grid.addWidget(row, n // 2, n % 2)
             self._recent_layout.addLayout(grid)
         self.recent.setVisible(bool(sections))

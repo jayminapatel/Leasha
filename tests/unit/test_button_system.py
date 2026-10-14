@@ -437,3 +437,105 @@ def test_switching_the_theme_redraws_the_button_icons_on_the_real_window(shown) 
     finally:
         window._theme_preference = before
         window._apply_theme()
+
+
+# ---------------------------------------------------------------------------
+# Toggles, segments, tool buttons and tabs (the owner, 2026-10-14)
+# ---------------------------------------------------------------------------
+
+def _bare(root) -> list[str]:
+    """Every control under `root` that shows words and no icon, and is not a data value; and every tab
+    with no icon on a tab bar that is not one of values. The rule `test_ui_consistency.py` holds on the
+    window, here on the parts the walk never opens (dialogs, chat replies, a home page's rows)."""
+    from PySide6.QtWidgets import QAbstractButton, QCheckBox, QRadioButton, QTabBar
+
+    from app.ui.widgets.buttons import is_value
+
+    found = []
+    for button in root.findChildren(QAbstractButton):
+        if isinstance(button, (QCheckBox, QRadioButton)) or button.objectName().startswith("qt_"):
+            continue
+        if button.text() and button.icon().isNull() and not is_value(button):
+            found.append(f"{type(button).__name__}:{button.text()}")
+    for bar in root.findChildren(QTabBar):
+        if not is_value(bar):
+            found += [f"tab:{bar.tabText(i)}" for i in range(bar.count()) if bar.tabIcon(i).isNull()]
+    return found
+
+
+def test_every_control_icon_the_table_names_is_shipped() -> None:
+    from app.ui.widgets.buttons import CONTROL_PREFIXES, CONTROLS
+    from app.ui.widgets.icons import ICON_NAMES, icon_file
+
+    for words, glyph in list(CONTROLS.items()) + list(CONTROL_PREFIXES.items()):
+        assert glyph in ICON_NAMES and icon_file(glyph) is not None, f"{words}: {glyph}"
+
+
+def test_segments_toggles_and_tool_buttons_carry_an_icon_beside_their_words(qapp) -> None:
+    """**Before:** Browse's Thumbnails / Table switch, Search's Everything / Documents only / Mail only /
+    Code only, "Whole year", the Sort button, Search's suggestions and a reply's Copy / Regenerate were
+    words alone. The window test looked only at `QPushButton`s, and all of these are `QToolButton`s or
+    flat buttons, so nothing failed. Now each carries its 16px Lucide icon and keeps its words."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLineEdit, QToolButton
+
+    from app.ui.widgets.chat_bubbles import AnswerBubble
+    from app.ui.widgets.chat_markdown import _CodeBlock
+    from app.ui.widgets.search_bar import build_scope
+    from app.ui.widgets.search_home import SearchHome
+    from app.ui.widgets.segmented import SegmentedControl
+    from app.ui.widgets.sort_button import SortButton
+    from app.ui.widgets.timeline_picker import TimelinePicker
+
+    shape = SegmentedControl()
+    shape.addItem("Thumbnails", "timeline")
+    shape.addItem("Table", "table")
+    picker = TimelinePicker()
+    built = [shape, build_scope(None, lambda _i: None), picker,
+             SortButton(QLineEdit(), lambda: None), _CodeBlock(), AnswerBubble(),
+             SearchHome(on_type=lambda _t: None,
+                        sections=lambda: [("Recent", [("invoice", "invoice")])])]
+    from app.ui.widgets.buttons import style_all
+
+    for widget in built:
+        if isinstance(widget, SearchHome):
+            widget.refresh()
+        style_all(widget)                   # the window's sweep, which gives action buttons theirs
+        assert _bare(widget) == [], f"{type(widget).__name__}: {_bare(widget)}"
+    home = built[-1]
+    assert home.suggestions and all(not pill.icon().isNull() for pill in home.suggestions)
+    for n, words in enumerate(("Thumbnails", "Table")):
+        segment = shape.button(n)
+        assert segment.text() == words, "the words are never changed"
+        assert segment.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        assert segment.iconSize().height() == 16
+    whole = picker.month_buttons[0]
+    assert whole.text() == "Whole year" and not whole.icon().isNull()
+    assert all(b.property("buttonSystem") == "value" for b in picker.month_buttons[1:]), \
+        "a month is a value, drawn bare like the side list's months"
+    sort = built[3]
+    assert isinstance(sort, QToolButton) and not sort.icon().isNull() and sort.text().startswith("Sort: ")
+
+
+def test_a_dialogs_tabs_carry_icons_and_a_sheets_tabs_are_values(qapp) -> None:
+    from app.ui.widgets.add_file_type import AddFileTypeWizard
+    from app.ui.widgets.spreadsheet_view import SpreadsheetView
+
+    wizard = AddFileTypeWizard([], {})
+    assert _bare(wizard) == [], _bare(wizard)
+    sheets = SpreadsheetView()
+    assert sheets.tabBar().property("buttonSystem") == "value", "a sheet's name is the file's own data"
+
+
+def test_a_tool_icon_follows_the_theme(qapp) -> None:
+    from PySide6.QtWidgets import QToolButton
+
+    from app.ui.widgets.buttons import give_icon, retint_all
+
+    holder = QToolButton()
+    holder.setText("Thumbnails")
+    give_icon(holder)
+    retint_all(theme.PALETTES["light"], roots=[holder.window()])
+    light = holder.icon().cacheKey()
+    retint_all(theme.PALETTES["dark"], roots=[holder.window()])
+    assert holder.icon().cacheKey() != light and not holder.icon().isNull()

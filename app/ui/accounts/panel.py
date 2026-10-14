@@ -211,6 +211,9 @@ class AccountPanel(QGroupBox):
         self._build_general()
         self._build_mail()
         self._build_contacts()
+        from app.ui.widgets.buttons import give_tab_icons
+
+        give_tab_icons(self.tabs)                    # General, Mail, Contacts: a tab carries its icon (2026-10-14)
         self._tips()
         self.setVisible(False)
 
@@ -424,6 +427,8 @@ class AccountPanel(QGroupBox):
         self.direction.setToolTip('Two-way reads and writes; Into Leasha only never writes to the account; Off stops syncing contacts.')
         self.groups_all.setToolTip('Sync every contact folder or group.')
         self.groups_some.setToolTip('Sync only the groups you choose.')
+        # 2026-10-14: the one button on the Mail tab with no hover text; these are its own hint's words.
+        self.drop_mail.setToolTip("Takes the fetched mail out of search. The mailbox itself is not touched.")
 
     # ================================================================== show
     def show_account(self, status: Any, state: Any, same_for_all: bool) -> None:

@@ -255,6 +255,7 @@
     <Compile Include="app\core\identifiers.py" />
     <Compile Include="app\core\index_move.py" />
     <Compile Include="app\core\lag_monitor.py" />
+    <Compile Include="app\core\log_tail.py" />
     <Compile Include="app\core\logging.py" />
     <Compile Include="app\core\measured.py" />
     <Compile Include="app\core\media_open.py" />
@@ -561,6 +562,7 @@
     <Compile Include="app\ui\presenter\answer.py" />
     <Compile Include="app\ui\presenter\chat.py" />
     <Compile Include="app\ui\presenter\chat_history.py" />
+    <Compile Include="app\ui\presenter\cockpit.py" />
     <Compile Include="app\ui\presenter\code.py" />
     <Compile Include="app\ui\presenter\commands.py" />
     <Compile Include="app\ui\presenter\contact_commands.py" />
@@ -649,6 +651,9 @@
     <Compile Include="app\ui\widgets\chat_side_panel.py" />
     <Compile Include="app\ui\widgets\chat_sources.py" />
     <Compile Include="app\ui\widgets\chips.py" />
+    <Compile Include="app\ui\widgets\cockpit_layout.py" />
+    <Compile Include="app\ui\widgets\cockpit_parts.py" />
+    <Compile Include="app\ui\widgets\cockpit_tabs.py" />
     <Compile Include="app\ui\widgets\code_commands.py" />
     <Compile Include="app\ui\widgets\code_results.py" />
     <Compile Include="app\ui\widgets\code_types_box.py" />
@@ -662,6 +667,7 @@
     <Compile Include="app\ui\widgets\device_box.py" />
     <Compile Include="app\ui\widgets\dialog_frame.py" />
     <Compile Include="app\ui\widgets\editor_box.py" />
+    <Compile Include="app\ui\widgets\elided_label.py" />
     <Compile Include="app\ui\widgets\environment_box.py" />
     <Compile Include="app\ui\widgets\epub_view.py" />
     <Compile Include="app\ui\widgets\error_box.py" />
@@ -1121,6 +1127,7 @@
     <Compile Include="tests\unit\test_index_flows.py" />
     <Compile Include="tests\unit\test_index_force.py" />
     <Compile Include="tests\unit\test_index_freshness.py" />
+    <Compile Include="tests\unit\test_index_lanes.py" />
     <Compile Include="tests\unit\test_index_move.py" />
     <Compile Include="tests\unit\test_index_now_per_line.py" />
     <Compile Include="tests\unit\test_index_panel.py" />
@@ -1129,6 +1136,7 @@
     <Compile Include="tests\unit\test_index_run_review.py" />
     <Compile Include="tests\unit\test_index_speed_2026_09_29.py" />
     <Compile Include="tests\unit\test_index_tuning_acceptance.py" />
+    <Compile Include="tests\unit\test_indexing_cockpit.py" />
     <Compile Include="tests\unit\test_indexing_page_4.py" />
     <Compile Include="tests\unit\test_indexing_partial_row.py" />
     <Compile Include="tests\unit\test_indexing_that_works.py" />
@@ -1156,6 +1164,7 @@
     <Compile Include="tests\unit\test_live_progress.py" />
     <Compile Include="tests\unit\test_llm_host.py" />
     <Compile Include="tests\unit\test_lo_session.py" />
+    <Compile Include="tests\unit\test_log_tail.py" />
     <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_logs_and_skip_detail.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />

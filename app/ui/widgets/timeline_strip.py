@@ -97,6 +97,9 @@ class TimelineStrip(QWidget):
         for band in found:
             button = QToolButton(self)
             button.setText(band.label)
+            from app.ui.widgets.buttons import mark_value
+
+            mark_value(button)                  # a period of the results, a value: no icon (2026-10-14)
             button.setToolTip(
                 f"{band.count} result{'s' if band.count != 1 else ''} "
                 f"between {band.after} and {band.before}.\nClick to filter "

@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
 
 from app.ui.widgets.buttons import refresh_icon
@@ -83,6 +84,12 @@ class IndexControls(QWidget):
     four places that used to flip buttons by hand (start, stop, pause, and the
     end of a run) now each make one call here and cannot disagree.
     """
+
+    #: 2026-10-14, the cockpit's state pill: what the row was just told -
+    #: "running", "stopping", "idle", "paused" (Pause) or "running" (Resume).
+    #: Every change of run state already passes through one of the methods
+    #: below, so the pill listens here rather than at four call sites.
+    stateChanged = Signal(str)
 
     def __init__(self, *, on_stop: Any, on_scan: Any, on_reset: Any,
                  on_pause: Any, parent: Optional[QWidget] = None) -> None:
@@ -132,6 +139,7 @@ class IndexControls(QWidget):
         self.pause_button.setText(PAUSE_LABEL)
         refresh_icon(self.pause_button)
         self.pause_button.setEnabled(True)
+        self.stateChanged.emit("running")
 
     def show_stopping(self) -> None:
         """Stop was pressed: nothing useful to click until the run ends.
@@ -145,6 +153,7 @@ class IndexControls(QWidget):
         self.pause_button.setEnabled(False)
         self.pause_button.setText(PAUSE_LABEL)
         refresh_icon(self.pause_button)
+        self.stateChanged.emit("stopping")
 
     def show_idle(self) -> None:
         """No run: Start is live again, Stop and Pause are not."""
@@ -154,6 +163,7 @@ class IndexControls(QWidget):
         self.pause_button.setEnabled(False)
         self.pause_button.setText(PAUSE_LABEL)
         refresh_icon(self.pause_button)
+        self.stateChanged.emit("idle")
 
     def show_held(self, held: bool) -> None:
         """Pause was pressed (`held`) or Resume was: flip the one button's word."""
@@ -161,6 +171,7 @@ class IndexControls(QWidget):
         self.pause_button.setText(RESUME_LABEL if held else PAUSE_LABEL)
         # Resume shows the play icon, Pause the pause one (buttons.py's table).
         refresh_icon(self.pause_button)
+        self.stateChanged.emit("paused" if held else "running")
 
 
 # -- what pressing Pause and Resume does -------------------------------------

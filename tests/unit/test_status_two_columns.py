@@ -1,4 +1,4 @@
-r"""The Indexing page's Status shelf: two columns, on one screen, nothing crushed.
+r"""The Indexing page's Status shelf: on one screen, nothing crushed.
 
 Layer: L5
 
@@ -13,10 +13,15 @@ timed-out panel have been added to it. At the owner's window size their
 heights no longer fit, so Qt crushed the panel with the wrapped lines. The
 right half of every line was empty.
 
-What these pin, at a window the size of the owner's: the run (bar, readers,
-buttons) is on the left, and what the index holds (the panel, the log, the
-skipped files) is on the right. No label in the panel overlaps another, and
-the buttons are on screen.
+What these pin, at a window the size of the owner's: no label in the panel
+overlaps another, the buttons are on screen, and the shelf asks for no more
+height than the window has.
+
+*Note, 14 October 2026:* the two columns these pinned (the run on the left,
+the index on the right) became the cockpit - one column of fixed rows with
+"This index", the log and the lists in a tab panel at the bottom
+(`widgets/cockpit_layout.py`). The layout test was rewritten for that order;
+the not-crushed and one-screen tests are unchanged in what they check.
 """
 
 from __future__ import annotations
@@ -91,8 +96,18 @@ def _in_view(view, widget) -> QRect:
     return QRect(widget.mapTo(view, QPoint(0, 0)), widget.size())
 
 
+def _this_index_in_front(view, qtbot) -> None:
+    """2026-10-14, the cockpit: "This index" is a tab of the bottom panel, so
+    a test that reads its lines brings that tab to the front first."""
+    from app.ui.widgets.cockpit_tabs import THIS_INDEX
+
+    view.cockpit_tabs.setCurrentIndex(THIS_INDEX)
+    qtbot.wait(50)
+
+
 def test_no_line_in_this_index_lies_on_another(qtbot) -> None:
     view = _view(qtbot)
+    _this_index_in_front(view, qtbot)
     labels = [label for label in view.stats_box.findChildren(QLabel)
               if label.isVisible() and label.text()]
     assert len(labels) >= len(ROWS) * 2
@@ -105,23 +120,33 @@ def test_no_line_in_this_index_lies_on_another(qtbot) -> None:
             assert not box.intersects(other), f"{text!r} lies on {other_text!r}"
 
 
-def test_the_run_is_on_the_left_and_the_index_on_the_right(qtbot) -> None:
+def test_the_cockpit_reads_top_to_bottom(qtbot) -> None:
+    """2026-10-14, the owner: *"That should be the cockpit for indexing"*. The
+    two columns of 2026-10-05 (the run on the left, the index on the right -
+    what this file pinned until then) became one column of fixed rows: the
+    state and the buttons, the steps, the tiles, the bar, a row per thread,
+    the machine, then the tabs holding the log, the lists and "This index"."""
     view = _view(qtbot)
-    bar = _in_view(view, view.bar)
-    workers = _in_view(view, view.workers_panel)
-    stats = _in_view(view, view.stats_box)
-    log = _in_view(view, view.run_log)
-    assert stats.left() > bar.right(), "the index panel is beside the bar"
-    assert log.left() > workers.right(), "the log is beside the readers"
-    # Both columns start under the counts, at the same height.
-    assert abs(stats.top() - bar.top()) < 20
+    # 2026-10-14: the funnel's counts sit between the header and the steps.
+    order = [view.pill, view.funnel, view.stepper, view.tiles, view.bar, view.detail,
+             view.workers_panel, view.resources, view.cockpit_tabs]
+    tops = [_in_view(view, widget).top() for widget in order]
+    assert tops == sorted(tops), tops
+    for upper, lower in zip(order, order[1:]):
+        assert _in_view(view, upper).bottom() < _in_view(view, lower).top()
+    # The buttons share the state pill's row, on the right.
+    assert abs(_in_view(view, view.controls).center().y()
+               - _in_view(view, view.pill).center().y()) < 12
+    assert _in_view(view, view.controls).left() > _in_view(view, view.headline).left()
 
 
 def test_everything_a_run_needs_is_on_one_screen(qtbot) -> None:
     view = _view(qtbot)
-    for name in ("controls", "workers_panel", "stats_box", "run_log"):
+    for name in ("controls", "workers_panel", "resources", "cockpit_tabs", "run_log"):
         box = _in_view(view, getattr(view, name))
         assert box.bottom() <= view.height(), f"{name} runs off the bottom"
+    _this_index_in_front(view, qtbot)
+    assert _in_view(view, view.stats_box).top() < view.height()
 
 
 def test_the_shelf_needs_no_more_height_than_the_owners_window(qtbot) -> None:

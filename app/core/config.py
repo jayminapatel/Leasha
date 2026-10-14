@@ -414,7 +414,8 @@ class Settings(BaseModel):
     #: idea. Taking a type out of this list queues it for meaning again at the next run.
     index_words_only_types: str = "svg,epub"
     #: 2026-10-12, the owner: "visio and microsoft project file types missing" from the Files page's Kinds. The list
-    #: holds the commonest types; these are listed as well when the index holds any, whatever their rank.
+    #: holds the commonest types; these are listed as well, whatever their rank, with their count (0 when the index
+    #: holds none), and never behind the list's "More..." (2026-10-14).
     file_kinds_always: str = "vsdx,vsd,mpp"
     #: How many of the commonest types the Kinds list holds.
     file_kinds_shown: int = 12

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from app.ui.presenter import (
     finished_text, index_summary, part_read_rows, progress_for, progress_text,
@@ -26,18 +26,10 @@ from app.ui.presenter import (
 )
 from app.ui.presenter.activity import timed_notices
 from app.ui.widgets.category_nav import CategoryNav
-from app.ui.widgets.indexing_controls import (
-    PAUSED_DETAIL,
-    PAUSED_HEADLINE,
-    force_skip_reader,
-)
+from app.ui.widgets.cockpit_layout import build_status_page, paint_cockpit, refresh_tabs
+from app.ui.widgets.indexing_controls import PAUSED_DETAIL, PAUSED_HEADLINE
 from app.ui.widgets.indexing_headline import show_now
-from app.ui.widgets.indexing_workers import IndexingWorkers
-from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
-from app.ui.widgets.status_funnel import StatusFunnel
-from app.ui.widgets.timed_out_panel import TimedOutPanel
-from app.ui.theme import SPACE_S, SPACE_L
 
 __all__ = [
     "CATEGORY_OFFLINE", "add_offline_shelf", "show_offline_shelf",
@@ -52,6 +44,10 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> Cate
     *Note, 5 October 2026:* Status is now two columns under the counts - the
     run on the left, what the index holds on the right (owner: "the right side
     is mainly blank"). It is still unwrapped, for the reason below.
+
+    *Note, 14 October 2026:* Status is now the cockpit
+    (`widgets/cockpit_layout.py`) - fixed rows, the lists in a tab panel that
+    scroll inside their tabs. Still unwrapped.
 
     **Status keeps its old, unwrapped shape.** `view.skips` already scrolls its
     own contents (`stretch=1`, exactly as before) and was never the reported
@@ -69,92 +65,12 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> Cate
     """
     status_name, read_name, schedule_name, tuning_name = names
 
-    status_page = QWidget()
-    status_layout = QVBoxLayout(status_page)
-    status_layout.setContentsMargins(0, 0, 0, 0)
-    status_layout.setSpacing(SPACE_S)
-    status_layout.addWidget(view.headline)
-    # The words the view opened with, read off the label rather than copied,
-    # so `paint_totals` can tell "no run has been shown yet" without a flag
-    # the view would have to maintain (it is at its line guard). See
-    # `paint_resting_headline`.
-    view._starting_headline = view._resting_headline = view.headline.text()
-    # 0x §4b: what the run is doing now, straight under the counts it explains.
-    status_layout.addWidget(view.now_line)
-    # 2026-09-29: the funnel - one line of counts per status word, at the top
-    # of the page as the owner chose, under the headline and its "now" line
-    # (which 0x §4b keeps directly under the headline). Made here, not in the
-    # view, which is at its line guard; `view.funnel` is set on the view
-    # exactly as if it had been.
-    view.funnel = StatusFunnel()
-    status_layout.addWidget(view.funnel)
-    status_layout.addWidget(view.totals)
-
-    # 2026-10-05, the owner: *"the right side is mainly blank, and ideally i
-    # would like to see all on one screen"*. Everything stood in one column
-    # with the right half of every line empty, and once the reader lines,
-    # Force skip and the timed-out panel had joined it, the column was taller
-    # than a maximised window and Qt crushed "This index". So, under the
-    # counts that head the page, two columns: **the run** on the left (bar,
-    # readers, the buttons that act on it) and **what the index holds** on
-    # the right (this panel, the run's log, the skipped files). The same
-    # widgets, in the same order within each column.
-    columns = QHBoxLayout()
-    columns.setSpacing(SPACE_L)
-    run_column = QVBoxLayout()
-    run_column.setSpacing(SPACE_S)
-    index_column = QVBoxLayout()
-    index_column.setSpacing(SPACE_S)
-    columns.addLayout(run_column, 3)
-    columns.addLayout(index_column, 2)
-    status_layout.addLayout(columns, 1)
-
-    run_column.addWidget(view.bar)
-    run_column.addWidget(view.detail)
-    # 0x §4d: one line per reader, the heartbeat, and the work behind them,
-    # under the detail line they add to. Made here rather than in the view,
-    # which is at its line guard; `view.workers_panel` is set on the view
-    # exactly as if it had been. Hidden until a run has something to show.
-    view.workers_panel = IndexingWorkers()
-    # 0z lane B: each busy reader's Force skip button.
-    view.workers_panel.forceSkip.connect(
-        lambda reader: force_skip_reader(view, reader))
-    run_column.addWidget(view.workers_panel)
-    run_column.addWidget(view.notices)
-    # 0x §4a: the button row is a widget of its own now
-    # (`widgets/indexing_controls.py`), no longer a bare layout.
-    run_column.addWidget(controls)
-    run_column.addWidget(view.archives)
-    # Order 0z F3: the files that ran out of time, by type, each with "Retry
-    # with a longer time limit". Made here rather than in the view, which is
-    # at its line guard; `view.timed_out` is set on the view exactly as if it
-    # had been. Hidden until the index holds one.
-    view.timed_out = TimedOutPanel()
-    run_column.addWidget(view.timed_out)
-    run_column.addStretch(1)
-
-    index_column.addWidget(view.stats_box)
-    # Work order 0w §2b. Made here rather than in the view, which is over its
-    # line guard: `view.run_log` is set on the view exactly as if it had been.
-    view.run_log = RunLog()
-    index_column.addWidget(view.run_log)
-    index_column.addWidget(view.skips, stretch=1)
-    # **Spare height goes below everything, not between the lines.** While
-    # the skips panel has nothing to show it is hidden, and its stretch goes
-    # with it; Qt then shared the column's spare height out as gaps between
-    # every row. This spacer has stretch 0, so while the skips panel is
-    # showing it takes nothing.
-    index_column.addStretch(0)
-
-    # **Tab reaches the log's filter, Copy and the log before the buttons**,
-    # as it did when the log stood above them (0x §4e; unchanged by the two
-    # columns). The log is made after the buttons, so Qt's made-first-comes-
-    # first default would put it after them; its three are slotted in just
-    # before Start, and the row keeps its own left-to-right order.
-    chain = (controls.start_button.previousInFocusChain(), view.run_log.filter,
-             view.run_log.copy_button, view.run_log.view) + _row(controls)
-    for first, second in zip(chain, chain[1:]):
-        QWidget.setTabOrder(first, second)
+    # 2026-10-14, the owner: *"That should be the cockpit for indexing"* -
+    # the Status shelf is a fixed instrument panel now, built in
+    # `widgets/cockpit_layout.py` (its docstring has the parts, top to bottom).
+    # It replaces the two columns of 2026-10-05; the same widgets, each at a
+    # fixed place, the lists in tabs.
+    status_page = build_status_page(view, controls)
 
     schedule_page = QWidget()
     schedule_layout = QVBoxLayout(schedule_page)
@@ -223,16 +139,6 @@ def show_offline_shelf(view: Any) -> None:
     view._nav.show_category(CATEGORY_OFFLINE)
 
 
-def _row(controls: Any) -> tuple:
-    """The button row's buttons, left to right, for the tab order.
-
-    Read from the row itself (`IndexControls.in_order`) rather than listed
-    again here: a second copy of the order went stale when the row was
-    reordered, and this chain, set last, silently undid the row's own.
-    """
-    return tuple(controls.in_order)
-
-
 def paint_totals(view: Any, payload: dict) -> None:
     """Paint the index summary from a worker's payload. UI thread, no I/O."""
     # Kept, so `repaint_totals` can redraw without a second read - see there.
@@ -267,6 +173,7 @@ def paint_totals(view: Any, payload: dict) -> None:
         # Order 0z F3. Also from this payload; `None` (not read) changes nothing.
         timed_out.show_groups(payload.get("timed_out"))
     paint_resting_headline(view, payload, running=running)
+    refresh_tabs(view)                           # 2026-10-14: the tabs' counts
     stats = payload.get("stats") or {}
     try:
         view.totals_shown.emit(int(stats.get("files_total", 0) or 0))
@@ -334,6 +241,10 @@ def paint_run_panels(view: Any, stats: Any) -> None:
     run_log = getattr(view, "run_log", None)
     if run_log is not None:
         run_log.show_activity(getattr(stats, "activity", None))
+    # 2026-10-14: the run's held files, for the cockpit's Held for later tab,
+    # and every tab's count now that its panel is painted.
+    view._run_skips = dict(getattr(stats, "skipped_by_code", None) or {})
+    refresh_tabs(view)
 
 
 def paint_due(view: Any, stats: Any, now: float, min_interval_s: float) -> bool:
@@ -403,6 +314,8 @@ def paint_progress(view: Any, stats: Any) -> None:
     funnel = getattr(view, "funnel", None)
     if funnel is not None:
         funnel.tick(view, stats)
+    # 2026-10-14: the cockpit's steps, tiles and resource strip.
+    paint_cockpit(view, stats)
     paint_run_panels(view, stats)
 
 
@@ -427,4 +340,5 @@ def paint_finished(view: Any, stats: Any) -> None:
     view.headline.setText(headline)
     view.detail.setText(detail)
     show_now(view, None)
+    paint_cockpit(view, stats, finished=True, whole=finished_whole)
     paint_run_panels(view, stats)

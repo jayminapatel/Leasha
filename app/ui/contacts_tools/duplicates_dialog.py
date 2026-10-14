@@ -109,6 +109,9 @@ class DuplicatesDialog(ToolDialog):
                             ("Confidence 70% or more", lambda g: g.confidence >= 0.7)):
             menu.addAction(words).triggered.connect(lambda _c=False, r=rule: self.tick(r))
         self.tick_button.setMenu(menu)
+        from app.ui.widgets.buttons import give_icon
+
+        give_icon(self.tick_button)                  # "Tick" was words alone (2026-10-14)
         self.ticked_label = QLabel("")
         named(self.ticked_label, "Groups ticked", "How many groups are ticked to merge")
         gl.addLayout(_row(self.tick_button, self.ticked_label))
