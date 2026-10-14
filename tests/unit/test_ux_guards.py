@@ -202,7 +202,7 @@ _ON_SCALE = {0, 4, 8, 12, 16, 24}
 #: activity table, which were being edited in parallel. This number may only go down - each
 #: file moved onto `theme.SPACE_*` lowers it, and a new gap off the scale fails here instead
 #: of passing unseen.
-OFF_SCALE_CEILING = 19
+OFF_SCALE_CEILING = 0
 
 #: A gap off the scale on purpose: a geometry, not a rhythm. Keyed "<file>: <call>" as
 #: `ast.unparse` writes the call, so a changed number drops out of the list and is counted.

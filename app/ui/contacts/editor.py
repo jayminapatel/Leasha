@@ -29,7 +29,7 @@ from app.ui.contacts.loader import Detail, read_photo, run_task
 from app.ui.contacts.logic import KIND_INFO, initials, merge_order, source_words
 from app.ui.contacts.parts import TokenEdit, retint_tools, tool_button
 from app.ui.contacts.review import ReviewBox
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_M, SPACE_S, SPACE_XS, theme_colours
 from app.ui.widgets.buttons import action_button, button_row
 from app.ui.widgets.flow_layout import FlowLayout
 from app.ui.widgets.icons import icon, icon_size
@@ -98,7 +98,7 @@ class ContactEditor(QWidget):
         self.acknowledge.setToolTip("I have looked: take the 'changed in two places' marker off this contact")
         self.acknowledge.clicked.connect(self._acknowledge)
         bl = QHBoxLayout(self.banner)
-        bl.setContentsMargins(8, 6, 8, 6)
+        bl.setContentsMargins(SPACE_S, SPACE_XS, SPACE_S, SPACE_XS)
         bl.addWidget(self.banner_icon)
         bl.addWidget(self.banner_text, 1)
         bl.addWidget(self.acknowledge)
@@ -150,14 +150,14 @@ class ContactEditor(QWidget):
         # fifteen rows of a narrow pane; this takes six, and a filled box still says what it is.
         form = QGridLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(8)
-        form.setVerticalSpacing(4)
+        form.setHorizontalSpacing(SPACE_S)
+        form.setVerticalSpacing(SPACE_XS)
         for i, (key, words) in enumerate(_NAME_PARTS):
             form.addWidget(self._cell(key, words), i // 2, i % 2)
         work = QGridLayout()
         work.setContentsMargins(0, 0, 0, 0)
-        work.setHorizontalSpacing(8)
-        work.setVerticalSpacing(4)
+        work.setHorizontalSpacing(SPACE_S)
+        work.setVerticalSpacing(SPACE_XS)
         for i, (key, words, _glyph) in enumerate(_WORK):
             work.addWidget(self._cell(key, words), i // 2, i % 2, 1, 2 if i == len(_WORK) - 1 and i % 2 == 0 else 1)
         for grid in (form, work):
@@ -167,7 +167,7 @@ class ContactEditor(QWidget):
         # -- repeatable kinds
         self.lists: dict[str, FieldList] = {}
         lists_box = QVBoxLayout()
-        lists_box.setSpacing(10)
+        lists_box.setSpacing(SPACE_S)
         for kind in KINDS:
             fl = FieldList(kind)
             fl.changed.connect(self._touch)
@@ -192,8 +192,8 @@ class ContactEditor(QWidget):
 
         body = QWidget()
         col = QVBoxLayout(body)
-        col.setContentsMargins(10, 8, 10, 12)
-        col.setSpacing(10)
+        col.setContentsMargins(SPACE_M, SPACE_S, SPACE_M, SPACE_M)
+        col.setSpacing(SPACE_S)
         col.addWidget(self.review)
         col.addWidget(self.banner)
         col.addWidget(self.banner_detail)
@@ -237,7 +237,7 @@ class ContactEditor(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.scroll, 1)
         buttons = button_row(self.save_button, self.cancel_button)
-        buttons.setContentsMargins(10, 4, 10, 8)
+        buttons.setContentsMargins(SPACE_M, SPACE_XS, SPACE_M, SPACE_S)
         outer.addLayout(buttons)
         self.setAccessibleName("Contact editor")
         self.retint(theme_colours())
@@ -258,7 +258,7 @@ class ContactEditor(QWidget):
         box = QWidget()
         col = QVBoxLayout(box)
         col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(1)
+        col.setSpacing(0)
         caption = QLabel(words)
         caption.setObjectName("resultsSummary")
         col.addWidget(caption)
@@ -270,7 +270,7 @@ class ContactEditor(QWidget):
         box = QWidget()
         row = QHBoxLayout(box)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
+        row.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon(glyph, theme_colours().get("text_dim", "#888888")).pixmap(16, 16))
         row.addWidget(pic)
@@ -282,7 +282,7 @@ class ContactEditor(QWidget):
         box = QWidget()
         row = QHBoxLayout(box)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
+        row.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon(glyph, theme_colours().get("text_dim", "#888888")).pixmap(16, 16))
         title = QLabel(words)

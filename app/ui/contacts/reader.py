@@ -28,7 +28,7 @@ from app.contacts.card import KINDS, Card, display_name
 from app.ui.contacts.logic import KIND_INFO, initials, label_icon
 from app.ui.theme import SPACE_M, SPACE_S, SPACE_XS, theme_colours
 from app.ui.widgets.buttons import action_button
-from app.ui.widgets.icons import icon
+from app.ui.widgets.icons import icon, icon_size
 from app.ui.widgets.scroll import scrollable
 from app.ui.widgets.paint_kit import points_for_pixels, scaled_font, set_weight
 
@@ -112,9 +112,9 @@ class ContactReader(QWidget):
         self.edit_button.setToolTip("Edit this contact (Enter or F2)")
         self.edit_button.clicked.connect(self.edit_requested.emit)
         names = QVBoxLayout()
-        names.setSpacing(2)
+        names.setSpacing(SPACE_XS)
         top = QHBoxLayout()
-        top.setSpacing(6)
+        top.setSpacing(SPACE_S)
         top.addWidget(self.heading, 1)
         top.addWidget(self.star, 0, Qt.AlignmentFlag.AlignTop)
         names.addLayout(top)
@@ -134,12 +134,12 @@ class ContactReader(QWidget):
         #: Where the page puts the panels it lends (`add_panels`).
         self._panels = QVBoxLayout()
         self._panels.setContentsMargins(0, 0, 0, 0)
-        self._panels.setSpacing(10)
+        self._panels.setSpacing(SPACE_S)
 
         body = QWidget()
         col = QVBoxLayout(body)
-        col.setContentsMargins(12, 10, 12, 12)
-        col.setSpacing(14)
+        col.setContentsMargins(SPACE_M, SPACE_M, SPACE_M, SPACE_M)
+        col.setSpacing(SPACE_M)
         col.addLayout(head)
         col.addWidget(self.details)
         col.addLayout(self._panels)
@@ -246,7 +246,7 @@ class ContactReader(QWidget):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(SPACE_XS)
         title_row = QHBoxLayout()
-        title_row.setSpacing(6)
+        title_row.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon(glyph, ink).pixmap(16, 16))
         title = QLabel(words)
@@ -256,9 +256,9 @@ class ContactReader(QWidget):
         title_row.addStretch(1)
         col.addLayout(title_row)
         grid = QGridLayout()
-        grid.setContentsMargins(22, 0, 0, 0)
+        grid.setContentsMargins(icon_size("list").width() + SPACE_XS, 0, 0, 0)
         grid.setHorizontalSpacing(SPACE_S)
-        grid.setVerticalSpacing(3)
+        grid.setVerticalSpacing(SPACE_XS)
         grid.setColumnStretch(1, 1)
         for row, (line_glyph, value, label) in enumerate(lines):
             tip = tips[row] if tips and row < len(tips) else ""

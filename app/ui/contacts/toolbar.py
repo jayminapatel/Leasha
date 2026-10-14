@@ -18,7 +18,7 @@ from typing import Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QToolButton, QWidget
 
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.contacts.parts import name_inner_buttons, tool_button
 from app.ui.presenter.contact_commands import CONTACT_COMMANDS, contact_matching
 from app.ui.widgets import menus
@@ -94,8 +94,8 @@ class ContactToolbar(QWidget):
         self.list_button.setChecked(True)
         self.tools: dict[str, object] = {}
         row = QHBoxLayout(self)
-        row.setContentsMargins(6, 4, 6, 4)
-        row.setSpacing(2)
+        row.setContentsMargins(SPACE_XS, SPACE_XS, SPACE_XS, SPACE_XS)
+        row.setSpacing(SPACE_XS)
         row.addWidget(self.new_button)
         row.addWidget(self._bar())
         row.addWidget(self.list_button)

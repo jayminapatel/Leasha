@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QPro
                                QTableWidgetItem, QToolButton, QWidget)
 
 from app.ui.presenter.account_activity import Activity, STATE_ICONS, actions_for, describe
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.widgets.icons import icon
 
 __all__ = ["ActivityTable", "COLUMNS"]
@@ -87,8 +87,8 @@ class ActivityTable(QTableWidget):
         holder = QWidget()
         holder.setProperty("actions", key)
         box = QHBoxLayout(holder)
-        box.setContentsMargins(2, 0, 2, 0)
-        box.setSpacing(2)
+        box.setContentsMargins(SPACE_XS, 0, SPACE_XS, 0)
+        box.setSpacing(SPACE_XS)
         for action in acts:
             button = QToolButton()
             button.setAutoRaise(True)

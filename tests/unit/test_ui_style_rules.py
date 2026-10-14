@@ -287,7 +287,7 @@ def test_the_size_guard_would_notice_a_number():
 
 #: Files that still write a gap the scale names as a number. **Owned by the Contacts wave** (`ui/c-contacts`,
 #: running beside this one), so moved onto `theme.SPACE_*` when it lands rather than here. Never grows.
-_SPACING_LITERALS_OK = {"contacts/editor.py"}
+_SPACING_LITERALS_OK: set[str] = set()
 
 _SPACING_CALLS = {"setSpacing", "addSpacing", "setContentsMargins", "setHorizontalSpacing", "setVerticalSpacing"}
 
