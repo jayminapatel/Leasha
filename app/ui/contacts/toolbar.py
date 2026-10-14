@@ -42,7 +42,7 @@ MORE_TOOLS = (
      "and find contacts that are empty or have repeated values - you see every change first"),
     ("enrich", "wand-sparkles", "Enrich selection…", "Look for missing details in your own mail and photos "
      "(and the internet, if you switched that on) - nothing is kept until you accept it"),
-    ("duplicates", "merge", "Find duplicates…", "Find people who are in your book twice, and merge them"),
+    # Review 2026-10-14 IA-8: "Find duplicates…" was here as well as on the bar (TOOLS); one place is enough.
     ("conflicts", "triangle-alert", "Changed in two places…", "Review the details changed in Leasha and at an "
      "account, and accept which value to keep - all at once or one by one"),
     ("select_all", "list-checks", "Select all contacts", "Pick every contact in the list (Ctrl+A), to act on them "
@@ -140,6 +140,11 @@ class ContactToolbar(QWidget):
         for b in self.findChildren(QToolButton):
             if b.accessibleName():
                 labelled(b)
+        # Review 2026-10-14 CS-8: what the account sync is doing, beside the tools; hidden while idle. Its words
+        # are its own (`presenter.sync_chip`), so it is added after the bar's buttons are labelled.
+        from app.ui.widgets.sync_chip import SyncChip  # noqa: PLC0415
+        self.sync_chip = SyncChip("contacts")
+        row.addWidget(self.sync_chip)
         self.fit_level = 0
         self._fitting = False
         row.addStretch(1)
@@ -183,6 +188,10 @@ class ContactToolbar(QWidget):
             return chosen
         finally:
             self._fitting = False
+
+    def showEvent(self, event: object) -> None:                   # noqa: N802 - Qt's naming
+        super().showEvent(event)
+        self.sync_chip.try_attach()
 
     def resizeEvent(self, event: object) -> None:                 # noqa: N802 - Qt's naming
         super().resizeEvent(event)

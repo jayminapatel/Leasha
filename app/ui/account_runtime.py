@@ -129,6 +129,19 @@ class LazyService:
         if panel is not None and action in ("reconnect", "test"):
             getattr(panel, "_reconnect" if action == "reconnect" else "_test")()
 
+    def open_duplicates(self) -> None:                          # UI thread
+        """Find duplicates on the Contacts page (review 2026-10-14 CS-10: the mirror waits until safe duplicates
+        are merged, and the Sync window's row says so with this button)."""
+        view = getattr(self._shell, "contacts_view", None)
+        show = getattr(self._shell, "_show", None)
+        if view is None:
+            return
+        if callable(show):
+            show(view)
+        page = view.ensure_built() if callable(getattr(view, "ensure_built", None)) else getattr(view, "page", None)
+        if page is not None and callable(getattr(page, "open_tool", None)):
+            page.open_tool("duplicates")
+
     def activity_overview(self) -> list:                        # worker
         """What each account's contacts and mail are doing: `AccountService.activity_snapshot`."""
         return get_service(self._shell).activity_snapshot(datetime.now())
@@ -186,9 +199,26 @@ class AccountRuntime:
         if self.page is not None:
             self.page.attach_scheduler(self.scheduler)
             self.page.state_loaded.connect(self._on_state)
+            # Review 2026-10-14 IA-5 / CS-10: Settings > Accounts opens the Sync window and Find duplicates.
+            if hasattr(self.page, "sync_window_requested"):
+                self.page.sync_window_requested.connect(lambda: self.open_sync())
+                self.page.duplicates_requested.connect(lambda: LazyService(self.shell).open_duplicates())
         tray = getattr(shell, "tray", None)
         if tray is not None and hasattr(tray, "set_account_actions"):
-            tray.set_account_actions(pause=self.pause, sync_now=self.sync_all, open_page=self.open_page)
+            tray.set_account_actions(pause=self.pause, sync_now=self.sync_all, open_page=self.open_page,
+                                     open_sync=self.open_sync)
+        # CS-8: the ambient status - the tray's line, and every sync chip already built (the rest attach when shown).
+        from app.ui.presenter.sync_chip import SyncTracker  # noqa: PLC0415
+        self.tracker = SyncTracker()
+        for signal, slot in ((self.scheduler.run_started, self.tracker.started),
+                             (self.scheduler.progress, self.tracker.progress),
+                             (self.scheduler.run_finished, self.tracker.finished),
+                             (self.scheduler.run_failed, self.tracker.failed_run)):
+            signal.connect(lambda value=None, s=slot: (s(value), self._tell_tray()))
+        if isinstance(shell, QObject):
+            from app.ui.widgets.sync_chip import SyncChip  # noqa: PLC0415
+            for chip in shell.findChildren(SyncChip):
+                chip.attach(self.scheduler)
 
     # -- the tray's two items
     def pause(self, choice: str) -> None:
@@ -202,6 +232,27 @@ class AccountRuntime:
 
     def sync_all(self) -> None:
         self.scheduler.sync_all_now()
+
+    def open_sync(self, parent: Any = None) -> Any:
+        """The one Sync window, to look - it starts no sync (IA-5: from Mail, Settings > Accounts, the tray and the
+        status chips)."""
+        from types import SimpleNamespace  # noqa: PLC0415
+
+        from app.ui.contacts_tools.sync_dialog import open_sync_window  # noqa: PLC0415
+
+        tray = getattr(self.shell, "tray", None)
+        if parent is None and tray is not None and hasattr(tray, "restore"):
+            tray.restore()
+        host = parent if parent is not None else self.shell
+        from PySide6.QtWidgets import QWidget  # noqa: PLC0415
+        if not isinstance(host, QWidget):
+            host = None
+        return open_sync_window(host, SimpleNamespace(service=LazyService(self.shell)), start=False)
+
+    def _tell_tray(self) -> None:
+        tray = getattr(self.shell, "tray", None)
+        if tray is not None and hasattr(tray, "set_accounts_activity"):
+            tray.set_accounts_activity(self.tracker.tray_line())
 
     def open_page(self) -> None:
         tray = getattr(self.shell, "tray", None)
