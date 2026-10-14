@@ -255,30 +255,30 @@ def test_the_funnel_is_at_the_top_of_the_indexing_page(qtbot, store) -> None:
     view = IndexingView()
     qtbot.addWidget(view)
     assert view.funnel.objectName() == OBJECT_NAME
-    # 2026-10-14, the cockpit: the funnel sits in the "This index" tab, so
-    # whether it shows is its own flag (`isHidden`), not whether that tab is
-    # the one in front (`isVisibleTo`, which this read before).
-    assert view.funnel.isHidden(), "hidden until it has counts"
+    # 2026-10-14, the cockpit (owner: "keep the counts on top"): the funnel is
+    # never hidden - it keeps its fixed two-line slot and is empty until it has
+    # counts. It was: hidden until it had counts (`not isVisibleTo`).
+    assert view.funnel.isVisibleTo(view) and view.funnel.text() == "", \
+        "in its place, empty until it has counts"
+    height = view.funnel.height()
     paint_totals(view, read_index_summary(store))
     text = view.funnel.text()
     assert text.startswith("Indexed 4 \u00b7 ")
     for part in ("Queued 1", "Deferred 1", "NameOnly 1", "Skipped 1", "TimedOut 1",
                  "Offline 2"):
         assert part in text
-    assert not view.funnel.isHidden()
+    assert view.funnel.isVisibleTo(view)
+    assert view.funnel.height() == height, "counts never change its height"
     assert "Deferred: " + fs.explain("Deferred") in view.funnel.toolTip()
-    # 2026-10-14, the cockpit (owner: "the sizes of boxes change on content"):
-    # no longer at the top of the page, where its second line pushed the page
-    # down, but at the top of the "This index" tab - above the totals and the
-    # summary of what the index holds. It was: straight after the headline's
-    # "now" line, above the totals.
-    from app.ui.widgets.cockpit_tabs import THIS_INDEX
-
-    tab = view.cockpit_tabs.widget(THIS_INDEX)
-    assert tab.isAncestorOf(view.funnel)
-    layout = view.funnel.parentWidget().layout()
-    assert layout.indexOf(view.funnel) < layout.indexOf(view.totals) \
-        < layout.indexOf(view.stats_box)
+    # At the top of the page: the row straight after the header (the state
+    # pill, the headline and its "now" line, the buttons), above the steps,
+    # the tiles and the bar. It was: straight after the "now" line in the same
+    # layout, above the totals - the header is a row of its own now.
+    page = view.funnel.parentWidget().layout()
+    header = page.itemAt(page.indexOf(view.funnel) - 1).layout()
+    assert header is not None and header.indexOf(view.pill) >= 0
+    assert page.indexOf(view.funnel) + 1 == page.indexOf(view.stepper)
+    assert not view.cockpit_tabs.isAncestorOf(view.funnel)
 
 
 def test_a_failed_read_leaves_the_last_counts(qtbot) -> None:

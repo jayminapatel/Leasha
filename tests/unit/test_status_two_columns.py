@@ -127,7 +127,8 @@ def test_the_cockpit_reads_top_to_bottom(qtbot) -> None:
     state and the buttons, the steps, the tiles, the bar, a row per thread,
     the machine, then the tabs holding the log, the lists and "This index"."""
     view = _view(qtbot)
-    order = [view.pill, view.stepper, view.tiles, view.bar, view.detail,
+    # 2026-10-14: the funnel's counts sit between the header and the steps.
+    order = [view.pill, view.funnel, view.stepper, view.tiles, view.bar, view.detail,
              view.workers_panel, view.resources, view.cockpit_tabs]
     tops = [_in_view(view, widget).top() for widget in order]
     assert tops == sorted(tops), tops

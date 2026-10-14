@@ -246,7 +246,8 @@ def _geometry(view) -> list:
     """Where every fixed part of the shelf is, and how big."""
     from PySide6.QtCore import QPoint, QRect
 
-    parts = [view.pill, view.headline, view.now_line, view.controls, view.stepper,
+    parts = [view.pill, view.headline, view.now_line, view.controls, view.funnel,
+             view.stepper,
              *view.stepper.chips, view.tiles, *view.tiles.boxes, view.bar, view.detail,
              view.workers_panel, view.workers_panel.area, view.workers_panel.heartbeat,
              view.resources, *view.resources.boxes, view.cockpit_tabs]
@@ -275,6 +276,17 @@ def test_nothing_on_the_shelf_moves_whatever_it_shows(qtbot, size) -> None:
                           "beside": {"state": "working", "task": long_name}}
     snapshots[2].notices = ["A notice that goes on and on " * 20]
     snapshots[2].skipped_by_code = {"ERR_OCR_HELD": 4000, "ERR_FILE_LOCKED": 3}
+    # The counts on top (owner: "keep the counts on top"): none, then a
+    # files line and a pictures line far wider than the page.
+    view.funnel.show_counts({"Indexed": 987_654_321, "Queued": 123_456_789,
+                             "Deferred": 55_555, "Skipped": 4_000_000, "Failed": 9,
+                             "Offline": 77, "NameOnly": 12_345, "TimedOut": 3})
+    view.funnel.show_pictures({"pictures": 15011, "read": 40, "faces_looked": 40,
+                               "faces": 120, "people": 8, "unsorted": 5,
+                               "to_describe": 300, "text_to_read": 999})
+    qtbot.wait(10)
+    assert _geometry(view) == before, "funnel counts"
+    assert view.funnel.text().startswith("Indexed 987,654,321")
     for snap in snapshots:
         _tick(view, snap)
         qtbot.wait(10)
@@ -287,6 +299,28 @@ def test_nothing_on_the_shelf_moves_whatever_it_shows(qtbot, size) -> None:
     qtbot.wait(10)
     assert _geometry(view) == before, "failed"
     assert view.minimumSizeHint().height() <= HEIGHT
+
+
+def test_the_counts_keep_two_lines_and_cut_what_does_not_fit(qtbot) -> None:
+    """The funnel at the top (owner: "keep the counts on top"): two lines high
+    whatever it holds, never hidden, each line cut with "…", whole in the tooltip."""
+    from app.ui.widgets.status_funnel import StatusFunnel
+
+    funnel = StatusFunnel()
+    qtbot.addWidget(funnel)
+    funnel.resize(220, funnel.height())
+    funnel.show()
+    qtbot.waitExposed(funnel)
+    height = funnel.height()
+    assert not funnel.isHidden() and funnel.text() == ""
+    funnel.show_counts({"Indexed": 448_210, "Queued": 1_200, "Deferred": 45,
+                        "Skipped": 310, "Failed": 12})
+    funnel.show_pictures({"pictures": 15011, "read": 40, "to_describe": 300})
+    assert funnel.height() == height and not funnel.wordWrap()
+    whole = funnel.text()
+    assert whole.startswith("Indexed 448,210 · ") and "\nPictures: 40 of 15,011" in whole
+    assert funnel.toolTip().startswith(whole), "cut, so whole in the tooltip"
+    assert "Deferred: " in funnel.toolTip()
 
 
 def test_the_reader_rows_follow_the_pool_and_are_reused(qtbot) -> None:
