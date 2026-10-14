@@ -26,8 +26,9 @@ __all__ = ["HOST_METHODS", "handle", "handled_keys", "AllowQuestion", "allow_que
 
 #: What a host of the rows provides. `row_sync(account_id, kind)`, `row_stop()`, `row_pause(account_id, paused)`,
 #: `row_allow(account_id)`, `row_fix(account_id)`, `row_account(account_id, "test" | "reconnect" | "settings")`,
-#: `row_duplicates()`.
-HOST_METHODS = ("row_sync", "row_stop", "row_pause", "row_allow", "row_fix", "row_account", "row_duplicates")
+#: `row_contacts_tool("duplicates" | "conflicts")` - a Contacts tool.
+HOST_METHODS = ("row_sync", "row_stop", "row_pause", "row_allow", "row_fix", "row_account",
+                "row_contacts_tool")
 
 _ROUTES: dict[str, tuple[str, str]] = {
     # key -> (host method, how it is called)
@@ -36,7 +37,7 @@ _ROUTES: dict[str, tuple[str, str]] = {
     "pause": ("row_pause", "pause"), "resume": ("row_pause", "resume"),
     "allow": ("row_allow", "id"), "fix": ("row_fix", "id"),
     "test": ("row_account", "action"), "reconnect": ("row_account", "action"), "settings": ("row_account", "action"),
-    "duplicates": ("row_duplicates", ""),
+    "duplicates": ("row_contacts_tool", "tool"), "conflicts": ("row_contacts_tool", "tool"),
 }
 
 
@@ -61,6 +62,8 @@ def handle(host: Any, account_id: int, kind: str, action: str) -> bool:
         fn(account_id)
     elif how == "action":
         fn(account_id, action)
+    elif how == "tool":
+        fn(action)
     else:
         fn()
     return True

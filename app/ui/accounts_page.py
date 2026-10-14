@@ -56,8 +56,8 @@ class AccountsPage(QWidget):
     state_loaded = Signal(object)
     #: "Open sync status" (IA-5): the runtime opens the one Sync window.
     sync_window_requested = Signal()
-    #: Find duplicates from an account's row (CS-10): the runtime opens it on the Contacts page.
-    duplicates_requested = Signal()
+    #: A Contacts tool from an account's row ("duplicates", "conflicts"): the runtime opens it there.
+    contacts_tool_requested = Signal(str)
 
     def __init__(self, factory: Callable[[], Any], parent: Optional[QWidget] = None, *,
                  scheduler: Any = None) -> None:
@@ -140,7 +140,7 @@ class AccountsPage(QWidget):
         self.panel.sync_requested.connect(self.request_sync)
         self.panel.stop_requested.connect(self._stop_run)
         self.panel.allow_requested.connect(lambda aid: self.request_sync(aid, "contacts", allow_brake=True))
-        self.panel.duplicates_requested.connect(self.duplicates_requested.emit)
+        self.panel.contacts_tool_requested.connect(self.contacts_tool_requested.emit)
         self.sync_window_button.clicked.connect(lambda: self.sync_window_requested.emit())
         self.panel.removed.connect(self._removed)
         self.log.approve_requested.connect(lambda aid: self.request_sync(aid, "contacts", approve=True))

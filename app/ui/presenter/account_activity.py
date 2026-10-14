@@ -42,13 +42,14 @@ STATE_WORDS = {
     "off": "Off", "never": "Not run yet",
     # Review 2026-10-14 CS-4 / CS-10: an account that is up to date, but not all the way.
     "partial": "Done, with problems", "mirror": "Waiting for duplicates",
+    "clash": "Waiting for you",
 }
 STATE_ICONS = {
     "running": "refresh-cw", "queued": "clock", "paused": "pause", "failed": "circle-alert",
     "held": "triangle-alert",
     "signin": "key-round", "stopped": "square", "idle": "circle-check", "manual": "play",
     "off": "ban", "never": "hourglass",
-    "partial": "triangle-alert", "mirror": "merge",
+    "partial": "triangle-alert", "mirror": "merge", "clash": "triangle-alert",
 }
 _KIND_WORDS = {"contacts": "Contacts", "mail": "Mail"}
 
@@ -201,7 +202,12 @@ def describe(snap: Mapping[str, Any], now: float) -> Activity:
     check = snap.get("check") or {}
     detail = (f"{checked}. " if checked else "") + tail + (f". {searchable}" if searchable else "")
     refused, waiting = (refused_count(snap), mirror_groups(snap)) if kind == "contacts" else (0, 0)
-    if refused:
+    if kind == "contacts" and run and run.get("error_code") == "ERR_SYNC_CONFLICT_HELD":
+        # The last run wrote what it could; some contacts wait on your choice of value (`ERR_SYNC_CONFLICT_HELD`).
+        text = " ".join(str(run.get("error_text") or "Contacts changed in two places wait for your choice").split())
+        what, _, fix = text.partition(" FIX:")
+        act = done("clash", _short(what, 200), (fix.strip() + " " if fix.strip() else "") + detail)
+    elif refused:
         # Review 2026-10-14 CS-4: a run that wrote all but a few said "Up to date" with a tick.
         act = done("partial", f"Up to date - {refused:,} contact{'s' if refused != 1 else ''} could not be written",
                    "The account refused them one by one; the rest was written. " + detail)
@@ -294,6 +300,9 @@ _ACTIONS = {
     "duplicates": Action("duplicates", "Find duplicates", "merge",
                          "Find people who are in your book twice, and merge them - the accounts are mirrored once "
                          "they are"),
+    # A clash waiting on your choice (ERR_SYNC_CONFLICT_HELD): the review of both values, not Allow.
+    "conflicts": Action("conflicts", "Changed in two places", "triangle-alert",
+                        "Open Contacts > Changed in two places and choose which value to keep"),
 }
 
 #: Every key `actions_for` can return. Each host of the rows handles them all (`presenter.account_actions`).
@@ -312,6 +321,8 @@ def actions_for(a: Activity) -> "list[Action]":
         keys = ["retry", "test"]
     elif a.state == "held":
         keys = ["allow"]
+    elif a.state == "clash":
+        keys = ["conflicts"]
     elif a.state == "partial":
         keys = ["retry_refused"] + (["fix"] if a.out_of_step else [])
     elif a.state == "mirror":
@@ -347,7 +358,7 @@ def overall_line(acts: "list[Activity]", snaps: "list[Mapping[str, Any]]") -> st
     counts: dict[str, int] = {}
     for a in acts:
         counts[a.state] = counts.get(a.state, 0) + 1
-    order = ("running", "queued", "failed", "held", "signin", "paused", "stopped", "partial", "mirror", "never",
+    order = ("running", "queued", "failed", "held", "clash", "signin", "paused", "stopped", "partial", "mirror", "never",
              "manual", "idle")
     bits = [f"{counts[s]} {STATE_WORDS[s].lower()}" for s in order if counts.get(s)]
     line = ", ".join(bits)

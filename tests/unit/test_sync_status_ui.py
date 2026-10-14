@@ -106,9 +106,9 @@ def test_the_panel_passes_find_duplicates_on(world):
     aid = svc.accounts.add("carddav", "a@x.com", "Home")
     p = _page(svc, pages)
     seen = []
-    p.duplicates_requested.connect(lambda: seen.append(1))
+    p.contacts_tool_requested.connect(seen.append)
     p.panel._row_action(aid, "contacts", "duplicates")
-    assert seen == [1]
+    assert seen == ["duplicates"]
 
 
 def test_settings_accounts_has_open_sync_status(world):
@@ -160,10 +160,10 @@ def test_the_sync_windows_allow_asks_first(qtbot, monkeypatch):
     dlg.do(5, "contacts", "allow")
     assert sched.calls == [(5, "contacts", {"allow_brake": True})]
     opened = []
-    service.open_duplicates = lambda: opened.append(1)
+    service.open_contacts_tool = opened.append
     dlg.do(5, "contacts", "duplicates")
     dlg.do(5, "contacts", "retry_refused")
-    assert opened == [1] and sched.calls[-1] == (5, "contacts", {})
+    assert opened == ["duplicates"] and sched.calls[-1] == (5, "contacts", {})
 
 
 def test_one_sync_window_for_every_page_of_a_window(qtbot):

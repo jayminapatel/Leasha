@@ -129,9 +129,9 @@ class LazyService:
         if panel is not None and action in ("reconnect", "test"):
             getattr(panel, "_reconnect" if action == "reconnect" else "_test")()
 
-    def open_duplicates(self) -> None:                          # UI thread
-        """Find duplicates on the Contacts page (review 2026-10-14 CS-10: the mirror waits until safe duplicates
-        are merged, and the Sync window's row says so with this button)."""
+    def open_contacts_tool(self, name: str) -> None:            # UI thread
+        """A Contacts tool from an activity row: "duplicates" (review 2026-10-14 CS-10: the mirror waits until
+        safe duplicates are merged) or "conflicts" (contacts changed in two places wait for your choice)."""
         view = getattr(self._shell, "contacts_view", None)
         show = getattr(self._shell, "_show", None)
         if view is None:
@@ -140,7 +140,7 @@ class LazyService:
             show(view)
         page = view.ensure_built() if callable(getattr(view, "ensure_built", None)) else getattr(view, "page", None)
         if page is not None and callable(getattr(page, "open_tool", None)):
-            page.open_tool("duplicates")
+            page.open_tool(name)
 
     def activity_overview(self) -> list:                        # worker
         """What each account's contacts and mail are doing: `AccountService.activity_snapshot`."""
@@ -202,7 +202,7 @@ class AccountRuntime:
             # Review 2026-10-14 IA-5 / CS-10: Settings > Accounts opens the Sync window and Find duplicates.
             if hasattr(self.page, "sync_window_requested"):
                 self.page.sync_window_requested.connect(lambda: self.open_sync())
-                self.page.duplicates_requested.connect(lambda: LazyService(self.shell).open_duplicates())
+                self.page.contacts_tool_requested.connect(lambda n: LazyService(self.shell).open_contacts_tool(n))
         tray = getattr(shell, "tray", None)
         if tray is not None and hasattr(tray, "set_account_actions"):
             tray.set_account_actions(pause=self.pause, sync_now=self.sync_all, open_page=self.open_page,

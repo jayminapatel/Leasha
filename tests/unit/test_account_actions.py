@@ -41,7 +41,8 @@ def test_every_key_the_rows_can_offer_is_handled():
     ("pause", ("row_pause", 4, True)), ("resume", ("row_pause", 4, False)),
     ("allow", ("row_allow", 4)), ("fix", ("row_fix", 4)),
     ("test", ("row_account", 4, "test")), ("reconnect", ("row_account", 4, "reconnect")),
-    ("settings", ("row_account", 4, "settings")), ("duplicates", ("row_duplicates",)),
+    ("settings", ("row_account", 4, "settings")), ("duplicates", ("row_contacts_tool", "duplicates")),
+    ("conflicts", ("row_contacts_tool", "conflicts")),
 ])
 def test_each_key_reaches_one_host_method(key, call):
     host = Host()
@@ -134,6 +135,17 @@ def test_the_mirror_waiting_on_duplicates_says_so_with_find_duplicates():
     assert a.state == "mirror" and "3 duplicate groups are merged" in a.headline
     assert [x.key for x in actions_for(a)] == ["duplicates", "sync", "settings"]
     assert actions_for(a)[0].label == "Find duplicates"
+
+
+def test_a_clash_waiting_on_you_says_so_and_offers_the_review_not_allow():
+    run = {"status": "ok", "error_code": "ERR_SYNC_CONFLICT_HELD",
+           "error_text": "2 contact(s) changed in two places and are waiting for your choice. FIX: Open Contacts"}
+    a = describe(snap(refused=0, run=run), NOW)
+    assert a.state == "clash" and a.word == "Waiting for you"
+    assert a.headline == "2 contact(s) changed in two places and are waiting for your choice."
+    keys = [x.key for x in actions_for(a)]
+    assert keys == ["conflicts", "settings"] and "allow" not in keys
+    assert actions_for(a)[0].label == "Changed in two places"
 
 
 def test_mail_rows_never_take_the_contact_states():

@@ -181,11 +181,11 @@ class SyncDialog(ToolDialog):
         if callable(opener):
             opener(account_id, action)
 
-    def row_duplicates(self) -> None:
-        """Find duplicates (CS-10): the mirror waits until safe duplicates are merged."""
-        opener = getattr(getattr(self.ctx, "service", None), "open_duplicates", None)
+    def row_contacts_tool(self, name: str) -> None:
+        """Find duplicates (CS-10: the mirror waits on them) or Changed in two places (a clash waits on you)."""
+        opener = getattr(getattr(self.ctx, "service", None), "open_contacts_tool", None)
         if callable(opener):
-            opener()
+            opener(name)
 
     # -- what the accounts last refused -----------------------------------------------------------------
 

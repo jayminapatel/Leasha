@@ -190,8 +190,9 @@ class AccountPanel(QGroupBox):
     stop_requested = Signal()
     #: Allow, confirmed (CS-2): sync this account's contacts with the brake off. The page asks the scheduler.
     allow_requested = Signal(int)
-    #: Find duplicates (CS-10): the mirror waits on them. The page passes it to the Contacts page.
-    duplicates_requested = Signal()
+    #: A Contacts tool from a row: "duplicates" (CS-10, the mirror waits on them) or "conflicts" (a clash
+    #: waits on your choice). The page passes it on to the Contacts page.
+    contacts_tool_requested = Signal(str)
 
     def __init__(self, backend: Backend, parent: Optional[QWidget] = None) -> None:
         super().__init__("Account", parent)
@@ -561,8 +562,8 @@ class AccountPanel(QGroupBox):
         else:
             self.focus_settings()
 
-    def row_duplicates(self) -> None:
-        self.duplicates_requested.emit()
+    def row_contacts_tool(self, name: str) -> None:
+        self.contacts_tool_requested.emit(name)
 
     def refresh_activity(self) -> None:
         """Ask what this account's contacts and mail are doing (a worker), and show it."""
