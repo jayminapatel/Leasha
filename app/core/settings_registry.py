@@ -232,7 +232,7 @@ SETTINGS: tuple[Setting, ...] = (
         key="FILE_KINDS_ALWAYS", label="Always list these file types (Files page)", kind="text",
         default="vsdx,vsd,mpp", group="Search", surface="settings.search",
         help="The Files page's Kinds list holds the commonest file types. Types named here - as extensions, "
-             "comma-separated: vsdx,vsd,mpp - are listed as well whenever the index holds any, however few. "
+             "comma-separated: vsdx,vsd,mpp - are always listed as well, with 0 when the index holds none. "
              "Visio and Microsoft Project are there by default.",
     ),
     Setting(
