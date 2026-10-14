@@ -215,12 +215,12 @@ def test_the_folder_tree_of_a_big_index_builds_at_once_and_in_the_right_order():
     began = time.perf_counter()
     tree = folder_tree([r"D:\Data"], counts)
     assert time.perf_counter() - began < 1.5                                        # it was 7 s at this size
-    assert tree[0] == ("place:D:\Data", "", "D:\Data", sum(c for _f, c in counts))
+    assert tree[0] == (r"place:D:\Data", "", r"D:\Data", sum(c for _f, c in counts))
     by_parent: dict = {}
     for key, parent, _folder, total in tree[1:]:
         by_parent.setdefault(parent, []).append(total)
     assert all(v == sorted(v, reverse=True) for v in by_parent.values())          # largest first at each level
-    assert len(by_parent["place:D:\Data"]) == 30 and max(len(v) for v in by_parent.values()) == 30
+    assert len(by_parent[r"place:D:\Data"]) == 30 and max(len(v) for v in by_parent.values()) == 30
     assert tree.index(next(r for r in tree if r[2] == r"D:\Data\Company 0")) < tree.index(
         next(r for r in tree if r[2] == r"D:\Data\Company 0\Project 0"))               # parents before children
 
