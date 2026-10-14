@@ -331,7 +331,14 @@ def plan_text(run: Any) -> str:
 
 
 def can_undo(run: Any) -> bool:
-    return run.status in ("ok", "partial") and not run.dry_run and not run.undone_at and (run.added or run.changed or run.deleted)
+    if run.dry_run or run.undone_at:
+        return False
+    if run.status == "held":
+        # Review CS-3: what a held run wrote to Leasha before it was held, or the deletes it held, can be undone -
+        # the remedy the brake's and the churn guard's own suggestions name.
+        plan = run.plan or {}
+        return bool(plan.get("journalled") or plan.get("held_delete_ids"))
+    return run.status in ("ok", "partial") and bool(run.added or run.changed or run.deleted)
 
 
 def can_approve(run: Any, latest_for_account: bool = True) -> bool:
@@ -376,11 +383,27 @@ def toasts_for(settings: Any, statuses: Iterable[Any], outcomes: Iterable[Any], 
             told.add(key)
             out.append(Toast(key, title, text))
 
+    churn_told = False
     for o in outcomes or ():
         if getattr(o, "status", "") == "held" and settings.notify_brake:
-            add(f"brake:{o.account_id}:{o.run_id}", "Sync held",
-                f"{o.account_name}: this sync would delete more contacts than your safety limit, so "
-                "nothing was deleted. Open Settings > Accounts to look.")
+            # Review CS-3: the toast says why the sync was held - the delete brake, or the churn guard - not the
+            # delete limit for every hold.
+            err = getattr(o, "error", None)
+            code = getattr(err, "code", "") or ""
+            if code == "ERR_SYNC_CHANGES_HELD":
+                if not churn_told:                            # one guard holds every account: one toast
+                    churn_told = True
+                    who = str((getattr(err, "context", None) or {}).get("account") or o.account_name)
+                    add(f"brake:{o.account_id}:{o.run_id}", "Sync held",
+                        f"{who}: most of its contacts came back changed in the same way, so nothing was written "
+                        "to any account. Open Settings > Accounts to look.")
+            elif code in ("", "ERR_SYNC_DELETE_BRAKE"):
+                add(f"brake:{o.account_id}:{o.run_id}", "Sync held",
+                    f"{o.account_name}: this sync would delete more contacts than your safety limit, so "
+                    "nothing was deleted. Open Settings > Accounts to look.")
+            else:
+                add(f"brake:{o.account_id}:{o.run_id}", "Sync held",
+                    f"{o.account_name}: {getattr(err, 'message', '')} Open Settings > Accounts to look.")
         plan = getattr(o, "plan", None)
         if plan is not None and (plan.conflicts or plan.held_conflicts) and settings.notify_conflict:
             add(f"conflict:{o.account_id}:{o.run_id}", "Changed in two places",

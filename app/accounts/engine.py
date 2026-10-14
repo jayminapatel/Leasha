@@ -115,6 +115,7 @@ class Plan:
     held_conflicts: int = 0
     failed_out: int = 0           # contacts the account refused one by one (the sync went on without them)
     held_deletes: int = 0         # deletes past the brake, waiting for Allow (1t D2)
+    held_delete_ids: list[int] = field(default_factory=list)  # the contacts those deletes are of (review CS-3: Undo)
     failures: list[list] = field(default_factory=list)         # [name, why, contact id], the first few
     names: dict[str, list[str]] = field(default_factory=dict)
     timing: dict = field(default_factory=dict)                 # 1t 1a: seconds by phase, and the transport's meter
@@ -133,7 +134,8 @@ class Plan:
         return {k: getattr(self, k) for k in (
             "add_in", "merge_in", "possible_duplicates", "flagged_deleted", "deleted_in", "create_out",
             "update_out", "delete_out", "conflicts", "held_conflicts", "failed_out", "held_deletes")} | {
-                "names": self.names, "failures": self.failures, "timing": self.timing}
+                "names": self.names, "failures": self.failures, "timing": self.timing} | (
+                {"held_delete_ids": self.held_delete_ids} if self.held_delete_ids else {})
 
     @property
     def added(self) -> int:
@@ -488,7 +490,7 @@ class ContactSyncEngine:
             ctx.plan.flagged_deleted += len(alive)
             err = make_error("ERR_SYNC_DELETE_BRAKE", "accounts.engine", count=len(alive), account=acct.name)
             self.accounts.finish_run(ctx.run_id, "held", error_code=err.code, error_text=err.message,
-                                     plan=ctx.plan.to_json(), held=len(alive))
+                                     plan=self._held_plan(ctx.plan, ctx.run_id), held=len(alive))
             raise _Held(err)
         for cid in alive:
             ctx.plan.note("deleted_in", self._name(cid))
@@ -800,6 +802,7 @@ class ContactSyncEngine:
         if deletes and _too_many(len(deletes), max(1, self.hub.count(include_bin=True)), settings) \
                 and not allow_brake:
             ctx.plan.held_deletes = len(deletes)
+            ctx.plan.held_delete_ids = [int(cid) for _k, _l, cid in deletes]
             for _k, _l, cid in deletes:
                 ctx.plan.note("held_deletes", self._name(cid))
             work = [w for w in work if w[0] != "delete"]
@@ -993,7 +996,8 @@ class ContactSyncEngine:
             err = out.error or make_error("ERR_SYNC_DELETE_BRAKE", "accounts.engine", count=p.held_deletes,
                                           account=acct.name)
             self.accounts.finish_run(out.run_id, "held", added=p.added, changed=p.changed, deleted=p.deleted,
-                                     held=p.held, error_code=err.code, error_text=err.message, plan=p.to_json())
+                                     held=p.held, error_code=err.code, error_text=err.message,
+                                     plan=self._held_plan(p, out.run_id))
             if err.code == "ERR_SYNC_DELETE_BRAKE":
                 # Everything else was written: as far as the schedule goes, this account synced.
                 self.accounts.record_success(acct.id, "contacts")
@@ -1046,6 +1050,39 @@ class ContactSyncEngine:
         self.accounts.finish_run(out.run_id, "ok", added=p.added, changed=p.changed, deleted=p.deleted,
                                  held=p.held, error_code=clash.code if clash else None,
                                  error_text=_with_fix(clash) if clash else None, plan=p.to_json())
+
+    def _held_plan(self, plan: Plan, run_id: int) -> dict:
+        """A held run's plan, with how many of its changes to the contact book the journal can undo (review CS-3):
+        a held run wrote to Leasha what it read before it was held, and its Undo puts that back."""
+        try:
+            n = int(self.store.conn.execute(
+                "SELECT COUNT(*) FROM contact_journal WHERE sync_id = ? AND undone_at IS NULL "
+                "AND action NOT IN ('undo', 'conflict', 'deleted_elsewhere')", (run_id,)).fetchone()[0])
+        except Exception:                                     # noqa: BLE001 - a count; never fails a sync
+            n = 0
+        return plan.to_json() | {"journalled": n}
+
+    def release_held(self, run: Any, res: Any) -> None:
+        """The rest of Undo for a held run (review CS-3), after the journal has put its changes back (`res`, the
+        hub's `UndoResult`, gains what this does):
+
+        * held by the delete brake: the contacts whose deletes it held come back out of the Bin, so nothing is
+          deleted at the account and the next sync does not hold them again;
+        * held by the churn guard: the hold, when this account's changes are what it held, is lifted - the
+          changes are gone from Leasha, and the push after the undo puts the account back as it was."""
+        if run is None or run.status != "held":
+            return
+        plan = run.plan or {}
+        if run.error_code == "ERR_SYNC_DELETE_BRAKE":
+            for cid in plan.get("held_delete_ids") or []:
+                if self.hub.restore(int(cid), actor="undo"):
+                    res.undone += 1
+                    res.accounts |= set(self.hub.kept_in(int(cid)))
+        elif run.error_code == "ERR_SYNC_CHANGES_HELD":
+            hold = self._churn_hold()
+            if hold is not None and str(hold.context.get("account") or "") == run.account_name:
+                self._set_churn_hold(None)
+                _log.info("churn guard: the hold on {} is lifted by Undo of run {}", run.account_name, run.id)
 
     def _held_clashes(self, account_id: int) -> int:
         """How many contacts wait for the person's choice of a clash with this account (review CS-11)."""

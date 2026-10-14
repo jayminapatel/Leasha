@@ -68,6 +68,113 @@ def _held_clash(world):
     return g, rid, cid
 
 
+# ----------------------------------------------------------------------------------------------------- CS-3
+@pytest.fixture
+def svc(tmp_path):
+    from app.accounts.service import AccountService
+    from tests.unit.mail_sync_fakes import secret_store
+    store = SqliteStore(tmp_path / "svc.db").connect()
+    servers: dict[int, FakeServer] = {}
+    providers: dict[int, FakeProvider] = {}
+    s = AccountService(store, secrets=secret_store(), provider_for=lambda a: providers[a.id])
+    s.accounts.update_settings(dry_run_first=False)
+
+    def account(name):
+        aid = s.accounts.add("google", f"{name.lower()}@example.com", name, direction="two-way")
+        servers[aid] = FakeServer()
+        providers[aid] = FakeProvider(servers[aid], page_size=50)
+        return aid
+    s.t_account, s.t_servers = account, servers
+    yield s
+    store.close()
+
+
+def _sync(svc, **kw):
+    return {o.account_id: o for o in svc.engine.sync(**kw)}
+
+
+def test_a_run_the_delete_brake_held_can_be_undone_and_nothing_is_deleted(svc):
+    from app.ui.accounts import logic
+    aid = svc.t_account("Home")
+    for i in range(10):
+        svc.t_servers[aid].add(person(f"P{i}", email=f"p{i}@x.com"))
+    _sync(svc)
+    svc.accounts.update_settings(brake_count=2, brake_percent=100.0)
+    for r in svc.hub.list_rows()[:4]:
+        svc.hub.delete(r.id)
+    out = _sync(svc)[aid]
+    assert out.status == "held" and out.error.code == "ERR_SYNC_DELETE_BRAKE"
+    run = svc.accounts.run(out.run_id)
+    assert logic.can_undo(run), "the brake's own suggestion says: if not, press Undo"
+    svc.undo_run(run.id)
+    assert svc.hub.count() == 10                              # the four are back out of the Bin
+    assert len(svc.t_servers[aid].live()) == 10               # and nothing was deleted at the account
+    again = _sync(svc)[aid]
+    assert again.status == "ok" and again.plan.held_deletes == 0 and len(svc.t_servers[aid].live()) == 10
+    assert logic.run_row(svc.accounts.run(run.id))["result"] == "Undone"
+
+
+def _churned(svc):
+    from app.contacts.card import Field
+    home, other = svc.t_account("Home"), svc.t_account("Other")
+    for i in range(60):
+        svc.t_servers[home].add(person(f"P{i}", email=f"p{i}@x.com"))
+    svc.accounts.update_settings(mirror_contacts=True)
+    _sync(svc)
+    _sync(svc)
+    for rid, rec in list(svc.t_servers[home].recs.items()):
+        card = rec.card.copy()
+        card.fields.append(Field("custom", "zzz", "server tag"))
+        svc.t_servers[home].edit(rid, card)
+    out = _sync(svc)
+    assert out[home].status == "held" and out[home].error.code == "ERR_SYNC_CHANGES_HELD"
+    return home, other, out
+
+
+def _tagged(cards):
+    return sum(1 for c in cards if any(f.label == "server tag" for f in c.fields))
+
+
+def test_a_run_the_churn_guard_held_can_be_undone_and_the_hold_is_lifted(svc):
+    from app.ui.accounts import logic
+    home, other, out = _churned(svc)
+    run = svc.accounts.run(out[home].run_id)
+    assert logic.can_undo(run), "the churn guard's own suggestion says: undo this sync in the sync log"
+    assert not logic.can_undo(svc.accounts.run(out[other].run_id))   # it read nothing: nothing to undo
+    svc.undo_run(run.id)
+    assert _tagged(svc.hub.get_card(r.id) for r in svc.hub.list_rows()) == 0
+    assert _tagged(svc.t_servers[home].live().values()) == 0          # the account is put back as it was
+    assert svc.engine._churn_hold() is None
+    after = _sync(svc)
+    assert after[home].status == "ok" and after[other].status == "ok"
+    assert _tagged(svc.t_servers[other].live().values()) == 0         # and the change never spread
+
+
+def test_undoing_another_accounts_held_run_leaves_the_churn_hold_standing(svc):
+    home, other, out = _churned(svc)
+    svc.undo_run(out[other].run_id)
+    assert svc.engine._churn_hold() is not None
+    assert _sync(svc)[other].status == "held"
+
+
+def test_the_held_toast_says_why_the_sync_was_held():
+    from datetime import datetime
+    from types import SimpleNamespace as NS
+    from app.core.errors import make_error
+    from app.ui.accounts import logic
+    settings = NS(notify_brake=True, notify_conflict=True, notify_signin=False, notify_failed_24h=False)
+    churn = make_error("ERR_SYNC_CHANGES_HELD", "t", account="Home", count="60", linked="60", what="custom added")
+    brake = make_error("ERR_SYNC_DELETE_BRAKE", "t", account="Work", count=40)
+    outs = [NS(status="held", account_id=1, account_name="Home", run_id=7, error=churn, plan=None),
+            NS(status="held", account_id=2, account_name="Other", run_id=8, error=churn, plan=None),
+            NS(status="held", account_id=3, account_name="Work", run_id=9, error=brake, plan=None)]
+    toasts = logic.toasts_for(settings, [], outs, datetime.now(), set())
+    assert [t.title for t in toasts] == ["Sync held", "Sync held"]    # one for the guard, one for the brake
+    assert toasts[0].text.startswith("Home: most of its contacts came back changed in the same way")
+    assert "safety limit" not in toasts[0].text
+    assert toasts[1].text.startswith("Work: this sync would delete more contacts than your safety limit")
+
+
 # ----------------------------------------------------------------------------------------------------- CS-6
 @pytest.mark.parametrize("side", ["local", "remote"])
 def test_a_clash_settled_in_the_dialog_is_not_asked_again(world, side):

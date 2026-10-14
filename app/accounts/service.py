@@ -548,8 +548,13 @@ class AccountService:
             return (account_id, kind) in self._running
 
     def undo_run(self, run_id: int) -> UndoResult:
-        """Undo a whole sync (3e): the hub is put back and the accounts are written to match."""
+        """Undo a whole sync (3e): the hub is put back and the accounts are written to match.
+
+        A held sync can be undone too (review CS-3): what it wrote to Leasha before it was held is put back, the
+        contacts whose deletes the brake held come back out of the Bin, and a churn hold it caused is lifted."""
+        run = self.accounts.run(int(run_id))
         res = self.hub.undo_sync(run_id)
+        self.engine.release_held(run, res)
         if res.accounts:
             self.engine.push(res.accounts, trigger="undo")
         return res
