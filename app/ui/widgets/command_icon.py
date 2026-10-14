@@ -174,7 +174,10 @@ def icon_for(glyph: str, colour: Any, *, size: int = ICON_PX) -> QIcon:
             # Proportional to the pixmap rather than a point size: the glyph has
             # to fill the icon whatever the person's text size is set to, and a
             # fixed 10pt in a 32px box is a speck.
-            font.setPixelSize(max(8, int(size * 0.72)))
+            # In points converted from that pixel height (DS-8: no pixel sizes).
+            from app.ui.widgets.paint_kit import points_for_pixels
+
+            font.setPointSizeF(points_for_pixels(max(8, int(size * 0.72))))
             painter.setFont(font)
             painter.drawText(QRectF(0, 0, size, size),
                              int(Qt.AlignmentFlag.AlignCenter), text)

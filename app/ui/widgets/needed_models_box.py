@@ -91,9 +91,9 @@ class _Line:
         self.key = str(model.key)
         self.title_words = str(model.title)
         self.title = QLabel(self.title_words)
-        font = self.title.font()
-        font.setBold(True)
-        self.title.setFont(font)
+        from app.ui.widgets.paint_kit import set_weight
+
+        self.title.setFont(set_weight(self.title.font(), "bold"))
         self.title.setWordWrap(True)
         self.purpose = QLabel(str(model.purpose))
         self.purpose.setWordWrap(True)

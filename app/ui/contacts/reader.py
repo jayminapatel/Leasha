@@ -30,6 +30,7 @@ from app.ui.theme import SPACE_M, SPACE_S, SPACE_XS, theme_colours
 from app.ui.widgets.buttons import action_button
 from app.ui.widgets.icons import icon
 from app.ui.widgets.scroll import scrollable
+from app.ui.widgets.paint_kit import points_for_pixels, scaled_font, set_weight
 
 __all__ = ["ContactReader", "round_photo", "work_line", "PHOTO_SIDE"]
 
@@ -58,9 +59,8 @@ def round_photo(photo: Any, name: str, side: int, colours: Optional[dict[str, st
         painter.drawPixmap((side - scaled.width()) // 2, (side - scaled.height()) // 2, scaled)
     else:
         painter.fillPath(path, QColor(c.get("accent_soft", "#dddddd")))
-        font = QFont(painter.font())
-        font.setBold(True)
-        font.setPixelSize(int(side * 0.38))
+        font = set_weight(QFont(painter.font()), "bold")
+        font.setPointSizeF(points_for_pixels(int(side * 0.38)))     # sized to the circle, in points
         painter.setFont(font)
         painter.setPen(QColor(c.get("accent_text", "#444444")))
         painter.drawText(QRect(0, 0, side, side), Qt.AlignmentFlag.AlignCenter, initials(name) if name else "?")
@@ -99,10 +99,10 @@ class ContactReader(QWidget):
         self.heading.setObjectName("contactName")
         self.heading.setWordWrap(True)
         self.heading.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        # The type scale's `title` step (it was x1.35, a step of its own; review 2026-10-14, DS-8).
         font = QFont(self.heading.font())
-        font.setBold(True)
-        font.setPointSizeF(max(font.pointSizeF(), 9.0) * 1.35)
-        self.heading.setFont(font)
+        font.setPointSizeF(max(font.pointSizeF(), 9.0))
+        self.heading.setFont(scaled_font(font, "title", weight="bold"))
         self.work = _selectable("", dim=True)
         self.work.setAccessibleName("Job and company")
         self.star = QLabel()

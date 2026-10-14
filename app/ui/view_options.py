@@ -1376,10 +1376,10 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
 def apply_font(widget: Any, font_pt: int) -> None:
     """Set (or clear) a point-size override on one widget, via its stylesheet.
 
-    A stylesheet rule wins over `setFont`, and `theme.py` sets `font-size: 13px`
-    on every QWidget - so this is the only way a size preference actually takes
-    effect. An empty override removes the rule and lets the theme decide again,
-    rather than freezing whatever size happened to be set last.
+    A stylesheet rule wins over `setFont`, and `theme.py` sets `font-size: {body}`
+    (in points, `theme.font_sizes`) on every QWidget - so this is the only way a
+    size preference actually takes effect. An empty override removes the rule and lets the theme
+    decide again, rather than freezing whatever size happened to be set last.
     """
     try:
         size = int(font_pt or 0)
@@ -1634,8 +1634,8 @@ def _apply_to_table(table: Any, prefs: ViewPreferences, order: Sequence[str],
 
     # **Through the stylesheet, not through QFont.**
     #
-    # `theme.py` sets `font-size: 13px` on QWidget, and a stylesheet rule beats
-    # anything `setFont` does - so the text-size preference was being applied
+    # `theme.py` sets `font-size` (the body step, in points) on QWidget, and a
+    # stylesheet rule beats anything `setFont` does - so the text-size preference was being applied
     # and then silently overridden, doing nothing at all on a table.
     #
     # It also caused `QFont::setPointSize: Point size <= 0 (-1)` on startup: a
