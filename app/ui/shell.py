@@ -863,6 +863,9 @@ class MainWindow(QMainWindow):
             self.settings_view = SettingsView(settings, store)
             self.settings_view.debug_pane.file_chosen.connect(self._open_path)
             self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
+            # 2026-10-14: the Indexing cockpit's System log tab is the same pane.
+            self.indexing_view.system_log.file_chosen.connect(self._open_path)
+            self.indexing_view.system_log.pop_out.connect(self._pop_out_log)
             self.settings_view.set_roots(
                 self._load_roots(), self._load_root_modes(), self._load_cloud_content_roots(),
                 self.settings_ctl._load_first_folders())
@@ -1959,7 +1962,8 @@ class MainWindow(QMainWindow):
         # exist); this also runs on an operating-system theme change.
         indexing_view = getattr(self, "indexing_view", None)
         settings_view = getattr(self, "settings_view", None)
-        for target in (getattr(settings_view, "debug_pane", None), self._log_window):
+        for target in (getattr(settings_view, "debug_pane", None), self._log_window,
+                       getattr(indexing_view, "system_log", None)):
             if target is not None:
                 target.set_palette(colours)
         # The rail's and toolbar's icons are pixmaps and never see the sheet

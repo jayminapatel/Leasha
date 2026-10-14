@@ -306,6 +306,43 @@ def start_blocked_reason(record: Any, *, locked: bool) -> str:
             f"Stop will end it; searching is unaffected.")
 
 
+#: What the ETA says when there is no total to count against - the progress
+#: line's own words, in one place now that the cockpit's Time left tile shows
+#: the same answer (2026-10-14).
+ETA_UNKNOWN = "time remaining unknown - run `app.cli scan` for a real estimate"
+
+
+def run_rate(stats: Any) -> tuple[Optional[float], float]:
+    """`(recent, rate)`: the last quarter-hour's files a minute, and the rate shown.
+
+    **The rate over the last quarter of an hour, not since the start.** An
+    average over four days barely moves, so a run that has slowed to a crawl
+    still reports the number it managed on day one - and that is exactly the
+    moment somebody needs to know. `recent` is `None` while there is no
+    measurement yet, which `format_eta` turns into "estimating…" rather than
+    into a confident zero; `rate` then falls back to the whole run's average.
+    """
+    recent = getattr(stats, "recent_files_per_minute", None)
+    rate = recent if recent is not None else (
+        getattr(stats, "files_per_minute", 0) or 0)
+    return recent, rate
+
+
+def run_eta(stats: Any, *, total_estimate: int = 0) -> str:
+    """How long is left, in words - or `ETA_UNKNOWN` without a total.
+
+    **An ETA that is allowed to say it does not know.** Without a `scan` there
+    is no total, so the only honest answer to "how much longer" is that nothing
+    here can tell - and no number is better than a wrong one on a job measured
+    in days.
+    """
+    if not total_estimate:
+        return ETA_UNKNOWN
+    done, _total = progress_for(stats, total_estimate=total_estimate)
+    _recent, rate = run_rate(stats)
+    return format_eta(max(0, total_estimate - done), files_per_minute=rate)
+
+
 def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False) -> tuple[str, str]:
     """`(headline, detail)` for a progress tick.
 
@@ -349,27 +386,10 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
     if doing:
         return headline, doing
 
-    done, _total = progress_for(stats, total_estimate=total_estimate)
-
-    # **The rate over the last quarter of an hour, not since the start.**
-    #
-    # An average over four days barely moves, so a run that has slowed to a
-    # crawl still reports the number it managed on day one - and that is
-    # exactly the moment somebody needs to know. `None` while there is no
-    # measurement yet, which `format_eta` turns into "estimating…" rather than
-    # into a confident zero.
-    recent = getattr(stats, "recent_files_per_minute", None)
-    rate = recent if recent is not None else (
-        getattr(stats, "files_per_minute", 0) or 0)
-
-    # **An ETA that is allowed to say it does not know.** Without a `scan` there
-    # is no total, so the only honest answer to "how much longer" is that
-    # nothing here can tell - and no number is better than a wrong one on a job
-    # measured in days.
-    if total_estimate:
-        eta = format_eta(max(0, total_estimate - done), files_per_minute=rate)
-    else:
-        eta = "time remaining unknown - run `app.cli scan` for a real estimate"
+    # The rate and the ETA are `run_rate` / `run_eta`, shared with the
+    # cockpit's Speed and Time left tiles so the two can never disagree.
+    recent, rate = run_rate(stats)
+    eta = run_eta(stats, total_estimate=total_estimate)
 
     current = getattr(stats, "current", "") or ""
     # **Say when it is OCR.** A run reading text moves at hundreds of files a
