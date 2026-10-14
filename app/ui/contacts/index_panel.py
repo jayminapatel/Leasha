@@ -32,7 +32,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
 
 from app.ui.contacts import loader
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.widgets.buttons import action_button
 from app.ui.widgets.icons import icon
 
@@ -91,7 +91,7 @@ class IndexPanel(QWidget):
         self.heading = QWidget()
         head = QHBoxLayout(self.heading)
         head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(6)
+        head.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon("search", theme_colours().get("text_dim", "#888888")).pixmap(16, 16))
         title = QLabel("From your index")
@@ -105,10 +105,10 @@ class IndexPanel(QWidget):
         self.summary.setAccessibleName("First and last contact")
         self.body = QVBoxLayout()
         self.body.setContentsMargins(0, 0, 0, 0)
-        self.body.setSpacing(2)
+        self.body.setSpacing(SPACE_XS)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(4)
+        outer.setSpacing(SPACE_XS)
         outer.addWidget(self.heading)
         outer.addWidget(self.summary)
         outer.addLayout(self.body)
@@ -245,7 +245,7 @@ class IndexPanel(QWidget):
     def _link_row(self, state: str, pile_name: str, has_photos: bool) -> None:
         """2c in the panel: accept or refuse a suggested person, or ask for a suggestion."""
         row = QHBoxLayout()
-        row.setContentsMargins(0, 4, 0, 0)
+        row.setContentsMargins(0, SPACE_XS, 0, 0)
         label = QLabel("")
         label.setObjectName("resultsSummary")
         label.setWordWrap(True)
@@ -288,7 +288,7 @@ class IndexPanel(QWidget):
         if not photos and not mail:
             return
         row = QHBoxLayout()
-        row.setContentsMargins(0, 4, 0, 0)
+        row.setContentsMargins(0, SPACE_XS, 0, 0)
         if photos:
             see = action_button("See all photos", "image", "secondary")
             see.setToolTip(f"Open Photos on every photo of {pile_name}")

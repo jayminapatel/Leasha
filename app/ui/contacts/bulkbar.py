@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QLabel, QMenu, QToolButton, QWidget
 
 from app.ui.contacts.parts import tool_button
 from app.ui.widgets import menus
+from app.ui.theme import SPACE_XS, SPACE_S
 from app.ui.widgets.flow_layout import FlowLayout
 
 __all__ = ["BulkBar"]
@@ -73,7 +74,7 @@ class BulkBar(QWidget):
         # A flow, not a row: eleven buttons side by side are wider than the list they sit over,
         # and a bar that wide pushes the editor out of the window.
         row = FlowLayout(self, spacing=4)
-        row.setContentsMargins(8, 4, 8, 4)
+        row.setContentsMargins(SPACE_S, SPACE_XS, SPACE_S, SPACE_XS)
         row.addWidget(self.count)
         for b in (self.add_group, self.remove_group, self.add_tag, self.remove_tag, self.add_account,
                   self.remove_account, self.company, self.favourite, self.export, self.delete, self.restore,

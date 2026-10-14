@@ -22,7 +22,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.ui.contacts import loader
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.widgets.buttons import action_button, button_row
 from app.ui.widgets.icons import icon
 
@@ -63,7 +63,7 @@ class EnrichPanel(QWidget):
         heading = QWidget()
         head = QHBoxLayout(heading)
         head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(6)
+        head.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon("wand-sparkles", theme_colours().get("text_dim", "#888888")).pixmap(16, 16))
         title = QLabel("Enrichment")
@@ -86,10 +86,10 @@ class EnrichPanel(QWidget):
         self.declined_title.setAccessibleName("Suggestions you turned down")
         self.declined_body = QVBoxLayout()
         self.declined_body.setContentsMargins(0, 0, 0, 0)
-        self.declined_body.setSpacing(2)
+        self.declined_body.setSpacing(SPACE_XS)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(4)
+        outer.setSpacing(SPACE_XS)
         outer.addWidget(heading)
         outer.addLayout(button_row(self.enrich_button, self.again_button))
         outer.addWidget(self.declined_title)

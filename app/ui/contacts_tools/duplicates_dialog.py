@@ -34,6 +34,7 @@ from app.ui.widgets import menus
 from app.ui.widgets.icons import icon
 from app.ui.widgets.select_all import SelectBar
 from app.ui.widgets.dialog_frame import frame
+from app.ui.theme import SPACE_S
 
 __all__ = ["DuplicatesDialog", "PlanDialog"]
 
@@ -89,7 +90,7 @@ class DuplicatesDialog(ToolDialog):
 
         groups = QWidget()
         gl = QVBoxLayout(groups)
-        gl.setContentsMargins(0, 6, 0, 0)
+        gl.setContentsMargins(0, SPACE_S, 0, 0)
         self.table = make_table(self, ["Why", "Confidence", "Contacts", "Merge all safe?"], "Duplicate groups",
                                 "Each row is a group of contacts that may be one person", stretch=2)
         self.table.itemDoubleClicked.connect(lambda _i: self.review())
@@ -118,7 +119,7 @@ class DuplicatesDialog(ToolDialog):
 
         rejected = QWidget()
         rl = QVBoxLayout(rejected)
-        rl.setContentsMargins(0, 6, 0, 0)
+        rl.setContentsMargins(0, SPACE_S, 0, 0)
         self.rejected_table = make_table(self, ["Contact", "Not the same as"], "Rejected pairs",
                                          "Pairs you said are not duplicates", stretch=1, select="multi")
         self.rejected_table.itemSelectionChanged.connect(self._sync_buttons)
@@ -354,7 +355,7 @@ class DuplicatesDialog(ToolDialog):
 def _row(*buttons: QWidget) -> QHBoxLayout:
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
-    row.setSpacing(8)
+    row.setSpacing(SPACE_S)
     for b in buttons:
         row.addWidget(b)
     row.addStretch(1)

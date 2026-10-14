@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (QComboBox, QGridLayout, QHBoxLayout, QLabel, QLin
 from app.contacts.card import Field
 from app.ui.contacts.logic import KIND_INFO, LABELS, label_icon
 from app.ui.contacts.parts import tool_button
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.widgets.region_box import CountryBox
 from app.ui.widgets.icons import icon
 
@@ -121,7 +121,7 @@ class FieldRow(QWidget):
         self.value.textChanged.connect(self._edited)
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
+        row.setSpacing(SPACE_XS)
         row.addWidget(self.grip)
         row.addWidget(self.glyph)
         row.addWidget(self.label)
@@ -136,13 +136,13 @@ class FieldRow(QWidget):
         row.addWidget(self.remove)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(3)
+        outer.setSpacing(SPACE_XS)
         outer.addLayout(row)
         if kind == "address":
             grid = QGridLayout()
             grid.setContentsMargins(46, 0, 0, 0)         # under the label, clear of the grip and the icon
-            grid.setHorizontalSpacing(4)
-            grid.setVerticalSpacing(3)
+            grid.setHorizontalSpacing(SPACE_XS)
+            grid.setVerticalSpacing(SPACE_XS)
             where = {"street": (0, 0, 1, 2), "city": (1, 0, 1, 1), "postcode": (1, 1, 1, 1),
                      "region": (2, 0, 1, 1), "country": (2, 1, 1, 1)}
             for key, words in ADDRESS_PARTS:
@@ -272,10 +272,10 @@ class FieldList(QWidget):
         head.addWidget(self.add_button)
         self._rows_box = QVBoxLayout()
         self._rows_box.setContentsMargins(0, 0, 0, 0)
-        self._rows_box.setSpacing(4)
+        self._rows_box.setSpacing(SPACE_XS)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(4)
+        outer.setSpacing(SPACE_XS)
         outer.addLayout(head)
         outer.addLayout(self._rows_box)
         self.setAcceptDrops(True)

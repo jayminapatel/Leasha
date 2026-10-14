@@ -24,7 +24,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.ui.contacts.logic import conflict_items
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_S, theme_colours
 from app.ui.widgets.buttons import action_button
 from app.ui.widgets.icons import icon
 
@@ -64,7 +64,7 @@ class ReviewBox(QWidget):
         self._decided: list[str] = []
         self._column = QVBoxLayout(self)
         self._column.setContentsMargins(0, 0, 0, 0)
-        self._column.setSpacing(6)
+        self._column.setSpacing(SPACE_S)
         self.setAccessibleName("Decisions for this contact")
         self.hide()
 
@@ -108,7 +108,7 @@ class ReviewBox(QWidget):
         frame.setObjectName("contactReview")
         frame.setStyleSheet(f"#contactReview {{ border: 1px solid {colour}; border-radius: 6px; }}")
         outer = QVBoxLayout(frame)
-        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setContentsMargins(SPACE_S, SPACE_S, SPACE_S, SPACE_S)
         head = QHBoxLayout()
         pic = QLabel()
         pic.setPixmap(icon(glyph, colour).pixmap(18, 18))
