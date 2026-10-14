@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.134 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 4.135 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -36,6 +36,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   (Browse's Thumbnails/Table, Whole year, Sort, the scope bar, chat reply actions, dialog tabs) have
   theirs, and the guard checks every kind of button and every tab; People's "Seen once" menu raised
   an error on right-click.
+- **One conductor for every model** (`app/index/conductor.py`): one budget of processor slots (8 of 12
+  on the owner's laptop, from the envelope) and one graphics-card slot, by priority. The run's end
+  describes photos, reads their text and groups faces side by side; faces on the processor run on a
+  pool; reader growth is wired. A 30-file sample ran 30-45% faster (noisy measurement).
 
 ### People: faces seen once can be named, tiny faces are not kept, and a Sort button (2026-10-14)
 
