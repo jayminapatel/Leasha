@@ -355,6 +355,7 @@
     <Compile Include="app\index\card_pass.py" />
     <Compile Include="app\index\child_run.py" />
     <Compile Include="app\index\clip_embedder.py" />
+    <Compile Include="app\index\conductor.py" />
     <Compile Include="app\index\device_test.py" />
     <Compile Include="app\index\doc_cards.py" />
     <Compile Include="app\index\embed_bench.py" />
@@ -951,6 +952,8 @@
     <Compile Include="tests\unit\test_commit_preview.py" />
     <Compile Include="tests\unit\test_completions_sidecar.py" />
     <Compile Include="tests\unit\test_compute_envelope.py" />
+    <Compile Include="tests\unit\test_conductor.py" />
+    <Compile Include="tests\unit\test_conductor_in_the_run.py" />
     <Compile Include="tests\unit\test_config.py" />
     <Compile Include="tests\unit\test_connection_per_thread.py" />
     <Compile Include="tests\unit\test_consumer_never_waits.py" />
@@ -1117,6 +1120,7 @@
     <Compile Include="tests\unit\test_handoff_current.py" />
     <Compile Include="tests\unit\test_header_signal_safety.py" />
     <Compile Include="tests\unit\test_heif_preview.py" />
+    <Compile Include="tests\unit\test_held_photos_read_with_run.py" />
     <Compile Include="tests\unit\test_identifiers.py" />
     <Compile Include="tests\unit\test_idle_optimize.py" />
     <Compile Include="tests\unit\test_idle_tune_and_space_report_ui.py" />
@@ -1531,6 +1535,7 @@
     <Compile Include="tests\unit\test_writer_path_review.py" />
     <Compile Include="tests\unit\timeline_env.py" />
     <Compile Include="tools\__init__.py" />
+    <Compile Include="tools\conductor_bench.py" />
     <Compile Include="tools\extract_speed.py" />
     <Compile Include="tools\fts_scale_bench.py" />
     <Compile Include="tools\grab_ui.py" />
@@ -1739,6 +1744,7 @@
     <Content Include="docs\REFERENCE-model-backends.md" />
     <Content Include="docs\REVIEW-2026-08-25.md" />
     <Content Include="docs\REVIEW-2026-08-26.md" />
+    <Content Include="docs\REVIEW-2026-10-14-ux-architecture.md" />
     <Content Include="docs\TEST_COVERAGE.md" />
     <Content Include="docs\THIRD_PARTY_NOTICES.md" />
     <Content Include="docs\TROUBLESHOOTING.md" />
@@ -1791,6 +1797,7 @@
     <Content Include="docs\WORKORDER-git-search-backend.md" />
     <Content Include="docs\WORKORDER-git-search-ui.md" />
     <Content Include="docs\WORKORDER-inbound-ui-fixes.md" />
+    <Content Include="docs\WORKORDER-indexing-cockpit-and-conductor.md" />
     <Content Include="docs\WORKORDER-libraries-before-converters.md" />
     <Content Include="docs\WORKORDER-local-verify-2026-09-29.md" />
     <Content Include="docs\WORKORDER-mail-folder-list.md" />
