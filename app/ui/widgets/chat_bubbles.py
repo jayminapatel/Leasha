@@ -41,7 +41,7 @@ from app.ui.presenter.chat import (
 )
 from app.ui.results_view import ResultsView
 from app.ui.widgets.chat_markdown import AnswerBody
-from app.ui.theme import SPACE_S, SPACE_M, SPACE_L
+from app.ui.theme import SPACE_XS, SPACE_S, SPACE_M, SPACE_L, SPACE_XL
 
 __all__ = ["BubbleList", "UserBubble", "AnswerBubble"]
 
@@ -136,8 +136,8 @@ class UserBubble(QFrame):
         self.edit_button.setVisible(False)
         self.edit_button.clicked.connect(lambda _c=False: self.edit_requested.emit())
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 8, 12, 6)
-        layout.setSpacing(2)
+        layout.setContentsMargins(SPACE_M, SPACE_S, SPACE_M, SPACE_S)
+        layout.setSpacing(SPACE_XS)
         layout.addWidget(self.label)
         layout.addWidget(self.edit_button, alignment=Qt.AlignmentFlag.AlignRight)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
@@ -254,7 +254,7 @@ class AnswerBubble(QFrame):
         self.actions.setObjectName("chatActions")
         row = QHBoxLayout(self.actions)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(2)
+        row.setSpacing(SPACE_XS)
         for button in (self.copy_button, self.regenerate_button, self.retry_button):
             row.addWidget(button)
         row.addStretch(1)
@@ -470,7 +470,7 @@ def centred(*widgets: QWidget) -> QWidget:
     inner.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     column = QVBoxLayout(inner)
     column.setContentsMargins(0, 0, 0, 0)
-    column.setSpacing(6)
+    column.setSpacing(SPACE_S)
     for widget in widgets:
         column.addWidget(widget)
     row.addWidget(inner, 100)
@@ -505,15 +505,15 @@ class BubbleList(QScrollArea):
         centring.addStretch(1)
         self._column = QVBoxLayout(self.column_widget)
         self._column.setContentsMargins(0, 0, 0, 0)
-        self._column.setSpacing(18)
+        self._column.setSpacing(SPACE_L)
         # Order 1o (2026-10-11), "consistent across tabs depending on function": an
         # empty conversation reads like the Search page's empty box - its headline
         # and its greeting, in the same styles (`emptyHeadline`, `emptyGreeting`).
         self.empty = QWidget()
         self.empty.setObjectName("chatEmpty")
         stack = QVBoxLayout(self.empty)
-        stack.setContentsMargins(0, 48, 0, 0)
-        stack.setSpacing(10)
+        stack.setContentsMargins(0, 2 * SPACE_XL, 0, 0)
+        stack.setSpacing(SPACE_S)
         heading = QLabel(EMPTY_HEADING)
         heading.setObjectName("emptyHeadline")
         heading.setWordWrap(True)

@@ -52,7 +52,7 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget,
 )
 
-from app.ui.theme import RADIUS, SPACE_S, font_sizes, text_size, theme_colours
+from app.ui.theme import RADIUS, SPACE_XS, SPACE_S, font_sizes, text_size, theme_colours
 
 __all__ = [
     "AnswerBody", "render_markdown_html", "strip_markers", "split_segments",
@@ -74,6 +74,8 @@ _PARAGRAPH_GAP = 9.0
 _LIST_GAP = 3.0
 _INDENT_PX = 22.0
 _CODE_SCALE = 0.95
+#: A code block's document margin, in px: the code's first column sits this far in.
+_DOC_MARGIN = 2
 
 # ---------------------------------------------------------------------------
 # Pure text handling (no Qt)
@@ -740,12 +742,12 @@ class _CodeBlock(QFrame):
         self.view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.view.setUndoRedoEnabled(False)
-        self.view.document().setDocumentMargin(2)
+        self.view.document().setDocumentMargin(_DOC_MARGIN)
         self.view.setTabStopDistance(self.view.fontMetrics().horizontalAdvance(" ") * 4)
         self.view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         head = QHBoxLayout()
-        head.setContentsMargins(10, 4, 4, 0)
+        head.setContentsMargins(SPACE_S + _DOC_MARGIN, SPACE_XS, SPACE_XS, 0)   # the language over the code's first column
         head.addWidget(self.language)
         head.addStretch(1)
         head.addWidget(self.copy_button)
@@ -754,7 +756,7 @@ class _CodeBlock(QFrame):
         column.setSpacing(0)
         column.addLayout(head)
         body = QHBoxLayout()
-        body.setContentsMargins(8, 0, 8, 6)
+        body.setContentsMargins(SPACE_S, 0, SPACE_S, SPACE_S)
         body.addWidget(self.view)
         column.addLayout(body)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)

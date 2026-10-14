@@ -154,7 +154,7 @@ class MessageBox(QWidget):
         inside.setSpacing(SPACE_XS)
         inside.addWidget(self.edit)
         self.footer = QHBoxLayout()
-        self.footer.setSpacing(6)
+        self.footer.setSpacing(SPACE_S)
         self.footer.addWidget(self.web)
         self.footer.addStretch(1)
         self.footer.addWidget(self.send_button)

@@ -88,10 +88,10 @@ class ChatView(QWidget):
         self.box.add_to_footer(self.model_picker.warning, self.model_picker, self.speed)
         centre = QWidget()
         column = QVBoxLayout(centre)
-        # 10 a side: the three panes of the splitter met with a hairline between
+        # SPACE_S a side: the three panes of the splitter met with a hairline between
         # them, so the footer line, the question box and "Send" all touched it.
         # 2026-10-08: one 8px rhythm down the column (it had Qt's default gaps).
-        column.setContentsMargins(10, 0, 10, 0)
+        column.setContentsMargins(SPACE_S, 0, SPACE_S, 0)
         column.setSpacing(SPACE_S)
         column.addLayout(notice_row)
         column.addLayout(head)

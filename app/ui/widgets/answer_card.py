@@ -41,6 +41,7 @@ from app.ui.later import when_done
 from app.ui.presenter.answer import answer_wanted, card_kinds_shown
 from app.ui.widgets.buttons import action_button, icon_button
 from app.ui.widgets.card import CARD_MARGINS, Card
+from app.ui.theme import SPACE_S
 
 __all__ = ["AnswerCard", "attach", "ANSWER_DEBOUNCE_MS", "HEADING", "WORKING", "CHECKED_NOTE",
            "NO_ANSWER", "BODY_LINES"]
@@ -134,7 +135,7 @@ class AnswerCard(Card):
         content = QWidget()
         inner = QVBoxLayout(content)
         inner.setContentsMargins(0, 0, 0, 0)
-        inner.setSpacing(6)
+        inner.setSpacing(SPACE_S)
         inner.addWidget(self.body)
         inner.addWidget(self.sources)
         inner.addStretch(1)
@@ -149,7 +150,7 @@ class AnswerCard(Card):
         foot.addWidget(self.more)
         column = QVBoxLayout(self)
         column.setContentsMargins(*CARD_MARGINS)
-        column.setSpacing(6)
+        column.setSpacing(SPACE_S)
         column.addLayout(top)
         column.addWidget(self.scroll, 1)
         column.addLayout(foot)
