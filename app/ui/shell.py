@@ -1765,7 +1765,7 @@ class MainWindow(QMainWindow):
                     self._engine, preferences=lambda: getattr(self, "search_preferences", None),
                     offer_recent=lambda: recent_wanted(self._settings, self._settings_overrides))
                 self._mini.chosen.connect(self._open_result)
-                self._mini.expanded.connect(self._search_from_mini)
+                self._mini.expanded_to.connect(self._search_from_mini)  # IA-4: with its scope
             self._mini.summon()
             self._offer_foreground_selection()
         except Exception as exc:                 # noqa: BLE001 - see docstring
@@ -1814,13 +1814,15 @@ class MainWindow(QMainWindow):
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.debug("could not read the foreground selection: {}", exc)
 
-    def _search_from_mini(self, query: str) -> None:
-        """"Show me all of it": bring the window up with this query in it."""
+    def _search_from_mini(self, query: str, scope: str = "all") -> None:
+        """"Show me all of it": bring the window up with this query in it, and
+        the scope the quick search's chip had chosen (review 2026-10-14, IA-4)."""
         try:
             # Keeps a maximised window maximised - see `bring_forward`.
             bring_forward(self)
             self._show(self.search_view)
             self.search_view.input.setText(str(query or ""))
+            self.search_view.set_scope(str(scope or "all"))
             self.search_view.search_now()
         except Exception as exc:                 # noqa: BLE001 - never fatal
             _log.debug("could not expand the mini search: {}", exc)

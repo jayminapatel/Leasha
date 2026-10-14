@@ -134,6 +134,10 @@ class MiniSearch(CardWindow):
     #: with this query in the box - the way out of a box that is too small
     #: for the question being asked.
     expanded = Signal(str)
+    #: The same, with the scope its chip had chosen, as the Search page's
+    #: value (`presenter.scopes`) - review 2026-10-14, IA-4: Shift+Enter carries
+    #: "Photos" to the Search page's "Photos only" rather than dropping it.
+    expanded_to = Signal(str, str)
 
     def __init__(self, engine: Any, parent: Optional[QWidget] = None, *,
                  preferences: Any = None, offer_recent: Any = None) -> None:
@@ -1371,10 +1375,14 @@ class MiniSearch(CardWindow):
 
     def _expand(self) -> None:
         """Every result, in the main window. Shift+Enter, or the header button."""
+        from app.ui.presenter.scopes import key_for_bucket
+
         query = self.box.text().strip()
+        scope = key_for_bucket(self._active_chip)
         self.dismiss()
         if query:
             self.expanded.emit(query)
+            self.expanded_to.emit(query, scope)
 
     def _reveal_current(self) -> None:
         """Ctrl+Enter: show the highlighted result in its folder, by the one
