@@ -32,7 +32,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.core.logging import logger
 from app.ui.later import when_done
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, SPACE_S, SPACE_M, theme_colours
 from app.ui.widgets.buttons import action_button
 from app.ui.widgets.card import CARD_MARGINS, Card
 from app.ui.widgets.icons import icon
@@ -140,12 +140,12 @@ class PersonCard(Card):
         self.work.setAccessibleName("Title and company")
         self.work.setVisible(bool(work))
         text = QVBoxLayout()
-        text.setSpacing(2)
+        text.setSpacing(SPACE_XS)
         text.addWidget(self.name)
         text.addWidget(self.work)
         self.lines: list[QLabel] = []
         reach = QHBoxLayout()
-        reach.setSpacing(14)
+        reach.setSpacing(SPACE_M)
         for glyph, value, words in (("mail", info.email, "Email"), ("phone", info.phone, "Phone")):
             if value:
                 reach.addLayout(self._line(glyph, value, words, colours))
@@ -161,14 +161,14 @@ class PersonCard(Card):
         self.open_button.clicked.connect(lambda: self.open_requested.emit(self.info.id))
         row = QHBoxLayout(self)
         row.setContentsMargins(*CARD_MARGINS)
-        row.setSpacing(10)
+        row.setSpacing(SPACE_M)
         row.addWidget(self.photo, 0, Qt.AlignmentFlag.AlignTop)
         row.addLayout(text, 1)
         row.addWidget(self.open_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def _line(self, glyph: str, value: str, words: str, colours: dict) -> QHBoxLayout:
         box = QHBoxLayout()
-        box.setSpacing(4)
+        box.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon(glyph, colours.get("text_dim", "#888888")).pixmap(14, 14))
         pic.setAccessibleName(words)
@@ -250,7 +250,7 @@ class PersonStrip(QWidget):
         self.person_timer.timeout.connect(self.lookup_now)
         self._column = QVBoxLayout(self)
         self._column.setContentsMargins(0, 0, 0, 0)
-        self._column.setSpacing(6)
+        self._column.setSpacing(SPACE_S)
         self.setAccessibleName("People matching your search")
         self.hide()
 

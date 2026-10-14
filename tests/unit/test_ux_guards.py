@@ -197,21 +197,49 @@ _SPACING_CALLS = {"setSpacing", "addSpacing", "setContentsMargins", "setHorizont
 #: 0 and the scale (`theme.SPACING`).
 _ON_SCALE = {0, 4, 8, 12, 16, 24}
 
-#: **Measured 2026-10-14: 99** (the review counted 98 a few commits earlier). This number may
-#: only go down - each file moved onto `theme.SPACE_*` lowers it, and a new gap off the scale
-#: fails here instead of passing unseen.
-OFF_SCALE_CEILING = 99
+#: **Measured 2026-10-14: 99** (the review counted 98 a few commits earlier); 19 after the
+#: DS-5 migration, every one of them in the Contacts editor, reader and toolbar and the
+#: activity table, which were being edited in parallel. This number may only go down - each
+#: file moved onto `theme.SPACE_*` lowers it, and a new gap off the scale fails here instead
+#: of passing unseen.
+OFF_SCALE_CEILING = 19
+
+#: A gap off the scale on purpose: a geometry, not a rhythm. Keyed "<file>: <call>" as
+#: `ast.unparse` writes the call, so a changed number drops out of the list and is counted.
+OFF_SCALE_OK: dict[str, str] = {
+    "widgets/about_dialog.py: layout.setContentsMargins(36, 24, 36, 16)":
+        "the brand's clear space round the logo: the L's height",
+    "widgets/chat_markdown.py: column.setContentsMargins(1, 1, 1, 1)":
+        "the code block's 1 px border; the contents sit just inside it",
+    "contacts/parts.py: row.setContentsMargins(SPACE_XS, 1, 1, 1)":
+        "the contact token's 1 px border; the remove button sits just inside it",
+    "contacts/fields.py: grid.setContentsMargins(46, 0, 0, 0)":
+        "lines the address parts up under the field's text, past the grip and the icon",
+    "widgets/timeline_strip.py: self._layout.setSpacing(1)":
+        "a 1 px hairline between the timeline's bars, so neighbours read as two",
+}
 
 
-def _off_scale(source: str) -> list[int]:
+def _off_scale(source: str, rel: str = "") -> list[int]:
     found = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Call) and getattr(node.func, "attr", "") in _SPACING_CALLS:
             numbers = [a.value for a in node.args
                        if isinstance(a, ast.Constant) and isinstance(a.value, int)]
-            if any(n not in _ON_SCALE for n in numbers):
+            if any(n not in _ON_SCALE for n in numbers) and \
+                    f"{rel}: {ast.unparse(node)}" not in OFF_SCALE_OK:
                 found.append(node.lineno)
     return found
+
+
+def test_every_allowed_geometry_is_still_in_the_tree() -> None:
+    """A stale entry would let the next gap with the same text through unseen."""
+    calls = set()
+    for p in _files():
+        for node in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", "") in _SPACING_CALLS:
+                calls.add(f"{_rel(p)}: {ast.unparse(node)}")
+    assert not set(OFF_SCALE_OK) - calls, sorted(set(OFF_SCALE_OK) - calls)
 
 
 def test_the_ceiling_counts_a_mixed_call() -> None:
@@ -221,7 +249,8 @@ def test_the_ceiling_counts_a_mixed_call() -> None:
 
 
 def test_gaps_off_the_scale_never_grow() -> None:
-    found = [f"{_rel(p)}:{line}" for p in _files() for line in _off_scale(p.read_text(encoding="utf-8"))]
+    found = [f"{_rel(p)}:{line}" for p in _files()
+             for line in _off_scale(p.read_text(encoding="utf-8"), _rel(p))]
     assert len(found) <= OFF_SCALE_CEILING, (
         f"{len(found)} layout gaps off the 4/8/12/16/24 scale, over the ceiling of "
         f"{OFF_SCALE_CEILING}. The ceiling may only go down: use theme.SPACE_* for the new one.")

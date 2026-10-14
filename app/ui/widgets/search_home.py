@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 
 from app.ui.first_contact import SUGGESTIONS, greeting
 from app.ui.widgets.flow_layout import FlowLayout
-from app.ui.theme import SPACE_XS, SPACE_S
+from app.ui.theme import SPACE_XS, SPACE_S, SPACE_L, SPACE_XL
 
 __all__ = ["SearchHome", "HEADLINE", "BOX_WIDTH"]
 
@@ -50,8 +50,8 @@ class SearchHome(QWidget):
         self._sections = sections
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(24, 28, 24, 40)
-        outer.setSpacing(18)
+        outer.setContentsMargins(SPACE_XL, SPACE_XL, SPACE_XL, SPACE_XL + SPACE_L)
+        outer.setSpacing(SPACE_L)
         outer.addStretch(1)
 
         self.headline = QLabel(HEADLINE)
@@ -96,7 +96,7 @@ class SearchHome(QWidget):
         self.recent.setMaximumWidth(BOX_WIDTH)
         self._recent_layout = QVBoxLayout(self.recent)
         self._recent_layout.setContentsMargins(0, SPACE_S, 0, 0)
-        self._recent_layout.setSpacing(6)
+        self._recent_layout.setSpacing(SPACE_S)
         outer.addWidget(self.recent, 0, Qt.AlignmentFlag.AlignHCenter)
         outer.addStretch(4)
 
@@ -141,7 +141,7 @@ class SearchHome(QWidget):
             label.setObjectName("recentHeading")
             self._recent_layout.addWidget(label)
             grid = QGridLayout()
-            grid.setHorizontalSpacing(18)
+            grid.setHorizontalSpacing(SPACE_L)
             grid.setVerticalSpacing(SPACE_XS)
             for n, (shown, insert) in enumerate(tuple(rows)[:6]):
                 row = QToolButton()

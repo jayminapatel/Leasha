@@ -123,7 +123,7 @@ class _Line:
         self.text.setObjectName("rowCell")     # the theme leaves it transparent
         column = QVBoxLayout(self.text)
         column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(1)
+        column.setSpacing(0)
         for label in (self.title, self.purpose, self.name, self.note):
             column.addWidget(label)
 

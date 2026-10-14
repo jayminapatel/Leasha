@@ -17,7 +17,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHeaderView, QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from app.ui.contacts.logic import describe_entry
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_S, SPACE_M, theme_colours
 from app.ui.widgets.buttons import action_button, put_on_row
 from app.ui.widgets.icons import icon
 
@@ -51,7 +51,7 @@ class HistoryPanel(QWidget):
         head.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         head.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setContentsMargins(SPACE_M, SPACE_S, SPACE_M, SPACE_S)
         layout.addWidget(self.title)
         layout.addWidget(self.empty)
         layout.addWidget(self.tree, 1)

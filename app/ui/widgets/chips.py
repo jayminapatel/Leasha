@@ -28,6 +28,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QToolButton, QWidget
 
 from app.ui.chips_logic import Chip, chips_for, without
+from app.ui.theme import SPACE_XS
 
 __all__ = ["ChipRow"]
 
@@ -49,7 +50,7 @@ class ChipRow(QWidget):
         self.setObjectName("chipRow")
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setSpacing(6)
+        self._layout.setSpacing(SPACE_XS)
         self._text = ""
         self._chips: list[Chip] = []
         #: Filters the search applied from the typed words ("mail from 2017"

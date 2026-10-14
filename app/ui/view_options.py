@@ -31,6 +31,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from app.core.logging import logger
+from app.ui.theme import SPACE_XS, SPACE_M
 
 _log = logger.bind(component="ui.view")
 
@@ -569,7 +570,7 @@ def build_menu(
         """The Text size row: a spin box whose minimum means "System"."""
         box = QWidget(parent)
         row = QHBoxLayout(box)
-        row.setContentsMargins(12, 2, 12, 2)
+        row.setContentsMargins(SPACE_M, SPACE_XS, SPACE_M, SPACE_XS)
         row.addWidget(QLabel("Size"))
         spin = QSpinBox(box)
         spin.setRange(FONT_RANGE[0] - 1, FONT_RANGE[1])

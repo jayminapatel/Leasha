@@ -12,12 +12,12 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Optional
 
-from PySide6.QtCore import QSize, QStringListModel, Qt, Signal
+from PySide6.QtCore import QStringListModel, Qt, Signal
 from PySide6.QtWidgets import (QCompleter, QHBoxLayout, QLabel, QLineEdit, QToolButton, QWidget)
 
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.widgets.flow_layout import FlowLayout
-from app.ui.widgets.icons import icon
+from app.ui.widgets.icons import icon, icon_size
 
 __all__ = ["name_inner_buttons", "tool_button", "retint_tools", "TokenEdit", "set_glyph"]
 
@@ -35,7 +35,7 @@ def tool_button(glyph: str, words: str, tooltip: str = "", *, checkable: bool = 
     button = QToolButton(parent)
     button.setAutoRaise(True)
     button.setCheckable(checkable)
-    button.setIconSize(QSize(16, 16))
+    button.setIconSize(icon_size("toolbar"))
     button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
     button.setAccessibleName(words)
     button.setToolTip(tooltip or words)
@@ -137,13 +137,13 @@ class TokenEdit(QWidget):
         chip = QWidget()
         chip.setObjectName("contactToken")
         row = QHBoxLayout(chip)
-        row.setContentsMargins(6, 1, 1, 1)
-        row.setSpacing(3)
+        row.setContentsMargins(SPACE_XS, 1, 1, 1)
+        row.setSpacing(SPACE_XS)
         glyph = QLabel()
         glyph.setPixmap(icon(self._glyph, colour or c.get("text_dim", "#888888")).pixmap(14, 14))
         label = QLabel(name)
         remove = tool_button("x", f"Remove {name}", f"Take {name} off this contact")
-        remove.setIconSize(QSize(12, 12))
+        remove.setIconSize(icon_size("inline"))
         remove.clicked.connect(lambda _c=False, n=name: self.remove(n))
         row.addWidget(glyph)
         row.addWidget(label)

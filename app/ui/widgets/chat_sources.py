@@ -115,7 +115,7 @@ class SourcesPane(QWidget):
         self.list_page.setObjectName("chatSourcesPage")
         column = QVBoxLayout(self.list_page)
         column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(6)
+        column.setSpacing(SPACE_S)
         for part in (self.heading, self.empty):
             column.addWidget(part)
         column.addWidget(self.results, stretch=1)

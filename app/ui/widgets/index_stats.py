@@ -28,6 +28,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGridLayout, QGroupBox, QLabel, QWidget
 
 from app.ui.presenter import StatRow
+from app.ui.theme import SPACE_XS
 
 __all__ = ["IndexStats"]
 
@@ -39,7 +40,7 @@ class IndexStats(QGroupBox):
         super().__init__("This index", parent)
         self._grid = QGridLayout(self)
         self._grid.setColumnStretch(1, 1)
-        self._grid.setVerticalSpacing(2)
+        self._grid.setVerticalSpacing(SPACE_XS)
         self.show_rows([])
 
     def show_rows(self, rows: Sequence[StatRow]) -> None:

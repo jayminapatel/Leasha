@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 
 from app.core.row_facts import is_message_key
 from app.ui.presenter.chat import SHELF_EMPTY, SHELF_LIST_TIP, Shelf, shelf_count_label
-from app.ui.theme import PALETTES, Theme
+from app.ui.theme import SPACE_XS, PALETTES, Theme
 from app.ui.widgets.icons import icon
 from app.ui.widgets.icons import icon_size
 
@@ -119,8 +119,8 @@ class _Chip(QFrame):
             "until you drag it back in. The file itself is not touched.")
         drop.clicked.connect(lambda _c=False: on_remove(item.path))
         row = QHBoxLayout(self)
-        row.setContentsMargins(2, 1, 2, 1)
-        row.setSpacing(2)
+        row.setContentsMargins(SPACE_XS, 0, SPACE_XS, 0)
+        row.setSpacing(SPACE_XS)
         row.addWidget(name, stretch=1)
         row.addWidget(pin)
         row.addWidget(drop)
@@ -157,11 +157,11 @@ class ShelfBar(QWidget):
         self.popup.setObjectName("chatShelfList")
         self.popup.setAccessibleName("Documents in scope")
         self._rows = QVBoxLayout(self.popup)
-        self._rows.setContentsMargins(6, 6, 6, 6)
-        self._rows.setSpacing(2)
+        self._rows.setContentsMargins(SPACE_XS, SPACE_XS, SPACE_XS, SPACE_XS)
+        self._rows.setSpacing(SPACE_XS)
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(0, 2, 0, 2)
+        row.setContentsMargins(0, SPACE_XS, 0, SPACE_XS)
         row.addWidget(self.button)
         row.addWidget(self.empty)
         row.addStretch(1)

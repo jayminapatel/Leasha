@@ -65,7 +65,7 @@ from app.ui.presenter.quick_search import (
 )
 from app.ui.widgets.icons import ICON_SIZES, icon_size
 from app.ui.widgets.mini_search_frame import CardWindow
-from app.ui.theme import SPACE_XS, SPACE_S
+from app.ui.theme import SPACE_XS, SPACE_S, SPACE_M
 
 __all__ = [
     "MiniSearch", "ROWS", "DEBOUNCE_MS", "row_label", "CHIP_ORDER",
@@ -230,7 +230,7 @@ class MiniSearch(CardWindow):
         self.header = QWidget()
         self.header.setObjectName("miniHeader")
         head = QVBoxLayout(self.header)
-        head.setContentsMargins(14, 6, 10, 8)
+        head.setContentsMargins(SPACE_M, SPACE_XS, SPACE_S, SPACE_S)
         head.setSpacing(SPACE_XS)
         self.handle = QFrame()
         self.handle.setObjectName("miniHandle")
@@ -300,13 +300,13 @@ class MiniSearch(CardWindow):
         bar = QWidget()
         bar.setObjectName("miniChipBar")
         chips_line = QHBoxLayout(bar)
-        chips_line.setContentsMargins(12, 2, 12, 8)
-        chips_line.setSpacing(6)
+        chips_line.setContentsMargins(SPACE_M, SPACE_XS, SPACE_M, SPACE_S)
+        chips_line.setSpacing(SPACE_XS)
         self.scopes = QWidget()
         self.scopes.setObjectName("miniScopes")
         scope_line = QHBoxLayout(self.scopes)
         scope_line.setContentsMargins(0, 0, 0, 0)
-        scope_line.setSpacing(6)
+        scope_line.setSpacing(SPACE_XS)
         self._scope_buttons: dict = {}
         for bucket, label, glyph in words.SCOPE_CHIPS:
             chip = QPushButton(label)
@@ -332,7 +332,7 @@ class MiniSearch(CardWindow):
         self.chips.setObjectName("miniChips")
         self._chips_layout = QHBoxLayout(self.chips)
         self._chips_layout.setContentsMargins(0, 0, 0, 0)
-        self._chips_layout.setSpacing(2)
+        self._chips_layout.setSpacing(SPACE_XS)
         self._chip_buttons: list = []
         self.chips.hide()
         chips_line.addWidget(self.chips)
@@ -362,7 +362,7 @@ class MiniSearch(CardWindow):
         self.recent_page.setObjectName("miniRecent")
         recent = QVBoxLayout(self.recent_page)
         recent.setContentsMargins(0, 0, 0, 0)
-        recent.setSpacing(2)
+        recent.setSpacing(SPACE_XS)
         self.recent_heading = QLabel(words.RECENT_HEADING)
         self.recent_heading.setObjectName("miniSection")
         recent.addWidget(self.recent_heading)
@@ -394,7 +394,7 @@ class MiniSearch(CardWindow):
         holder = QWidget()
         holder.setObjectName("miniBody")
         inner = QVBoxLayout(holder)
-        inner.setContentsMargins(8, 6, 8, 6)
+        inner.setContentsMargins(SPACE_S, SPACE_XS, SPACE_S, SPACE_XS)
         inner.addWidget(self.stack)
         self.split.addWidget(holder)
         card.addWidget(self.split, 1)
@@ -408,8 +408,8 @@ class MiniSearch(CardWindow):
         footer = QWidget()
         footer.setObjectName("miniFooter")
         foot = QHBoxLayout(footer)
-        foot.setContentsMargins(14, 6, 2, 2)
-        foot.setSpacing(6)
+        foot.setContentsMargins(SPACE_M, SPACE_XS, SPACE_XS, SPACE_XS)
+        foot.setSpacing(SPACE_S)
         self.status = QLabel("")
         self.status.setObjectName("miniStatus")
         foot.addWidget(self.status)

@@ -27,6 +27,7 @@ from app.reports.timeline import KINDS, Period
 from app.reports.timeline_words import BAD_DATE, KIND_TIPS, KIND_WORDS
 from app.ui.state_writes import save_state
 from app.ui.widgets.flow_layout import FlowLayout
+from app.ui.theme import SPACE_XS
 
 __all__ = ["TimelinePicker", "KIND_KEY", "FOLD_KEY"]
 
@@ -141,7 +142,7 @@ class TimelinePicker(QWidget):
             flow.addWidget(widget)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(SPACE_XS)
         for row in (top, flow):
             layout.addLayout(row)
         self._enable_months(None)

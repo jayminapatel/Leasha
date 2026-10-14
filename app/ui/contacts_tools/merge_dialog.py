@@ -32,6 +32,7 @@ from app.ui.contacts_tools._common import (
     scalar_icon, KIND_LABELS,
 )
 from app.ui.widgets.icons import icon
+from app.ui.theme import SPACE_S
 
 __all__ = ["MergeDialog"]
 
@@ -105,7 +106,7 @@ class MergeDialog(ToolDialog):
         right.addTab(self.result_list, icon("id-card", ink()), "Result")
         sent = QWidget()
         sl = QVBoxLayout(sent)
-        sl.setContentsMargins(0, 6, 0, 0)
+        sl.setContentsMargins(0, SPACE_S, 0, 0)
         self.sent_note = QLabel("")
         self.sent_note.setWordWrap(True)
         named(self.sent_note, "Accounts note", "Where the merged contact is kept")
