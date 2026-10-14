@@ -115,6 +115,9 @@ ICON_NAMES = (
     # 2026-10-11, order 1k 6d (Contacts page, editor): the handle a field row is dragged by.
     # Lucide 1.48.0 (ISC), as above.
     "grip-vertical",
+    # 2026-10-14, the UX review (IA-1, IA-10): the command palette, and Go > Back / Forward.
+    # Lucide 1.48.0 (ISC), as above.
+    "command", "arrow-left", "arrow-right",
 )
 
 _cache: dict[tuple[str, str, int], QIcon] = {}

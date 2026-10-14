@@ -57,10 +57,15 @@ def test_the_go_menu_has_people_in_photos(gui_mainwindow, qtbot):
     app, window, store, engine = gui_mainwindow
     actions = [a for a in window._menu_actions if a.text() == "People in photos"]
     assert len(actions) == 1
+    # 2026-10-14, the UX review IA-7: Photos' own naming page, not a second window
+    # holding the same page (Settings' button still opens the window - see above).
+    before = window._photo_tagger
     actions[0].trigger()
     gui_pump(app)
-    assert window._photo_tagger is not None and window._photo_tagger.isVisible()
-    window._photo_tagger.close()
+    assert window.rail.tabText(window.rail.currentIndex()) == "Photos"
+    assert window.photos_view.centre.currentIndex() == 1
+    assert window._photo_tagger is before
+    window.photos_view.show_photos()
 
 
 @pytest.mark.slow

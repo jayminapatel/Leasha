@@ -259,7 +259,9 @@ def hints(*, mode: str, mail: bool = False, preview: bool = False) -> tuple[Hint
                  Hint("Ctrl+C", "Copy path")]
         if mail:
             found.append(Hint("Ctrl+O", "Outlook"))
-        found.append(Hint("Ctrl+P", "Preview"))
+        # 2026-10-14 (IA-3): one key, one meaning - the main window's preview key. Ctrl+P
+        # still works here, so no habit breaks (`MiniSearch._key`).
+        found.append(Hint("Ctrl+Shift+P", "Preview"))
         found.append(Hint("Esc", "Clear"))
         return tuple(found)
     if mode == "recent":
@@ -268,7 +270,7 @@ def hints(*, mode: str, mail: bool = False, preview: bool = False) -> tuple[Hint
 
 
 #: Which hints stay when the footer is too narrow for all of them, first first.
-_HINT_PRIORITY = ("Enter", "Esc", "Ctrl+O", "Ctrl+Enter", "Ctrl+P", "Ctrl+C", "↑↓", "Tab")
+_HINT_PRIORITY = ("Enter", "Esc", "Ctrl+O", "Ctrl+Enter", "Ctrl+Shift+P", "Ctrl+C", "↑↓", "Tab")
 
 
 def fit_hints(found: Sequence[Hint], widths: Sequence[int], budget: int) -> tuple[Hint, ...]:

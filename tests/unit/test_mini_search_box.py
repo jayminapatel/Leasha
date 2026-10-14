@@ -356,6 +356,25 @@ def test_the_preview_opens_beside_the_list_and_follows_the_selection(qapp, mixed
     box.dismiss()
 
 
+def test_ctrl_shift_p_is_the_preview_key_here_too_and_ctrl_p_still_works(qapp, mixed_engine):
+    """IA-3 (2026-10-14): one key, one meaning - the main window's Ctrl+Shift+P shows
+    the preview here as well, and is the key the footer names; Ctrl+P, this box's
+    own since it was built, is kept so no habit breaks."""
+    from app.ui.presenter.quick_search import hints
+
+    box = MiniSearch(mixed_engine)
+    box.summon()
+    _searched(qapp, box, "widget")
+    both = Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier
+    assert _key(box, Qt.Key.Key_P, both)
+    assert box.preview is not None and not box.preview.isHidden()
+    assert _key(box, Qt.Key.Key_P, Qt.KeyboardModifier.ControlModifier)
+    assert box.preview.isHidden()
+    keys = [h.keys for h in hints(mode="results")]
+    assert "Ctrl+Shift+P" in keys and "Ctrl+P" not in keys
+    box.dismiss()
+
+
 def test_the_preview_names_a_message_by_its_subject(qapp, mixed_engine):
     box = MiniSearch(mixed_engine)
     box.summon()

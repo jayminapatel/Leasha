@@ -288,7 +288,8 @@ SHORTCUTS = [
     ("Ctrl+P", KEY.Key_P, MOD.ControlModifier, "Files"),
     ("Ctrl+M", KEY.Key_M, MOD.ControlModifier, "Mail"),
     ("Ctrl+E", KEY.Key_E, MOD.ControlModifier, "Code"),
-    ("Ctrl+K", KEY.Key_K, MOD.ControlModifier, "Search"),
+    # 2026-10-14 (IA-1): Ctrl+K opens the command palette - `test_ux_keys_and_palette.py`.
+    # Ctrl+F from Tidy, which has no box of its own, still lands on Search (IA-9).
     ("Ctrl+F", KEY.Key_F, MOD.ControlModifier, "Search"),
 ]
 
@@ -308,7 +309,7 @@ def test_each_shortcut_lands_on_its_page(gui_mainwindow, qtbot, label, key, mod,
 def test_the_shortcuts_that_jump_to_a_box_leave_the_cursor_in_it(gui_mainwindow, qtbot):
     app, window, store, engine = gui_mainwindow
     _front(app, window, qtbot)
-    for key, page, view in ((KEY.Key_K, "Search", window.search_view),
+    for key, page, view in ((KEY.Key_F, "Search", window.search_view),
                             (KEY.Key_P, "Files", window.files_view),
                             (KEY.Key_M, "Mail", window.mail_view),
                             (KEY.Key_E, "Code", window.code_view)):
@@ -470,8 +471,9 @@ def test_the_search_page_start_to_finish_with_the_keyboard_alone(
     _preview_off(qtbot, app, view)
     _goto(window, "Tidy")
 
-    # 1. Ctrl+K: from anywhere to the box, cursor ready.
-    _key(qtbot, app, KEY.Key_K, MOD.ControlModifier)
+    # 1. Ctrl+F: from a page with no box of its own to Search's, cursor ready
+    #    (Ctrl+K was this until it became the command palette, 2026-10-14).
+    _key(qtbot, app, KEY.Key_F, MOD.ControlModifier)
     assert _page(window) == "Search" and app.focusWidget() is view.input
 
     # 2. Type. The home state gives way to results; no Enter needed.
@@ -566,10 +568,10 @@ def test_the_search_page_start_to_finish_with_the_keyboard_alone(
     _key(qtbot, app, KEY.Key_Space)
     assert view.chips.labels() == [] and view.input.text().strip() == "quokka"
 
-    # 10. Shift+Tab out of the page and Ctrl+I / Ctrl+K: leave and come back.
+    # 10. Shift+Tab out of the page and Ctrl+I / Ctrl+F: leave and come back.
     _key(qtbot, app, KEY.Key_I, MOD.ControlModifier)
     assert _page(window) == "Indexing"
-    _key(qtbot, app, KEY.Key_K, MOD.ControlModifier)
+    _key(qtbot, app, KEY.Key_F, MOD.ControlModifier)
     assert _page(window) == "Search" and app.focusWidget() is view.input
     assert view.input.text().strip() == "quokka", "coming back to Search must not lose the query"
 
