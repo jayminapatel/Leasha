@@ -106,7 +106,9 @@ def test_the_display_size_follows_the_system_font():
 def test_the_radius_scale_is_not_a_palette_token():
     from app.ui.theme import PALETTES, RADIUS, Theme
 
-    assert set(RADIUS) == {"radius_input", "radius_control", "radius_box", "radius_pill"}
+    # Review 2026-10-14 (DS-10) added the menu, window and small steps.
+    assert set(RADIUS) == {"radius_small", "radius_input", "radius_menu", "radius_control", "radius_box",
+                           "radius_window", "radius_pill"}
     assert not set(RADIUS) & set(PALETTES[Theme.DARK])
 
 

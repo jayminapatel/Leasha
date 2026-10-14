@@ -103,7 +103,7 @@ class SyncLog(QWidget):
         self.undo.clicked.connect(self._undo)
         self.export.clicked.connect(self._export)
         self.approve.clicked.connect(lambda: self.approve_requested.emit(self._selected().account_id))
-        self.allow.clicked.connect(lambda: self.allow_requested.emit(self._selected().account_id))
+        self.allow.clicked.connect(self._allow)
         self._selection()
 
     def set_runs(self, runs: list[Any], accounts: list[Any]) -> None:
@@ -169,6 +169,16 @@ class SyncLog(QWidget):
         self.backend.call(_undo, self.backend.factory, run.id, serial=True, refresh=True,
                           done=lambda _r: self.say("Undone."),
                           fail=lambda e: self.say(f"{getattr(e, 'message', e)} {getattr(e, 'suggestion', '')}"))
+
+    def _allow(self) -> None:
+        """Allow on the held run (CS-2): ask first, naming what was held, then ask the page to sync."""
+        from app.ui.presenter.account_actions import allow_question  # noqa: PLC0415
+        run = self._selected()
+        if run is None:
+            return
+        if parts.ask_allow(self, allow_question(run.account_name, run.plan, run.error_code or "",
+                                                run.error_text or "")):
+            self.allow_requested.emit(run.account_id)
 
     def _export(self) -> None:
         path = ask_save_path(self)

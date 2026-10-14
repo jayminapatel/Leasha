@@ -199,8 +199,8 @@ def _heading(text: str) -> QListWidgetItem:
     """A date heading: drawn, never picked, skipped by the arrow keys."""
     item = QListWidgetItem(text)
     item.setFlags(Qt.ItemFlag.NoItemFlags)
-    font = QFont(item.font())
-    font.setBold(True)
-    item.setFont(font)
+    from app.ui.widgets.paint_kit import set_weight
+
+    item.setFont(set_weight(QFont(item.font()), "bold"))
     item.setData(Qt.ItemDataRole.AccessibleTextRole, f"{text}, conversations")
     return item

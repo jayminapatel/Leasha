@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.ui.widgets.buttons import action_button
+from app.ui.theme import SPACE_S
 
 __all__ = ["SelectBar", "set_all"]
 
@@ -91,7 +92,7 @@ class SelectBar(QWidget):
         self.setAccessibleName(f"Select all or none: {noun}")
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
+        row.setSpacing(SPACE_S)
         self.all_button = self._button("Select all", "list-checks", f"Select every row in the {noun}", noun)
         self.none_button = self._button("Select none", "list-x", f"Clear every row in the {noun}", noun)
         self.all_button.clicked.connect(lambda: self.changed.emit(set_all(self.view, True)))

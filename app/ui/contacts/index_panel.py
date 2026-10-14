@@ -13,6 +13,11 @@ Photos are those of the Photo Tagger person the contact is *accepted* as (`peopl
 rule): a name that only matches is a suggestion, and the panel offers "Suggest link" for a
 contact with none, then "Yes, link them" or "Not them" for the suggestion.
 
+IA-6 (UX review 2026-10-14): **and onward.** "See all photos" opens the Photos page narrowed
+to the linked person (`who:`), "See mail from them" the Mail page narrowed to the contact's
+address (`from:`) - the words in `presenter.photo_people`, the pages opened by the window
+(`photos_requested`, `mail_requested`; `ContactsPage` hands them to its host).
+
 Rule 5: everything is read, and every link written, on a worker (`loader.run_task`); the facts
 themselves are `app.contacts.activity.gather`, the same reading the MCP tool `contact_activity`
 gives. Nothing here writes to mail or files.
@@ -27,7 +32,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
 
 from app.ui.contacts import loader
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.widgets.buttons import action_button
 from app.ui.widgets.icons import icon
 
@@ -69,6 +74,9 @@ class IndexPanel(QWidget):
     error = Signal(object)
     #: Something was written (a link accepted); the page may want to reload its photo cache.
     changed = Signal(int)
+    #: IA-6: "See all photos" / "See mail from them" - the box the other page should read.
+    photos_requested = Signal(str)
+    mail_requested = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -83,7 +91,7 @@ class IndexPanel(QWidget):
         self.heading = QWidget()
         head = QHBoxLayout(self.heading)
         head.setContentsMargins(0, 0, 0, 0)
-        head.setSpacing(6)
+        head.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon("search", theme_colours().get("text_dim", "#888888")).pixmap(16, 16))
         title = QLabel("From your index")
@@ -97,15 +105,17 @@ class IndexPanel(QWidget):
         self.summary.setAccessibleName("First and last contact")
         self.body = QVBoxLayout()
         self.body.setContentsMargins(0, 0, 0, 0)
-        self.body.setSpacing(2)
+        self.body.setSpacing(SPACE_XS)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(4)
+        outer.setSpacing(SPACE_XS)
         outer.addWidget(self.heading)
         outer.addWidget(self.summary)
         outer.addLayout(self.body)
         self.items: list[QToolButton] = []
         self.link_buttons: dict[str, Any] = {}
+        #: IA-6: "See all photos" / "See mail from them", by "photos" / "mail".
+        self.see_buttons: dict[str, Any] = {}
         self.clear()
 
     # ----------------------------------------------------------------- loading
@@ -156,6 +166,7 @@ class IndexPanel(QWidget):
         self._section("Photos", [self._photo_item(p) for p in found.get("photos", [])])
         self._link_row(found.get("link_state", "none"), found.get("link_name", ""),
                        bool(found.get("photos")))
+        self._see_row(found.get("link_state", "none"), found.get("link_name", ""))
 
     # ------------------------------------------------------------------- items
     def _wipe(self) -> None:
@@ -170,6 +181,7 @@ class IndexPanel(QWidget):
                 self._drop_layout(item.layout())
         self.items = []
         self.link_buttons = {}
+        self.see_buttons = {}
 
     @staticmethod
     def _drop_layout(layout: Any) -> None:
@@ -233,7 +245,7 @@ class IndexPanel(QWidget):
     def _link_row(self, state: str, pile_name: str, has_photos: bool) -> None:
         """2c in the panel: accept or refuse a suggested person, or ask for a suggestion."""
         row = QHBoxLayout()
-        row.setContentsMargins(0, 4, 0, 0)
+        row.setContentsMargins(0, SPACE_XS, 0, 0)
         label = QLabel("")
         label.setObjectName("resultsSummary")
         label.setWordWrap(True)
@@ -265,6 +277,31 @@ class IndexPanel(QWidget):
             suggest.clicked.connect(self.suggest)
             row.addWidget(suggest)
             self.link_buttons = {"suggest": suggest}
+        self.body.addLayout(row)
+
+    def _see_row(self, state: str, pile_name: str) -> None:
+        """IA-6: everything, on its own page - the person's photos, the mail from them."""
+        from app.ui.presenter.photo_people import mail_box, photos_box
+
+        photos = photos_box(pile_name) if state == "accepted" else ""
+        mail = mail_box(self._emails[0]) if self._emails else ""
+        if not photos and not mail:
+            return
+        row = QHBoxLayout()
+        row.setContentsMargins(0, SPACE_XS, 0, 0)
+        if photos:
+            see = action_button("See all photos", "image", "secondary")
+            see.setToolTip(f"Open Photos on every photo of {pile_name}")
+            see.clicked.connect(lambda _c=False, box=photos: self.photos_requested.emit(box))
+            row.addWidget(see)
+            self.see_buttons["photos"] = see
+        if mail:
+            see = action_button("See mail from them", "mail", "secondary")
+            see.setToolTip(f"Open Mail on the messages from {self._emails[0]}")
+            see.clicked.connect(lambda _c=False, box=mail: self.mail_requested.emit(box))
+            row.addWidget(see)
+            self.see_buttons["mail"] = see
+        row.addStretch(1)
         self.body.addLayout(row)
 
     def suggest(self) -> None:

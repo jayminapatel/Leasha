@@ -112,6 +112,9 @@ BUTTONS: dict[str, tuple[str, str]] = {
     # out of step with Leasha.
     "Open contact": ("user", "secondary"),
     "Fix these": ("list-checks", "secondary"),
+    # Review 2026-10-14 IA-5 / CS-2: the Sync window from Settings > Accounts, and the Allow question's verbs.
+    "Open sync status": ("gauge", "secondary"),
+    "Allow and sync": ("check", "primary"),
     # 2026-10-12: the Timed-out files panel's button had no icon until now.
     "Retry with a longer time limit": ("rotate-cw", "secondary"),
     "Return to automatic": ("rotate-ccw", "secondary"),
@@ -263,6 +266,9 @@ BUTTONS: dict[str, tuple[str, str]] = {
     # -- Enrichment (order 1s 7c, 7e, 8a; 2026-10-12) ------------------------------
     "Never suggest these": ("ban", "secondary"),
     "Enrich this contact": ("wand-sparkles", "secondary"),
+    # IA-6 (2026-10-14): a contact's "From your index", onward to Photos and Mail.
+    "See all photos": ("image", "secondary"),
+    "See mail from them": ("mail", "secondary"),
     # "Suggestions you turned down": Undo on a contact's page, Clear in Settings (it asks first).
     "Undo": ("undo-2", "secondary"),
     "Clear": ("eraser", "danger"),
@@ -275,6 +281,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "OK": ("check", "primary"),
     "Cancel": ("x", "secondary"),
     "Write them": ("check", "primary"),
+    # Review DS-13 (2026-10-14): the smart group dialog's OK, named for what it does.
+    "Save smart group": ("save", "primary"),
     "Re-embed everything": ("refresh-cw", "primary"),
     "Export": ("file-down", "primary"),
     "Scan": ("hard-drive", "primary"),
@@ -292,6 +300,8 @@ PREFIXES: dict[str, tuple[str, str]] = {
     "Force skip reader": ("skip-forward", "secondary"),
     # "Not Jason" in Manage faces: one per named person (2026-10-12).
     "Not ": ("x", "secondary"),
+    # "Allow and delete 12": the Allow question for deletes past the safety limit (review 2026-10-14 CS-2).
+    "Allow and delete": ("trash-2", "danger"),
 }
 
 
@@ -333,6 +343,7 @@ CONTROLS: dict[str, str] = {
     "Documents only": "file-text",
     "Mail only": "mail",
     "Code only": "code",
+    "Photos only": "image",
     # Chat: a reply's own actions, and a document's chip on the shelf.
     "Regenerate": "refresh-cw",
     "Try again": "rotate-cw",

@@ -27,6 +27,7 @@ __all__ = [
     "Theme", "palette_for", "stylesheet", "detect_scheme", "SCHEMES",
     "theme_colours", "RADIUS", "BUTTON", "TOOLTIP", "TOOLTIP_SIZES", "tooltip_tokens",
     "SPACING", "SPACE_XS", "SPACE_S", "SPACE_M", "SPACE_L", "SPACE_XL",
+    "FOCUS_WIDTH", "FOCUS", "WEIGHT", "weight", "radius_px",
 ]
 
 SCHEMES = ("system", "light", "dark")
@@ -69,6 +70,11 @@ PALETTES: dict[str, dict[str, str]] = {
         # navy itself vanishes, so the dark accent is the same hue raised to a
         # lavender that still reads as the same family beside the rail.
         "accent": "#9d8cf0",
+        # **A press is seen** (review 2026-10-14, DS-12): the filled button's
+        # `:pressed` was its rest colour, so a click gave no feedback. A step
+        # darker than the accent, as the hover (`focus_ring`) is a step lighter;
+        # `accent_on` on it measures 4.8 to 1.
+        "accent_pressed": "#8473e0",
         "accent_soft": "#2a2150",
         "accent_text": "#c3b7ff",
         "accent_bar": "#9d8cf0",
@@ -163,6 +169,9 @@ PALETTES: dict[str, dict[str, str]] = {
         # #2b1a7a, a second indigo nobody had measured against the first).
         # 18.0 to 1 on white; the soft ground is the same hue at a whisper.
         "accent": "#15084b",
+        # Between the near-black rest and the lighter hover, so all three differ
+        # (DS-12); white on it is 13.5 to 1.
+        "accent_pressed": "#2a1a80",
         "accent_soft": "#e9e4fb",
         "accent_text": "#15084b",
         "accent_bar": "#15084b",
@@ -263,7 +272,7 @@ QTextEdit, QPlainTextEdit, QTextBrowser {{
     border: 1px solid {border_strong}; border-radius: {radius_box};
     padding: 9px 14px; font-size: {large};
 }}
-#searchBox:focus {{ border: 2px solid {focus_ring}; padding: 8px 13px; }}
+#searchBox:focus {{ border: {focus_width} solid {focus_ring}; padding: 8px 13px; }}
 /* The same box in its opening state, centred and roomy - roomier at the sides
    only (UI phase B): the box no longer moves between the two states, and a
    taller opening box would still have shifted everything under it. */
@@ -272,15 +281,21 @@ QTextEdit, QPlainTextEdit, QTextBrowser {{
 /* **Two pixels of accent, not one.** A focus ring that only changes hue is
    invisible to somebody who cannot separate those hues, and hard to spot for
    everybody else on a dense screen. Width carries it as well as colour - the
-   same reasoning as `#statWarn` and the tab bar. */
-QLineEdit:focus {{ border: 2px solid {focus_ring}; padding: 6px 9px; }}
+   same reasoning as `#statWarn` and the tab bar.
+
+   **One width for every ring** (review 2026-10-14, DS-4): `focus_width`, 2px,
+   on every `:focus` rule in this sheet and in the painted rows
+   (`widgets/paint_kit.py`). Where a control's resting border is 1px or none,
+   its focus rule takes the difference off the padding, so focus never moves
+   the words inside it. */
+QLineEdit:focus {{ border: {focus_width} solid {focus_ring}; padding: 6px 9px; }}
 QLineEdit:disabled {{ background: {surface_alt}; color: {text_faint}; }}
 
 /* QListView is named explicitly. The results list stopped being a
    QListWidget when rows became data rather than widgets, and this rule was
    not updated - so the one list people look at most had no surface, no
    border and no radius, while every other list did. */
-QListWidget, QListView, QTableWidget, QPlainTextEdit, QTreeWidget, QTreeView {{
+QListWidget, QListView, QTableWidget, QTableView, QPlainTextEdit, QTreeWidget, QTreeView {{
     background: {surface}; border: 1px solid {border}; border-radius: {radius_control};
     /* Rows own their own separation; a grid of lines is the single most dated
        thing a Qt table does. */
@@ -296,13 +311,20 @@ QListWidget, QListView, QTableWidget, QPlainTextEdit, QTreeWidget, QTreeView {{
 }}
 /* **Hover before selection.** A dense list with no hover state gives no
    feedback that a row is a target at all, which is most of why a table feels
-   inert rather than responsive. */
+   inert rather than responsive.
+
+   **The view classes are named, not only the widget ones** (review 2026-10-14,
+   DS-3). `QTableWidget::item` does not reach a bare `QTableView` - the Contacts
+   table, the Photos Details table, a spreadsheet preview - so those had the
+   platform's own hover and selection, the same bug QListView once had above. */
 QListWidget::item:hover, QListView::item:hover,
-QTableWidget::item:hover, QTreeWidget::item:hover {{
+QTableWidget::item:hover, QTableView::item:hover,
+QTreeWidget::item:hover, QTreeView::item:hover {{
     background: {surface_hover};
 }}
 QListWidget::item:selected, QListView::item:selected,
-QTableWidget::item:selected, QTreeWidget::item:selected {{
+QTableWidget::item:selected, QTableView::item:selected,
+QTreeWidget::item:selected, QTreeView::item:selected {{
     background: {accent_soft}; color: {text};
 }}
 QListWidget::item, QListView::item, QTreeWidget::item {{
@@ -311,25 +333,27 @@ QListWidget::item, QListView::item, QTreeWidget::item {{
 /* The native focus rectangle is a black dotted box round the row's text only, and
    looked like a fault beside the rounded selection (Reports, the category lists).
    The selected row gets the theme's ring while the list has the keyboard; the
-   transparent border keeps a row the same size with and without it. */
+   transparent border keeps a row the same size with and without it, and the
+   padding gives back the pixel the 2px ring takes (DS-4), so a row is the height
+   it was with the old 1px one. */
 QListWidget, QTreeWidget {{ outline: 0; }}
-QListWidget::item {{ border: 1px solid transparent; }}
-QListWidget::item:selected:focus {{ border: 1px solid {focus_ring}; }}
+QListWidget::item {{ border: {focus_width} solid transparent; padding: 2px 3px; }}
+QListWidget::item:selected:focus {{ border: {focus_width} solid {focus_ring}; }}
 /* A header that reads as a label rather than as a button: no border box, one
    hairline under it, and the small-caps weight tables use to say "this names
    the column, it is not content". */
 QHeaderView {{ background: transparent; }}
 QHeaderView::section {{
     background: {surface}; color: {text_faint};
-    font-size: {small}; font-weight: 600;
+    font-size: {small}; font-weight: {weight_semibold};
     border: none; border-bottom: 1px solid {border}; padding: 5px 6px;
 }}
 QHeaderView::section:hover {{ color: {text_dim}; background: {surface_alt}; }}
-QTableWidget {{ selection-background-color: {accent_soft}; }}
+QTableWidget, QTableView {{ selection-background-color: {accent_soft}; }}
 /* 2026-10-05, the UI review: a table's rows are ruled, its columns are not.
    `ResultTable` and the model lists turn Qt's grid off; this is the one
    hairline under each row that replaces it, as the lists and trees have. */
-QTableWidget::item {{ border-bottom: 1px solid {divider}; }}
+QTableView::item, QTableWidget::item {{ border-bottom: 1px solid {divider}; }}
 
 QPushButton {{
     background: {surface_alt}; border: 1px solid {border};
@@ -339,7 +363,7 @@ QPushButton {{
    system's `buttonRole="primary"` below, 2026-09-27.) */
 QPushButton:hover {{ background: {surface_hover}; border-color: {border_strong}; }}
 QPushButton:pressed {{ background: {surface}; }}
-QPushButton:focus {{ border: 1px solid {focus_ring}; }}
+QPushButton:focus {{ border: {focus_width} solid {focus_ring}; padding: 4px 10px; }}
 QPushButton:checked {{
     background: {accent_soft}; border-color: {accent}; color: {accent_text};
 }}
@@ -362,26 +386,48 @@ QPushButton[buttonRole="danger"] {{
     padding: {button_pad_y} {button_pad_right} {button_pad_y} {button_pad_left};
     min-height: {button_min_h}; border-radius: {radius_control};
 }}
+QPushButton[buttonRole="primary"]:focus, QPushButton[buttonRole="secondary"]:focus,
+QPushButton[buttonRole="danger"]:focus {{
+    padding: {button_pad_y_focus} {button_pad_right_focus} {button_pad_y_focus} {button_pad_left_focus};
+}}
 /* 2026-10-02: a system button with its icon and no words, for a line of a list
    (`buttons.icon_button`). The icon's picture carries 3px of empty space on its
    right for the words that are not there, so the padding is uneven by that much
    to put the drawn part in the middle: 8px either side of it. */
 QPushButton[iconOnly="true"] {{ padding-left: 8px; padding-right: 5px; }}
+QPushButton[iconOnly="true"]:focus {{ padding-left: 7px; padding-right: 4px; }}
 /* The cell `buttons.put_on_row` sets on a row: the row shows through it. */
 QWidget#rowCell {{ background: transparent; }}
 QPushButton[buttonRole="primary"] {{
     background: {accent}; border: 1px solid {accent}; color: {accent_on};
-    font-weight: 600;
+    font-weight: {weight_semibold};
 }}
 QPushButton[buttonRole="primary"]:hover {{ background: {focus_ring}; border-color: {focus_ring}; }}
-QPushButton[buttonRole="primary"]:pressed {{ background: {accent}; }}
+/* DS-12: a press darkens the fill, so the click is seen; it used to be the rest colour. */
+QPushButton[buttonRole="primary"]:pressed {{
+    background: {accent_pressed}; border-color: {accent_pressed};
+}}
 QPushButton[buttonRole="primary"]:focus {{ border-color: {text}; }}
 QPushButton[buttonRole="danger"] {{ color: {danger}; }}
 QPushButton[buttonRole="danger"]:hover {{ border-color: {danger}; }}
+/* DS-12: the danger button had no pressed or focus state of its own - its hover
+   border hid the ring. The press drops to the surface, as a plain button's does,
+   keeping the danger edge; focus is the one ring, written after the hover. */
+QPushButton[buttonRole="danger"]:pressed {{ background: {surface}; border-color: {danger}; }}
+QPushButton[buttonRole="danger"]:focus {{ border-color: {focus_ring}; }}
 QPushButton[buttonRole="primary"]:disabled, QPushButton[buttonRole="danger"]:disabled {{
     color: {text_faint}; background: {surface}; border-color: {divider};
-    font-weight: normal;
+    font-weight: {weight_regular};
 }}
+/* **Focus that is seen only when the keyboard put it there** (DS-4). Qt's sheets
+   have no `:focus-visible`, so `widgets/focus_visible.py` sets `pointerFocus` on a
+   button or a tab bar that took focus from a click, and these rules put the ring
+   back in the resting edge colour. The width and padding stay, so nothing moves;
+   only the colour of a ring nobody asked for goes. */
+QPushButton[pointerFocus="true"]:focus {{ border-color: {border}; }}
+QPushButton[buttonRole="primary"][pointerFocus="true"]:focus {{ border-color: {accent}; }}
+QPushButton[buttonRole="danger"][pointerFocus="true"]:focus {{ border-color: {border}; }}
+QPushButton:checked[pointerFocus="true"]:focus {{ border-color: {accent}; }}
 
 /* **The scrollbars were never styled**, so every pane carried the chunky
    native ones with their stepper arrows - the single most dated element on
@@ -418,9 +464,9 @@ QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
    colours - a light context menu over a dark window, which reads as a bug. */
 QMenu {{
     background: {surface}; border: 1px solid {border_strong};
-    border-radius: 6px; padding: 4px;
+    border-radius: {radius_menu}; padding: 4px;
 }}
-QMenu::item {{ padding: 5px 22px 5px 12px; border-radius: 4px; }}
+QMenu::item {{ padding: 5px 22px 5px 12px; border-radius: {radius_small}; }}
 QMenu::item:selected {{ background: {accent_soft}; color: {text}; }}
 QMenu::item:disabled {{ color: {text_faint}; }}
 QMenu::separator {{ height: 1px; background: {divider}; margin: 4px 8px; }}
@@ -442,13 +488,18 @@ QToolButton:hover {{ background: {surface_hover}; color: {text}; }}
 QToolButton:pressed, QToolButton:checked {{
     background: {accent_soft}; color: {accent_text};
 }}
-QToolButton:focus {{ border-color: {focus_ring}; }}
+QToolButton:focus {{ border: {focus_width} solid {focus_ring}; padding: 3px 7px; }}
+QToolButton[pointerFocus="true"]:focus {{ border-color: transparent; }}
 /* The "Default" marker on an email or phone row: filled solid when this is the default, so it reads at a glance. */
 QToolButton[defaultMarker="true"] {{ border: 1px solid {border}; padding: 3px 8px; }}
-QToolButton[defaultMarker="true"]:checked {{ background: {accent}; color: {accent_on}; border-color: {accent}; font-weight: 600; }}
+QToolButton[defaultMarker="true"]:checked {{ background: {accent}; color: {accent_on}; border-color: {accent}; font-weight: {weight_semibold}; }}
+QToolButton[defaultMarker="true"]:focus {{ border: {focus_width} solid {focus_ring}; padding: 2px 7px; }}
+QToolButton[defaultMarker="true"][pointerFocus="true"]:focus {{ border-color: {border}; }}
+QToolButton[defaultMarker="true"][pointerFocus="true"]:checked:focus {{ border-color: {accent}; }}
 /* Icon-only toggles on the Search toolbar (202626160950 §3e): a 28px square
    that fills when on. The label lives in the tooltip and accessible name. */
 QToolButton[iconToggle="true"] {{ padding: 5px; min-width: 18px; min-height: 18px; }}
+QToolButton[iconToggle="true"]:focus {{ padding: 4px; }}
 /* The back-to-default button inside every number field, where the arrows
    were (widgets/number_field.py, owner 2026-09-29). Sized by the field, so no
    padding of its own. */
@@ -459,13 +510,16 @@ QToolButton#numberReset {{ padding: 0px; border: none; }}
    and screen readers get the radio semantics without a custom class. */
 #segmented {{ background: {surface_alt}; border-radius: {radius_control}; }}
 #segmented QToolButton {{
-    border: none; border-radius: 6px; padding: 4px 11px; margin: 2px 1px;
+    border: none; border-radius: {radius_menu}; padding: 4px 11px; margin: 2px 1px;
     color: {text_dim}; font-size: {small};
 }}
+/* DS-12: a segment under the pointer lifts a little, so it reads as a target. */
+#segmented QToolButton:hover:!checked {{ background: {surface_hover}; color: {text}; }}
 #segmented QToolButton:checked {{
-    background: {surface}; color: {text}; font-weight: 600;
+    background: {surface}; color: {text}; font-weight: {weight_semibold};
 }}
-#segmented QToolButton:focus {{ border: 1px solid {focus_ring}; }}
+#segmented QToolButton:focus {{ border: {focus_width} solid {focus_ring}; padding: 2px 9px; }}
+#segmented QToolButton[pointerFocus="true"]:focus {{ border-color: transparent; }}
 
 /* **Chips** (§3d): each typed operator drawn as a removable pill. The remove
    button is part of the chip, not a separate control, so one tab stop per
@@ -476,10 +530,10 @@ QToolButton#numberReset {{ padding: 0px; border: none; }}
     padding: 3px 4px 3px 10px; font-size: {small};
 }}
 #chip:hover {{ background: {accent_soft}; }}
-#chip:focus {{ border: 1px solid {focus_ring}; }}
+#chip:focus {{ border: {focus_width} solid {focus_ring}; padding: 1px 2px 1px 8px; }}
 #chipRemove {{
     background: transparent; border: none; border-radius: {radius_pill};
-    color: {chip_text}; padding: 0 5px; font-weight: 600;
+    color: {chip_text}; padding: 0 5px; font-weight: {weight_semibold};
 }}
 #chipRemove:hover {{ background: {accent}; color: {accent_on}; }}
 
@@ -487,28 +541,33 @@ QToolButton#numberReset {{ padding: 0px; border: none; }}
    filled pill AND a heavier label, so it survives greyscale. */
 #rail {{ background: {rail}; border: none; }}
 #rail QToolButton {{
-    color: {rail_text}; background: transparent; border: 1px solid transparent;
-    border-radius: {radius_control}; padding: 7px 0 5px 0; font-size: {small};
+    color: {rail_text}; background: transparent; border: {focus_width} solid transparent;
+    border-radius: {radius_control}; padding: 6px 0 4px 0; font-size: {small};
 }}
 #rail QToolButton:hover {{ background: {rail_hover}; color: {rail_on_text}; }}
+/* DS-12: the press fills the pill before the page has even changed. */
+#rail QToolButton:pressed {{ background: {rail_on_bg}; color: {rail_on_text}; }}
 #rail QToolButton:checked {{
-    background: {rail_on_bg}; color: {rail_on_text}; font-weight: 600;
+    background: {rail_on_bg}; color: {rail_on_text}; font-weight: {weight_semibold};
 }}
-#rail QToolButton:focus {{ border-color: {rail_text}; }}
+/* DS-4: the rail takes the one ring too; it was the label ink, which on the
+   rail's grey said "focus" no louder than an unchosen word. */
+#rail QToolButton:focus {{ border-color: {focus_ring}; }}
+#rail QToolButton[pointerFocus="true"]:focus {{ border-color: transparent; }}
 /* **The indexing pill looks like the rail buttons around it** (owner,
    2026-09-27: "the indexing pill looks big and out of place"). It was a filled
    card with a bold headline; now it has no fill until the pointer is on it or
    its page is open, and its word is the same size, weight and colour as a
    button's label - chosen, it turns heavier, as a button's does. */
 #railPill {{
-    background: transparent; color: {rail_text}; border: 1px solid transparent;
-    border-radius: {radius_control}; padding: 6px 0; font-size: {small};
+    background: transparent; color: {rail_text}; border: {focus_width} solid transparent;
+    border-radius: {radius_control}; padding: 5px 0; font-size: {small};
 }}
 #railPill:hover {{ background: {rail_hover}; }}
 #railPill[selected="true"] {{ background: {rail_on_bg}; }}
-#railPill:focus {{ border: 1px solid {rail_text}; }}
+#railPill:focus {{ border-color: {focus_ring}; }}
 #railPillHeadline {{ color: {rail_text}; font-size: {small}; }}
-#railPillHeadline[chosen="true"] {{ color: {rail_on_text}; font-weight: 600; }}
+#railPillHeadline[chosen="true"] {{ color: {rail_on_text}; font-weight: {weight_semibold}; }}
 #railPillDetail {{ color: {rail_text}; font-size: {small}; }}
 #railPill QProgressBar {{
     background: {rail_hover}; border: none; border-radius: 1px;
@@ -520,16 +579,16 @@ QToolButton#numberReset {{ padding: 0px; border: none; }}
 
 /* **The empty Search page** (§3a): the headline is the one use of the
    display size; everything under it is quiet. */
-#emptyHeadline {{ font-size: {display}; font-weight: 600; color: {text}; }}
+#emptyHeadline {{ font-size: {display}; font-weight: {weight_semibold}; color: {text}; }}
 #emptyGreeting {{ color: {text_dim}; font-size: {body}; }}
 #suggestion {{
     background: {surface}; color: {text_dim}; border: 1px solid {border};
     border-radius: {radius_pill}; padding: 5px 12px; font-size: {small};
 }}
 #suggestion:hover {{ color: {text}; border-color: {border_strong}; }}
-#suggestion:focus {{ border-color: {focus_ring}; }}
+#suggestion:focus {{ border: {focus_width} solid {focus_ring}; padding: 4px 11px; }}
 #recentHeading {{
-    color: {text_faint}; font-size: {small}; font-weight: 600;
+    color: {text_faint}; font-size: {small}; font-weight: {weight_semibold};
     letter-spacing: 1px;
 }}
 
@@ -542,10 +601,10 @@ QToolButton#numberReset {{ padding: 0px; border: none; }}
 /* **The mail header card** (order 0y section 4a): a message's subject as a
    heading, its sender large, each attachment a chip; a hairline under the
    block, as the facts header has. */
-#mailCard {{ border: none; border-bottom: 1px solid {divider}; }}
-#mailSubject {{ color: {text}; font-size: {large}; font-weight: 600; }}
+/* (`#mailCard` was a hairline under the block; it is a `Card` now, DS-7.) */
+#mailSubject {{ color: {text}; font-size: {large}; font-weight: {weight_semibold}; }}
 #mailSender {{ color: {text}; font-size: {large}; }}
-#mailConversationHeading {{ color: {text_dim}; font-size: {small}; font-weight: 600; }}
+#mailConversationHeading {{ color: {text_dim}; font-size: {small}; font-weight: {weight_semibold}; }}
 #mailConversation {{ font-size: {small}; }}
 #mailChip {{
     background: {chip_bg}; color: {chip_text};
@@ -574,7 +633,7 @@ QToolButton#numberReset {{ padding: 0px; border: none; }}
    part of the title area rather than as a grey strip from 2009. On macOS Qt
    moves it to the system bar and this rule never paints. */
 QMenuBar {{ background: {window}; color: {text_dim}; border: none; padding: 2px 6px; }}
-QMenuBar::item {{ padding: 4px 8px; border-radius: 6px; }}
+QMenuBar::item {{ padding: 4px 8px; border-radius: {radius_menu}; }}
 QMenuBar::item:selected {{ background: {surface_hover}; color: {text}; }}
 
 /* **Colour only: a geometry property here stops the height following the font.**
@@ -618,7 +677,7 @@ QTableView::indicator {{
     /* 16 and its border is 18, the platform's own size: a narrower box makes
        the whole check box narrower, and `test_settings_layout` holds the room. */
     width: 16px; height: 16px; border: 1px solid {border_strong};
-    border-radius: 4px; background: {surface};
+    border-radius: {radius_small}; background: {surface};
 }}
 QCheckBox::indicator:hover, QGroupBox::indicator:hover, QListView::indicator:hover,
 QTreeView::indicator:hover, QTableView::indicator:hover {{ border-color: {focus_ring}; }}
@@ -682,7 +741,7 @@ QProgressBar {{
    width and a margin restores the moving block, which is the only thing on
    screen saying the run is alive. */
 QProgressBar::chunk {{
-    background: {accent_bar}; border-radius: 4px;
+    background: {accent_bar}; border-radius: {radius_small};
     width: 18px; margin: 1px;
 }}
 
@@ -694,10 +753,24 @@ QGroupBox {{
     border: 1px solid {border}; border-radius: {radius_box};
     margin-top: 6px; padding-top: 22px; background: {surface};
 }}
+/* **One card** (review 2026-10-14, DS-7). The answer above the results, a
+   contact card, the mail header and This machine were four frames drawn four
+   ways - one with no rule, one a hairline, one an inline sheet with its own 8px,
+   one a group box. `widgets/card.py` sets `card="true"` on each, and this is the
+   look they share: the surface, the hairline edge, the box radius. The SPACE_M
+   inset is the card's layout margin, set in `Card`, so the sheet and the code
+   cannot both add one. Plain containers inside take the card's ground rather than
+   painting the window colour over it (`.QWidget` matches that class only, so a
+   button or a list inside keeps its own rules). */
+*[card="true"] {{
+    background: {surface}; border: 1px solid {border}; border-radius: {radius_box};
+}}
+*[card="true"] .QWidget {{ background: transparent; }}
+#cardTitle {{ color: {text_dim}; font-size: {small}; font-weight: {weight_semibold}; }}
 QGroupBox::title {{
     subcontrol-origin: margin; subcontrol-position: top left;
     left: 12px; top: 12px; padding: 0 2px;
-    color: {text_dim}; font-size: {small}; font-weight: 600;
+    color: {text_dim}; font-size: {small}; font-weight: {weight_semibold};
     background: {surface};
 }}
 
@@ -728,7 +801,7 @@ QGroupBox::title {{
 QTabWidget::pane {{
     border: 1px solid {border};
     border-top-left-radius: 0; border-top-right-radius: 0;
-    border-bottom-left-radius: 6px; border-bottom-right-radius: 6px;
+    border-bottom-left-radius: {radius_menu}; border-bottom-right-radius: {radius_menu};
     top: -1px;
 }}
 QTabBar {{ background: transparent; }}
@@ -736,12 +809,12 @@ QTabBar::tab {{
     background: {surface_alt}; color: {text_dim};
     border: 1px solid {border};
     border-top: 2px solid transparent;
-    border-top-left-radius: 5px; border-top-right-radius: 5px;
+    border-top-left-radius: {radius_input}; border-top-right-radius: {radius_input};
     /* Tighter than it was, and the label carries the weight instead. Four
        tools in a row of chunky tabs reads as a website's navigation; four
        compact ones read as panes of one application. */
     padding: 5px 14px; margin-right: 2px; margin-top: 3px;
-    font-size: {small}; font-weight: 600;
+    font-size: {small}; font-weight: {weight_semibold};
 }}
 QTabBar::tab:hover:!selected {{ color: {text}; background: {surface}; }}
 QTabBar::tab:selected {{
@@ -755,14 +828,24 @@ QTabBar::tab:selected {{
 QTabBar::tab:disabled {{ color: {text_faint}; }}
 /* Keyboard focus must be visible on its own. Ctrl+Tab moves between these and
    the selection colour alone is not enough to say where the focus went. */
-QTabBar::tab:focus {{ border-color: {accent}; border-top-color: {accent}; }}
+QTabBar::tab:focus {{
+    border: {focus_width} solid {focus_ring}; padding: 5px 13px 4px 13px;
+}}
+/* DS-4: the ring is `focus_ring` at `focus_width`, as everywhere else (it was the
+   accent at 1px, the same colour as the selected tab's own top edge). A tab
+   clicked rather than reached by Ctrl+Tab keeps its resting edges. */
+QTabBar[pointerFocus="true"]::tab:focus {{
+    border-color: {border}; border-top-color: {accent}; border-bottom-color: {window};
+}}
 
 QComboBox, QSpinBox, QTimeEdit {{
     background: {surface}; border: 1px solid {border};
     border-radius: {radius_control}; padding: 4px 8px; color: {text};
 }}
 QComboBox:hover, QSpinBox:hover, QTimeEdit:hover {{ border-color: {border_strong}; }}
-QComboBox:focus, QSpinBox:focus, QTimeEdit:focus {{ border-color: {focus_ring}; }}
+QComboBox:focus, QSpinBox:focus, QTimeEdit:focus {{
+    border: {focus_width} solid {focus_ring}; padding: 3px 7px;
+}}
 QComboBox:disabled, QSpinBox:disabled, QTimeEdit:disabled {{
     color: {text_faint}; background: {surface_alt};
 }}
@@ -772,22 +855,22 @@ QComboBox::drop-down {{ border: none; width: 24px; subcontrol-origin: padding; s
 QComboBox::down-arrow {{ image: url({chevron}); width: 12px; height: 12px; }}
 QComboBox QAbstractItemView {{
     background: {surface}; border: 1px solid {border_strong};
-    border-radius: 5px; padding: 3px;
+    border-radius: {radius_input}; padding: 3px;
     selection-background-color: {accent_soft}; selection-color: {text};
 }}
 
-#resultPath {{ font-weight: 600; color: {accent}; }}
+#resultPath {{ font-weight: {weight_semibold}; color: {accent}; }}
 /* The name is the headline now - a browser result, not a printed report. It
    reads as primary text rather than as a link, because it is the thing being
    named and not the thing being navigated to. */
-#resultName {{ font-weight: 600; color: {text}; font-size: {large}; }}
+#resultName {{ font-weight: {weight_semibold}; color: {text}; font-size: {large}; }}
 /* A short text tag rather than an icon font: text survives dark mode, high-DPI
    and a missing font file, none of which is worth paying for yet. */
 /* A chip rather than an outline: a filled shape at 12px reads as a label at a
    glance, where a 10px outlined one reads as a smudge until you look at it. */
 #resultKind {{
-    color: {text_dim}; font-size: {small}; font-weight: 600;
-    background: {surface_alt}; border: none; border-radius: 3px;
+    color: {text_dim}; font-size: {small}; font-weight: {weight_semibold};
+    background: {surface_alt}; border: none; border-radius: {radius_small};
     padding: 1px 6px; margin-right: 6px;
 }}
 #resultMeta {{ color: {text_faint}; font-size: {small}; }}
@@ -798,20 +881,20 @@ QComboBox QAbstractItemView {{
    applied to a single one. Matches were signalled by weight alone, which is
    the one cue somebody who cannot distinguish them has no substitute for.
    The delegate reads `highlight` from `theme_colours()` and draws it. */
-#resultSnippet b {{ color: {highlight}; font-weight: 700; }}
+#resultSnippet b {{ color: {highlight}; font-weight: {weight_bold}; }}
 #searchStatus, #resultsSummary, #indexDetail {{ color: {text_faint}; font-size: {small}; }}
-#indexHeadline, #graphHeadline {{ font-size: {large}; font-weight: 600; }}
+#indexHeadline, #graphHeadline {{ font-size: {large}; font-weight: {weight_semibold}; }}
 /* The "Advanced" heading on Settings (`widgets/advanced_fold.py`): a quiet
    line of text with a chevron, not a button competing with the settings. */
 #advancedToggle {{
     border: 1px solid transparent; background: transparent;
-    color: {text_dim}; font-weight: 600; padding: 6px 8px;
+    color: {text_dim}; font-weight: {weight_semibold}; padding: 6px 8px;
 }}
 #advancedToggle:hover {{ background: {surface_hover}; color: {text}; }}
 #advancedToggle:checked {{ background: transparent; color: {text}; }}
-#advancedToggle:focus {{ border-color: {focus_ring}; }}
+#advancedToggle:focus {{ border: {focus_width} solid {focus_ring}; padding: 5px 7px; }}
 /* 2026-10-05, the UI review: the People window's title had a name and no rule. */
-#photoTaggerTitle {{ font-size: {large}; font-weight: 600; }}
+#photoTaggerTitle {{ font-size: {large}; font-weight: {weight_semibold}; }}
 #indexTotals {{ color: {text_dim}; font-size: {small}; }}
 /* The Indexing cockpit (2026-10-14, `widgets/cockpit_parts.py`,
    `widgets/indexing_workers.py`). Every box here is coloured by a property its
@@ -824,7 +907,7 @@ QComboBox QAbstractItemView {{
 #cockpitPill[state="running"] {{ background: {accent_soft}; border-color: {accent}; }}
 #cockpitPill[state="paused"], #cockpitPill[state="stopping"] {{ border-color: {warning}; }}
 #cockpitPill[state="failed"] {{ border-color: {danger}; }}
-#cockpitPillWord {{ font-weight: 600; color: {text}; }}
+#cockpitPillWord {{ font-weight: {weight_semibold}; color: {text}; }}
 #cockpitPill[state="running"] #cockpitPillWord {{ color: {accent_text}; }}
 #cockpitStep {{
     background: {surface}; border: 1px solid {divider};
@@ -834,18 +917,18 @@ QComboBox QAbstractItemView {{
 #cockpitStep[step="done"] {{ border-color: {border}; }}
 #cockpitStep[step="done"] #cockpitStepWord {{ color: {text_dim}; }}
 #cockpitStep[step="current"] {{ background: {accent_soft}; border-color: {accent}; }}
-#cockpitStep[step="current"] #cockpitStepWord {{ color: {accent_text}; font-weight: 600; }}
+#cockpitStep[step="current"] #cockpitStepWord {{ color: {accent_text}; font-weight: {weight_semibold}; }}
 #cockpitTile, #cockpitResource {{
     background: {surface}; border: 1px solid {border};
     border-radius: {radius_control};
 }}
 #cockpitTileCaption, #cockpitResourceCaption {{ color: {text_faint}; font-size: {small}; }}
-#cockpitTileValue {{ color: {text}; font-size: {large}; font-weight: 600; }}
-#cockpitResourceValue {{ color: {text}; font-size: {small}; font-weight: 600; }}
+#cockpitTileValue {{ color: {text}; font-size: {large}; font-weight: {weight_semibold}; }}
+#cockpitResourceValue {{ color: {text}; font-size: {small}; font-weight: {weight_semibold}; }}
 #indexWorkers {{ background: {surface}; border: 1px solid {border}; border-radius: {radius_control}; }}
 #laneTable, #laneBody {{ background: transparent; }}
 #laneHeader {{ border-bottom: 1px solid {border}; }}
-#laneHeader QLabel {{ color: {text_faint}; font-size: {small}; font-weight: 600; }}
+#laneHeader QLabel {{ color: {text_faint}; font-size: {small}; font-weight: {weight_semibold}; }}
 #laneRow {{ border-bottom: 1px solid {divider}; }}
 #laneRow[state="working"] {{ background: {surface_alt}; }}
 #laneRow QLabel {{ color: {text_dim}; }}
@@ -866,7 +949,7 @@ QComboBox QAbstractItemView {{
 QPushButton[iconOnly="true"][compact="true"] {{
     padding: 1px 4px 1px 6px; min-height: 16px;
 }}
-#skipHeading {{ font-weight: 600; }}
+#skipHeading {{ font-weight: {weight_semibold}; }}
 #skipFix {{ color: {text_dim}; }}
 #skipExamples {{ color: {text_faint}; font-size: {small}; }}
 /* The hint under a setting, and the tree's `N of M` line. One rule, because
@@ -890,11 +973,11 @@ QPushButton[iconOnly="true"][compact="true"] {{
    the list has the keyboard instead, so where focus is stays visible. */
 #categorySidebar {{ border: none; background: transparent; outline: 0; }}
 #categorySidebar::item {{
-    padding: 6px 10px; border: 2px solid transparent; border-radius: {radius_control};
+    padding: 6px 10px; border: {focus_width} solid transparent; border-radius: {radius_control};
 }}
-#categorySidebar::item:selected:focus {{ border: 2px solid {focus_ring}; }}
+#categorySidebar::item:selected:focus {{ border: {focus_width} solid {focus_ring}; }}
 #categorySidebar::item:selected {{
-    background: {accent_soft}; color: {accent_text}; font-weight: 600;
+    background: {accent_soft}; color: {accent_text}; font-weight: {weight_semibold};
 }}
 
 /* `index_stats` sets one of these two on every value it shows, and only
@@ -902,8 +985,8 @@ QPushButton[iconOnly="true"][compact="true"] {{
    about rendered identically to one that was fine. The warning was computed,
    assigned, and invisible. Weight as well as colour, because colour alone is
    not a signal everybody receives. */
-#statValue {{ color: {text}; font-weight: 600; }}
-#statWarn {{ color: {warning}; font-weight: 700; }}
+#statValue {{ color: {text}; font-weight: {weight_semibold}; }}
+#statWarn {{ color: {warning}; font-weight: {weight_bold}; }}
 #statLabel {{ color: {text_faint}; font-size: {small}; }}
 
 /* **Chat** (order 202626270611 section 3). Bubbles are surfaces, not badges:
@@ -959,7 +1042,7 @@ QPushButton[iconOnly="true"][compact="true"] {{
 }}
 #chatStarter:hover {{ background: {surface_alt}; border-color: {border_strong}; }}
 #chatEmpty, #chatShelfEmpty, #chatSourcesEmpty {{ color: {text_faint}; }}
-#chatSourcesHeading {{ font-weight: 600; }}
+#chatSourcesHeading {{ font-weight: {weight_semibold}; }}
 #chatNotice {{
     background: {accent_soft}; color: {text};
     border: 1px solid {border}; border-radius: {radius_control};
@@ -1049,7 +1132,13 @@ SCALE: dict = {"small": 12.0 / 13.0, "body": 1.0, "large": 15.0 / 13.0,
                # One more step (202626160950 §1e), for the single headline
                # on the empty Search page and nothing else. It follows the
                # text size and "Make text bigger" like the rest.
-               "display": 26.0 / 13.0}
+               "display": 26.0 / 13.0,
+               # **A page's title** (review 2026-10-14, DS-8): a quarter larger
+               # than body, which `page_frame.TITLE_SCALE` already was - now a
+               # step of the scale, so the painters and the sheet can name it
+               # (`paint_kit.scaled_font(base, "title")`, `{title}` in a sheet)
+               # instead of each multiplying by a number of its own.
+               "title": 1.25}
 
 #: The body text size in pixels, and the range a person may choose. 12 is the
 #: default; below 10 the small step is unreadable, above 20 the rows no longer
@@ -1083,9 +1172,19 @@ def set_text_size(px: object) -> int:
 #: the sheet says which it means; kept out of `PALETTES` because those are
 #: colours and a test says so.
 RADIUS: dict[str, str] = {
+    # **Two more steps, and one below** (review 2026-10-14, DS-10): menus,
+    # the menu bar's items, a segment and the tab pane's foot took a literal
+    # 6px; the quick search card a literal 14px, in two files; menu lines,
+    # tick boxes and the progress chunk a literal 4px. Painters read these too
+    # (`radius_px`), so a painted row and a styled one share one corner. Radii
+    # still written as numbers in the sheet are half of a size fixed beside
+    # them - a 4px scroll handle, an 8px dot, a 2px progress line - not steps.
+    "radius_small": "4px",
     "radius_input": "5px",
+    "radius_menu": "6px",
     "radius_control": "8px",
     "radius_box": "10px",
+    "radius_window": "14px",
     # **Not 999px: Qt draws no rounding at all when the radius is more than
     # half the widget's height** - it does not clamp the way a browser does.
     # 999px therefore gave every "pill" square corners: the suggested
@@ -1133,6 +1232,33 @@ def pill_radius(base: Optional[float] = None) -> str:
     small_pt = float(font_sizes(base)["small"].rstrip("pt"))
     factor = min(1.0, small_pt / _PILL_MEASURED_SMALL_PT)
     return f"{max(2, int(_PILL_MEASURED_RADIUS * factor))}px"
+
+
+
+def radius_px(name: str) -> float:
+    """A `RADIUS` step as a number, for a painter: `radius_px("radius_control")` is 8.0."""
+    return float(RADIUS[name].rstrip("px"))
+
+
+#: **One focus width** (review 2026-10-14, DS-4): every `:focus` rule in the
+#: sheet and the ring `paint_kit.paint_row_state` paints. Two pixels, because a
+#: ring that changes only hue is invisible to somebody who cannot tell the hues
+#: apart (the reasoning at `QLineEdit:focus`).
+FOCUS_WIDTH = 2
+FOCUS: dict[str, str] = {"focus_width": f"{FOCUS_WIDTH}px"}
+
+#: **Three weights** (review 2026-10-14, DS-9). 600, 700 and 800 were all in
+#: use for "this matters"; now a word is regular, semibold (a heading, a chosen
+#: tab, a result's name) or bold (the stronger of two marks - a matched word, a
+#: warning figure, the selected result's name). CSS numbers, which is also
+#: what `QFont.Weight`'s values are. In the sheet as `{weight_semibold}`.
+WEIGHT: dict[str, int] = {"regular": 400, "semibold": 600, "bold": 700}
+
+
+def weight(name: str) -> int:
+    """A `WEIGHT` step by name. Unknown names are a mistake, so they raise."""
+    return WEIGHT[name]
+
 
 #: **Every action button's size, in one place** (the button system,
 #: `widgets/buttons.py`). 4px above and below, and a floor of 18px inside that
@@ -1260,5 +1386,15 @@ def stylesheet(preference: str = "system", *, detected: Optional[str] = None,
     _current = dict(colours)
     # `radius_pill` follows the text size (2026-10-10) - see `pill_radius`.
     radii = {**RADIUS, "radius_pill": pill_radius(base_pt)}
-    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **radii, **BUTTON,
+    weights = {f"weight_{name}": str(value) for name, value in WEIGHT.items()}
+    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **radii, **BUTTON, **_button_focus(),
+                            **FOCUS, **weights,
                             **tooltip_tokens(colours), tick=_tick_file(colours), chevron=_chevron_file(colours))
+
+
+def _button_focus() -> dict[str, str]:
+    """`BUTTON`'s padding less what the wider focus border takes, so a focused button
+    is the size it was at rest (DS-4: the 1px resting edge becomes `FOCUS_WIDTH`)."""
+    give = FOCUS_WIDTH - 1
+    return {f"{name}_focus": f"{max(0, int(BUTTON[name].rstrip('px')) - give)}px"
+            for name in ("button_pad_y", "button_pad_left", "button_pad_right")}

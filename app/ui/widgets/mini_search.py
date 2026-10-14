@@ -65,7 +65,7 @@ from app.ui.presenter.quick_search import (
 )
 from app.ui.widgets.icons import ICON_SIZES, icon_size
 from app.ui.widgets.mini_search_frame import CardWindow
-from app.ui.theme import SPACE_XS, SPACE_S
+from app.ui.theme import SPACE_XS, SPACE_S, SPACE_M
 
 __all__ = [
     "MiniSearch", "ROWS", "DEBOUNCE_MS", "row_label", "CHIP_ORDER",
@@ -134,6 +134,10 @@ class MiniSearch(CardWindow):
     #: with this query in the box - the way out of a box that is too small
     #: for the question being asked.
     expanded = Signal(str)
+    #: The same, with the scope its chip had chosen, as the Search page's
+    #: value (`presenter.scopes`) - review 2026-10-14, IA-4: Shift+Enter carries
+    #: "Photos" to the Search page's "Photos only" rather than dropping it.
+    expanded_to = Signal(str, str)
 
     def __init__(self, engine: Any, parent: Optional[QWidget] = None, *,
                  preferences: Any = None, offer_recent: Any = None) -> None:
@@ -226,7 +230,7 @@ class MiniSearch(CardWindow):
         self.header = QWidget()
         self.header.setObjectName("miniHeader")
         head = QVBoxLayout(self.header)
-        head.setContentsMargins(14, 6, 10, 8)
+        head.setContentsMargins(SPACE_M, SPACE_XS, SPACE_S, SPACE_S)
         head.setSpacing(SPACE_XS)
         self.handle = QFrame()
         self.handle.setObjectName("miniHandle")
@@ -296,13 +300,13 @@ class MiniSearch(CardWindow):
         bar = QWidget()
         bar.setObjectName("miniChipBar")
         chips_line = QHBoxLayout(bar)
-        chips_line.setContentsMargins(12, 2, 12, 8)
-        chips_line.setSpacing(6)
+        chips_line.setContentsMargins(SPACE_M, SPACE_XS, SPACE_M, SPACE_S)
+        chips_line.setSpacing(SPACE_XS)
         self.scopes = QWidget()
         self.scopes.setObjectName("miniScopes")
         scope_line = QHBoxLayout(self.scopes)
         scope_line.setContentsMargins(0, 0, 0, 0)
-        scope_line.setSpacing(6)
+        scope_line.setSpacing(SPACE_XS)
         self._scope_buttons: dict = {}
         for bucket, label, glyph in words.SCOPE_CHIPS:
             chip = QPushButton(label)
@@ -328,7 +332,7 @@ class MiniSearch(CardWindow):
         self.chips.setObjectName("miniChips")
         self._chips_layout = QHBoxLayout(self.chips)
         self._chips_layout.setContentsMargins(0, 0, 0, 0)
-        self._chips_layout.setSpacing(2)
+        self._chips_layout.setSpacing(SPACE_XS)
         self._chip_buttons: list = []
         self.chips.hide()
         chips_line.addWidget(self.chips)
@@ -358,7 +362,7 @@ class MiniSearch(CardWindow):
         self.recent_page.setObjectName("miniRecent")
         recent = QVBoxLayout(self.recent_page)
         recent.setContentsMargins(0, 0, 0, 0)
-        recent.setSpacing(2)
+        recent.setSpacing(SPACE_XS)
         self.recent_heading = QLabel(words.RECENT_HEADING)
         self.recent_heading.setObjectName("miniSection")
         recent.addWidget(self.recent_heading)
@@ -390,7 +394,7 @@ class MiniSearch(CardWindow):
         holder = QWidget()
         holder.setObjectName("miniBody")
         inner = QVBoxLayout(holder)
-        inner.setContentsMargins(8, 6, 8, 6)
+        inner.setContentsMargins(SPACE_S, SPACE_XS, SPACE_S, SPACE_XS)
         inner.addWidget(self.stack)
         self.split.addWidget(holder)
         card.addWidget(self.split, 1)
@@ -404,8 +408,8 @@ class MiniSearch(CardWindow):
         footer = QWidget()
         footer.setObjectName("miniFooter")
         foot = QHBoxLayout(footer)
-        foot.setContentsMargins(14, 6, 2, 2)
-        foot.setSpacing(6)
+        foot.setContentsMargins(SPACE_M, SPACE_XS, SPACE_XS, SPACE_XS)
+        foot.setSpacing(SPACE_S)
         self.status = QLabel("")
         self.status.setObjectName("miniStatus")
         foot.addWidget(self.status)
@@ -446,7 +450,7 @@ class MiniSearch(CardWindow):
             base = ""
         sizes = theme.font_sizes()
         sizes["field"] = f"{round(float(sizes['body'][:-2]) * 1.6, 1)}pt"
-        self.setStyleSheet(base + _SHEET.format(**colours, **sizes))
+        self.setStyleSheet(base + _SHEET.format(**colours, **sizes, **theme.RADIUS))
         self.set_shadow_strength(scheme == "dark")
         self._delegate.retint(colours)
         retint_all(colours, roots=[self])
@@ -765,6 +769,8 @@ class MiniSearch(CardWindow):
             self._outlook_current()
             return True
         if ctrl and key == Qt.Key.Key_P:
+            # Ctrl+Shift+P, the main window's preview key (IA-3, 2026-10-14), and plain
+            # Ctrl+P, this box's own since it was built - both, so no habit breaks.
             self.toggle_preview()
             return True
         if ctrl and Qt.Key.Key_1 <= key <= Qt.Key.Key_5:
@@ -1371,10 +1377,14 @@ class MiniSearch(CardWindow):
 
     def _expand(self) -> None:
         """Every result, in the main window. Shift+Enter, or the header button."""
+        from app.ui.presenter.scopes import key_for_bucket
+
         query = self.box.text().strip()
+        scope = key_for_bucket(self._active_chip)
         self.dismiss()
         if query:
             self.expanded.emit(query)
+            self.expanded_to.emit(query, scope)
 
     def _reveal_current(self) -> None:
         """Ctrl+Enter: show the highlighted result in its folder, by the one
@@ -1435,7 +1445,7 @@ def _words() -> Any:
 _SHEET = """
 #miniSearch {{ background: transparent; border: none; }}
 #miniCard {{
-    background: {surface}; border: 1px solid {border_strong}; border-radius: 14px;
+    background: {surface}; border: 1px solid {border_strong}; border-radius: {radius_window};
 }}
 #miniCard QWidget#miniHeader, #miniCard QWidget#miniChipBar, #miniCard QWidget#miniFooter,
 #miniCard QSplitter, #miniCard QStackedWidget, #miniCard QListWidget#miniList,
@@ -1450,7 +1460,7 @@ QLineEdit#miniBox {{
     selection-background-color: {accent}; selection-color: {selection_text};
 }}
 QPushButton#miniHeaderButton {{
-    background: transparent; border: 1px solid transparent; border-radius: 8px;
+    background: transparent; border: 1px solid transparent; border-radius: {radius_control};
     padding: 5px 4px 5px 7px; min-height: 18px;
 }}
 QPushButton#miniHeaderButton:hover {{ background: {surface_hover}; border-color: {border}; }}
@@ -1478,7 +1488,7 @@ QLabel#miniMessage {{ color: {text_dim}; font-size: {body}; padding: 24px; }}
 QLabel#miniStatus {{ color: {text_faint}; font-size: {small}; }}
 QLabel#miniKey {{
     color: {text_dim}; background: {surface_alt}; border: 1px solid {border};
-    border-bottom-width: 2px; border-radius: 4px; padding: 0px 5px; font-size: {small};
+    border-bottom-width: 2px; border-radius: {radius_small}; padding: 0px 5px; font-size: {small};
 }}
 QLabel#miniKeyWords {{ color: {text_faint}; font-size: {small}; padding-right: 6px; }}
 QSplitter#miniSplit::handle {{ background: {divider}; }}

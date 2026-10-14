@@ -23,16 +23,18 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QMenu, QPlainTextEdit, QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout,
+    QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout,
     QWidget,
 )
 
 from app.contacts.card import display_name
 from app.ui.contacts_tools import actions
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, make_table, named, plural
+from app.ui.widgets import menus
 from app.ui.widgets.icons import icon
 from app.ui.widgets.select_all import SelectBar
 from app.ui.widgets.dialog_frame import frame
+from app.ui.theme import SPACE_S
 
 __all__ = ["DuplicatesDialog", "PlanDialog"]
 
@@ -88,7 +90,7 @@ class DuplicatesDialog(ToolDialog):
 
         groups = QWidget()
         gl = QVBoxLayout(groups)
-        gl.setContentsMargins(0, 6, 0, 0)
+        gl.setContentsMargins(0, SPACE_S, 0, 0)
         self.table = make_table(self, ["Why", "Confidence", "Contacts", "Merge all safe?"], "Duplicate groups",
                                 "Each row is a group of contacts that may be one person", stretch=2)
         self.table.itemDoubleClicked.connect(lambda _i: self.review())
@@ -101,14 +103,14 @@ class DuplicatesDialog(ToolDialog):
         self.tick_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.tick_button.setToolTip("Tick groups to merge: all, none, the safe ones, or those above a confidence")
         self.tick_button.setAccessibleName("Tick groups")
-        menu = QMenu(self.tick_button)
-        for words, rule in (("All groups", lambda g: True), ("None", None),
-                            ("Only the safe ones", lambda g: g.safe),
-                            ("Only the ones to look at first", lambda g: not g.safe),
-                            ("Confidence 90% or more", lambda g: g.confidence >= 0.9),
-                            ("Confidence 70% or more", lambda g: g.confidence >= 0.7)):
-            menu.addAction(words).triggered.connect(lambda _c=False, r=rule: self.tick(r))
-        self.tick_button.setMenu(menu)
+        menus.attach(self.tick_button, [
+            menus.Item(words, lambda r=rule: self.tick(r), icon=glyph)
+            for words, rule, glyph in (
+                ("All groups", lambda g: True, "list-checks"), ("None", None, "list-x"),
+                ("Only the safe ones", lambda g: g.safe, "shield-check"),
+                ("Only the ones to look at first", lambda g: not g.safe, "triangle-alert"),
+                ("Confidence 90% or more", lambda g: g.confidence >= 0.9, "filter"),
+                ("Confidence 70% or more", lambda g: g.confidence >= 0.7, "filter"))])
         from app.ui.widgets.buttons import give_icon
 
         give_icon(self.tick_button)                  # "Tick" was words alone (2026-10-14)
@@ -120,7 +122,7 @@ class DuplicatesDialog(ToolDialog):
 
         rejected = QWidget()
         rl = QVBoxLayout(rejected)
-        rl.setContentsMargins(0, 6, 0, 0)
+        rl.setContentsMargins(0, SPACE_S, 0, 0)
         self.rejected_table = make_table(self, ["Contact", "Not the same as"], "Rejected pairs",
                                          "Pairs you said are not duplicates", stretch=1, select="multi")
         self.rejected_table.itemSelectionChanged.connect(self._sync_buttons)
@@ -356,7 +358,7 @@ class DuplicatesDialog(ToolDialog):
 def _row(*buttons: QWidget) -> QHBoxLayout:
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
-    row.setSpacing(8)
+    row.setSpacing(SPACE_S)
     for b in buttons:
         row.addWidget(b)
     row.addStretch(1)

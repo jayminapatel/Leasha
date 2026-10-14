@@ -31,6 +31,16 @@ The rules, in plain English
    selector), so the red is the icon's and the place is last.
 5. **Words are never changed here.** A line is given its words by the view
    that owns it; this file only orders, groups, decorates and places them.
+
+**A button's drop-down is built here too** (review DS-6, 2026-10-14). Fifteen
+drop-downs were hand-built `QMenu`s, some with no icon on any line, so rule 1
+held for a right-click and not for a click on Tick or More. `attach(button,
+items)` gives a button its menu by the same rules; `refill` changes its lines
+when what it offers changes; `kept` is the same menu for a button that pops it
+up itself. Each line remembers its glyph, so the icons are painted again in the
+theme's colours every time the menu opens (`retint`) - a theme switch reaches a
+menu built before it. A line that is one of several orders to choose from is a
+`choice`: ticked, and one at a time.
 """
 
 from __future__ import annotations
@@ -40,15 +50,20 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Sequence
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import QAbstractScrollArea, QMenu, QWidget
 
 from app.ui.qtsip import open_menu
 
 __all__ = [
     "GROUPS", "MENU_ICONS", "MENU_PREFIXES", "Item", "build", "glyph_for",
-    "global_point", "show", "weak_call", "BUILT_PROPERTY",
+    "global_point", "show", "weak_call", "BUILT_PROPERTY", "ATTACHED_PROPERTY",
+    "attach", "kept", "refill", "retint", "lines",
 ]
+
+#: Set on a menu that belongs to a button (`attach`, `kept`): it lives as long as
+#: its button, so `build`'s tidying of a widget's old right-click menus leaves it.
+ATTACHED_PROPERTY = "menuAttached"
 
 #: The groups, in the order they appear. See rule 4.
 GROUPS = ("open", "act", "copy", "remember", "danger")
@@ -130,7 +145,10 @@ class Item:
 
     `run` is called with no arguments. `sub` makes the line a submenu instead
     (and `run` is ignored). `tint` is a colour for this line's icon alone - a
-    contact tag's own colour; otherwise the theme decides.
+    contact tag's own colour; otherwise the theme decides. `choice` makes the
+    line one of several to choose from: ticked when `checked`, and choosing it
+    unticks the others in the same menu. `key` names the line for `lines()`
+    (its words when empty), for a view that ticks or renames it later.
     """
 
     words: str
@@ -144,6 +162,8 @@ class Item:
     checked: Optional[bool] = None
     tint: str = ""
     sub: Sequence["Item"] = field(default_factory=tuple)
+    choice: bool = False
+    key: str = ""
 
 
 class _KeysStayInTheMenu(QObject):
@@ -196,21 +216,39 @@ def _colours() -> dict[str, str]:
     return theme_colours()
 
 
-def _icon_for(item: Item, colours: dict[str, str]) -> Any:
-    from app.ui.widgets.icons import ICON_NAMES, icon
+def _glyph(item: Item) -> str:
+    from app.ui.widgets.icons import ICON_NAMES
 
     glyph = glyph_for(item.words, item.icon)
     if not glyph or glyph not in ICON_NAMES:
         # Rule 1 is enforced where a menu is made, so a line without a picture
         # cannot reach the screen - the same bargain `buttons.icon_button` makes.
         raise ValueError(f"menu line {item.words!r} has no icon in ICON_NAMES ({glyph!r})")
-    if item.tint:
-        colour = item.tint
-    elif item.group == "danger":
+    return glyph
+
+
+def _paint(glyph: str, tint: str, group: str, colours: dict[str, str]) -> Any:
+    from app.ui.widgets.icons import icon
+
+    if tint:
+        colour = tint
+    elif group == "danger":
         colour = colours.get("danger", "#a32020")
     else:
         colour = colours.get("text_dim", "#888888")
     return icon(glyph, colour)
+
+
+def _icon_for(item: Item, colours: dict[str, str]) -> Any:
+    return _paint(_glyph(item), item.tint, item.group, colours)
+
+
+def _remember(action: QAction, item: Item) -> None:
+    """What `retint` and `lines` need later, kept on the line itself."""
+    action.setProperty("menuGlyph", _glyph(item))
+    action.setProperty("menuTint", item.tint)
+    action.setProperty("menuGroup", item.group)
+    action.setProperty("menuKey", item.key or item.words)
 
 
 def _ordered(items: Sequence[Item]) -> list[list[Item]]:
@@ -243,6 +281,16 @@ def _runs(items: Sequence[Item]) -> list[list[Item]]:
     return blocks
 
 
+def _choices(menu: QMenu) -> QActionGroup:
+    """The menu's one exclusive group for its `choice` lines, made the first time."""
+    group = getattr(menu, "_choices", None)
+    if group is None:
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        menu._choices = group
+    return group
+
+
 def _add(menu: QMenu, item: Item, colours: dict[str, str]) -> QAction:
     picture = _icon_for(item, colours)
     if item.sub:
@@ -257,10 +305,15 @@ def _add(menu: QMenu, item: Item, colours: dict[str, str]) -> QAction:
         if run is not None:
             action.triggered.connect(lambda _checked=False, go=run: go())
         menu.addAction(action)
+    _remember(action, item)
     action.setEnabled(bool(item.enabled))
     if item.tip:
         action.setToolTip(item.tip)
-    if item.checked is not None:
+    if item.choice:
+        action.setCheckable(True)
+        action.setChecked(bool(item.checked))
+        _choices(menu).addAction(action)
+    elif item.checked is not None:
         action.setCheckable(True)
         action.setChecked(bool(item.checked))
     if item.shortcut:
@@ -300,12 +353,77 @@ def build(parent: QWidget, items: Sequence[Item], *, grouped: bool = True) -> QM
     # (`WA_DeleteOnClose`): a menu deleted as it closes crashed when its list was
     # torn down before the deletion ran (seen in tests/unit/test_side_lists.py).
     for old in parent.findChildren(QMenu, options=Qt.FindChildOption.FindDirectChildrenOnly):
-        if old.property(BUILT_PROPERTY) and not old.isVisible():
+        if (old.property(BUILT_PROPERTY) and not old.property(ATTACHED_PROPERTY)
+                and not old.isVisible()):
             old.deleteLater()
     menu = _new_menu(parent)
     menu.setProperty(BUILT_PROPERTY, True)
     _fill(menu, list(items), _colours(), grouped=grouped)
     return menu
+
+
+def kept(parent: QWidget, items: Sequence[Item] = (), *, grouped: bool = False) -> QMenu:
+    """A menu that lives as long as `parent`, for a button that pops it up itself.
+
+    Built by the same rules as `build`; `grouped=False` by default, because a
+    drop-down's lines are in the order its view decided. Its icons are painted
+    again each time it opens (`retint`), so a theme switch reaches it.
+    """
+    menu = _new_menu(parent)
+    menu.setProperty(BUILT_PROPERTY, True)
+    menu.setProperty(ATTACHED_PROPERTY, True)
+    menu._grouped = grouped
+    _fill(menu, list(items), _colours(), grouped=grouped)
+    ref = weakref.ref(menu)
+    menu.aboutToShow.connect(lambda: _retint_ref(ref))
+    return menu
+
+
+def _retint_ref(ref: Any) -> None:
+    menu = ref()
+    if menu is not None:
+        retint(menu)
+
+
+def attach(button: Any, items: Sequence[Item] = (), *, grouped: bool = False) -> QMenu:
+    """`button`'s drop-down menu, built here: `button.setMenu` with a `kept` menu.
+
+    The button keeps its own popup mode (a `QToolButton` wants `InstantPopup`
+    to open on a click); a `QPushButton` opens it on a click as it is.
+    """
+    menu = kept(button, items, grouped=grouped)
+    button.setMenu(menu)
+    return menu
+
+
+def refill(menu: QMenu, items: Sequence[Item]) -> QMenu:
+    """Put new lines in a `kept` or `attach`ed menu - what it offers has changed."""
+    menu.clear()
+    group = getattr(menu, "_choices", None)
+    if group is not None:
+        group.deleteLater()
+        menu._choices = None
+    _fill(menu, list(items), _colours(), grouped=bool(getattr(menu, "_grouped", False)))
+    return menu
+
+
+def retint(menu: QMenu) -> None:
+    """Paint every line's icon again in the theme's colours now, submenus too."""
+    colours = _colours()
+    for action in menu.actions():
+        glyph = action.property("menuGlyph")
+        if glyph:
+            action.setIcon(_paint(str(glyph), str(action.property("menuTint") or ""),
+                                  str(action.property("menuGroup") or "act"), colours))
+        sub = action.menu()
+        if sub is not None and sub is not menu:
+            retint(sub)
+
+
+def lines(menu: QMenu) -> dict[str, QAction]:
+    """The menu's lines by their `key` (their words when none was given)."""
+    return {str(action.property("menuKey")): action for action in menu.actions()
+            if action.property("menuKey")}
 
 
 def global_point(widget: Any, point: QPoint) -> QPoint:

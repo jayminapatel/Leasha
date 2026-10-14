@@ -28,23 +28,24 @@ from pathlib import Path
 from typing import Any, Optional
 
 from PySide6.QtCore import QMimeData, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QAction, QActionGroup, QDrag, QIcon, QPixmap
+from PySide6.QtGui import QAction, QDrag, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
-    QGridLayout,
     QHBoxLayout, QInputDialog, QLabel, QListView, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QPushButton, QScrollArea, QSpinBox, QToolButton, QVBoxLayout,
+    QMessageBox, QPushButton, QScrollArea, QSpinBox, QToolButton, QVBoxLayout,
     QWidget,
 )
 
 from app.core.logging import logger
 from app.ui.later import when_done
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.confirm import confirm
 from app.ui.widgets.dialog_frame import buttons as dialog_buttons, frame
 from app.ui.widgets.face_crops import (blank_tile, cached_face_crop, face_key, remember,
                                        remembered, round_pixmap)
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 from app.ui.widgets import list_keys, menus
+from app.ui.theme import SPACE_S
 
 #: How often the page looks for faces grouped since it last read them, while
 #: it is on screen. 2026-10-04.
@@ -83,6 +84,11 @@ SORTS: tuple[tuple[str, str], ...] = (
     ("unnamed", "Unnamed first"),
     ("recent", "Recently found"),
 )
+
+#: Each order's picture in the Sort menu (review DS-6: an icon on every line).
+SORT_ICONS: dict[str, str] = {
+    "faces": "users", "name": "list", "unnamed": "circle-help", "recent": "clock",
+}
 
 
 def _warn_write_failed(widget: QWidget, title: str, error: Any) -> None:
@@ -280,10 +286,14 @@ class PhotoTaggerPage(QWidget):
     #: own preview; the opener (wherever this widget is placed) decides what
     #: "open" means, the same delegation `ThumbnailGrid.opened` already uses.
     opened = Signal(str)
+    #: IA-6 (2026-10-14): "Open contact" on a group linked to one - the contact's id.
+    contact_requested = Signal(int)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._store = store
+        #: IA-6: pile id -> its linked contacts `(id, name)`, read with the piles.
+        self._contact_links: dict = {}
         self._pool = QThreadPool.globalInstance()
         self._generation = 0
         self._pile_names: dict[int, str] = {}
@@ -323,7 +333,7 @@ class PhotoTaggerPage(QWidget):
         self._list.setGridSize(QSize(CELL, CELL))
         self._list.setResizeMode(QListView.ResizeMode.Adjust)
         self._list.setMovement(QListView.Movement.Static)
-        self._list.setSpacing(6)
+        self._list.setSpacing(SPACE_S)
         self._list.setWordWrap(True)
         self._list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         # A double-click or Enter names the pile, as F2 does; Delete forgets it, through
@@ -357,18 +367,11 @@ class PhotoTaggerPage(QWidget):
             "Put the people in another order. Most faces puts the people in the "
             "most photos first; Leasha remembers your choice.")
         self._sort_button.setAccessibleName("Sort the people")
-        sort_menu = QMenu(self._sort_button)
-        group = QActionGroup(sort_menu)
-        group.setExclusive(True)
-        self._sort_actions: dict[str, QAction] = {}
-        for key, words in SORTS:
-            action = QAction(words, sort_menu)
-            action.setCheckable(True)
-            action.triggered.connect(lambda _c=False, k=key: self.choose_sort(k))
-            group.addAction(action)
-            sort_menu.addAction(action)
-            self._sort_actions[key] = action
-        self._sort_button.setMenu(sort_menu)
+        sort_menu = menus.attach(self._sort_button, [
+            menus.Item(words, lambda k=key: self.choose_sort(k), icon=SORT_ICONS[key],
+                       choice=True, key=key)
+            for key, words in SORTS])
+        self._sort_actions: dict[str, QAction] = menus.lines(sort_menu)
         self._show_sort()
         from app.ui.widgets.buttons import give_icon
 
@@ -409,8 +412,7 @@ class PhotoTaggerPage(QWidget):
         self._accept_all.setToolTip(
             "Says Yes to every waiting \"Is this ...?\" - for everyone, or for one "
             "person. You are asked first, with the numbers.")
-        self._accept_menu = QMenu(self._accept_all)
-        self._accept_all.setMenu(self._accept_menu)
+        self._accept_menu = menus.attach(self._accept_all)
         self._suggestion_counts: list[tuple[int, str, int]] = []
         accept_bar = QHBoxLayout()
         accept_bar.addWidget(self._waiting)
@@ -521,6 +523,32 @@ class PhotoTaggerPage(QWidget):
         counts_worker.signals.failed.connect(
             lambda _error, g=generation: self._counts_ready([], g))
         run(self._pool, counts_worker)
+
+        # IA-6: which groups are linked to a contact, for the menu's Open contact.
+        from app.ui.widgets.photo_contacts import read_links
+
+        links_worker = CallableWorker(read_links, self._store, component="ui.photo_tagger")
+        when_done(self, links_worker,
+                  finished=lambda links, g=generation: self._links_ready(links, g))
+        run(self._pool, links_worker)
+
+    def _links_ready(self, links: Any, generation: int) -> None:
+        if generation == self._generation:
+            self._contact_links = dict((links or {}).get("contacts") or {})
+
+    def _open_contact(self, pile_id: int) -> None:
+        """IA-6: the contact this group is linked to, on the Contacts page."""
+        from app.ui.presenter.photo_people import linked_contact
+
+        contact_id = linked_contact(self._contact_links, pile_id)
+        if contact_id is not None:
+            self.contact_requested.emit(contact_id)
+
+    def _link_contact(self, pile_id: int, name: str) -> None:
+        """IA-6: "Link to contact…" - pick one from the contact book, linked at once."""
+        from app.ui.widgets.photo_contacts import pick_and_link
+
+        pick_and_link(self, self._store, pile_id, name, done=lambda _cid: self.reload())
 
     def _piles_ready(self, piles: Any, generation: int) -> None:
         r"""Bring the grid up to date **in place**.
@@ -788,15 +816,15 @@ class PhotoTaggerPage(QWidget):
         total = sum(c[2] for c in self._suggestion_counts)
         self._accept_bar.setVisible(total > 0)
         self._waiting.setText(f"{total:,} face(s) waiting for a Yes or No")
-        self._accept_menu.clear()
         if not total:
+            menus.refill(self._accept_menu, [])
             return
-        everyone = self._accept_menu.addAction(f"Everyone ({total:,})")
-        everyone.triggered.connect(lambda: self.accept_all(None))
-        self._accept_menu.addSeparator()
-        for pile_id, name, waiting in self._suggestion_counts:
-            action = self._accept_menu.addAction(f"{name} ({waiting:,})")
-            action.triggered.connect(lambda _c=False, p=pile_id: self.accept_all(p))
+        # Everyone, a separator, then each person: two groups, as the builder parts them.
+        menus.refill(self._accept_menu, [
+            menus.Item(f"Everyone ({total:,})", lambda: self.accept_all(None), icon="list-checks"),
+            *(menus.Item(f"{name} ({waiting:,})", lambda p=pile_id: self.accept_all(p),
+                         icon="user", group="remember")
+              for pile_id, name, waiting in self._suggestion_counts)])
 
     def accept_all(self, pile_id: Optional[int]) -> bool:
         """Yes to every waiting suggestion - one person's, or everyone's -
@@ -810,12 +838,12 @@ class PhotoTaggerPage(QWidget):
         lines = "\n".join(f"  {name}: {waiting:,}" for _p, name, waiting in chosen[:12])
         if len(chosen) > 12:
             lines += f"\n  and {len(chosen) - 12} more"
-        answer = QMessageBox.question(
-            self, "Accept all",
-            f"File {total:,} face(s) under the person Leasha suggested?\n\n{lines}\n\n"
-            f"A face filed wrongly can be taken out later - right-click the person, "
-            f"then \"Manage the faces in this pile\".")
-        if answer != QMessageBox.StandardButton.Yes:
+        if not confirm(
+                self, "Accept all",
+                f"File {total:,} face(s) under the person Leasha suggested?\n\n{lines}\n\n"
+                f"A face filed wrongly can be taken out later - right-click the person, "
+                f"then \"Manage the faces in this pile\".",
+                "Accept all", danger=False):
             return False
         self._accept_all.setEnabled(False)
         worker = CallableWorker(self._store.accept_all_suggestions, pile_id,
@@ -900,15 +928,13 @@ class PhotoTaggerPage(QWidget):
         from app.ui.workers import CallableWorker, run
 
         if taken is not None:
-            answer = QMessageBox.question(
-                self, "Put these faces with them?",
-                f"There is already a group called {name.strip()}. Put these faces "
-                f"with {name.strip()}? The two groups become one.",
-                # Cancel the default, as the two other combines here have: the
-                # platform's default was Yes, so Enter merged two people.
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel)
-            if answer != QMessageBox.StandardButton.Yes:
+            # Cancel the default, as the two other combines here have: the
+            # platform's default was Yes, so Enter merged two people.
+            if not confirm(
+                    self, "Put these faces with them?",
+                    f"There is already a group called {name.strip()}. Put these faces "
+                    f"with {name.strip()}? The two groups become one.",
+                    "Combine", glyph="merge"):
                 return
             self._show_combined(pile_id, int(taken))
             worker = CallableWorker(self._store.combine_piles, pile_id, int(taken),
@@ -928,15 +954,12 @@ class PhotoTaggerPage(QWidget):
         """Section 2b. Confirmed - a merge cannot be undone by dragging back,
         so this is exactly the kind of action non-negotiable #11's
         "destructive... state the cost and confirm" pattern applies to."""
-        confirmed = QMessageBox.question(
-            self, "Combine these piles?",
-            "Every photo in the pile you dragged will move into the one "
-            "you dropped it on, and the pile you dragged will be gone. "
-            "Use this when they are the same person.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if confirmed != QMessageBox.StandardButton.Yes:
+        if not confirm(
+                self, "Combine these piles?",
+                "Every photo in the pile you dragged will move into the one "
+                "you dropped it on, and the pile you dragged will be gone. "
+                "Use this when they are the same person.",
+                "Combine", glyph="merge"):
             return
         from app.ui.workers import CallableWorker, run
 
@@ -1006,6 +1029,12 @@ class PhotoTaggerPage(QWidget):
             # another already did this; the menu is where it is looked for.
             menus.Item("Combine with another person…", lambda: self._combine_with(pile_id, name)),
             menus.Item("Manage the faces in this pile…", lambda: self._manage_faces(pile_id)),
+            # IA-6 (2026-10-14): Photos and Contacts, linked both ways.
+            menus.Item("Open contact", lambda: self._open_contact(pile_id), icon="contact",
+                       enabled=pile_id in self._contact_links,
+                       tip="Show the contact this person is linked to"),
+            menus.Item("Link to contact…", lambda: self._link_contact(pile_id, name), icon="link",
+                       tip="Choose who this is from your contacts"),
             menus.Item("Forget this person…", lambda: self._forget(pile_id, name), group="danger",
                        shortcut="Del"),
         ])
@@ -1050,13 +1079,11 @@ class PhotoTaggerPage(QWidget):
             return
         target_label, target_id = others[labels.index(picked)]
         target_name = target_label.split(" — ", 1)[0]
-        answer = QMessageBox.question(
-            self, "Combine these two?",
-            f"Put the faces in {name} with {target_name}? The two groups become "
-            f"one, called {target_name}. This cannot be undone from here.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No)
-        if answer != QMessageBox.StandardButton.Yes:
+        if not confirm(
+                self, "Combine these two?",
+                f"Put the faces in {name} with {target_name}? The two groups become "
+                f"one, called {target_name}. This cannot be undone from here.",
+                "Combine", glyph="merge"):
             return
         from app.ui.workers import CallableWorker, run
 

@@ -96,7 +96,13 @@ def test_the_pill_has_no_side_padding_beyond_its_layout() -> None:
     40px of a 60px pill for the words."""
     sheet = theme.stylesheet("light", detected="light", base_pt=9.0)
     pill = re.search(r"#railPill \{[^}]*\}", sheet)
-    assert pill is not None and "padding: 6px 0;" in pill.group(0)
+    assert pill is not None
+    # 2026-10-14, the UX review (DS-4): the border is the focus width (2px), and the
+    # padding gives the extra pixel back, so the pill's edge is 7px as before.
+    padding = re.search(r"padding: (\d+)px 0;", pill.group(0))
+    border = re.search(r"border: (\d+)px solid", pill.group(0))
+    assert padding is not None and border is not None, "no side padding"
+    assert int(padding.group(1)) + int(border.group(1)) == 7
 
 
 # --- the results list --------------------------------------------------------

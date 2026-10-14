@@ -38,6 +38,7 @@ from app.ui.later import later
 from app.ui.presenter.timeline import BAND_SIZE, Block, photo_tip, row_text
 from app.ui.theme import theme_colours
 from app.ui.thumbnail_loader import decode_thumbnail
+from app.ui.widgets.paint_kit import paint_row_state, scaled_font, set_weight
 
 __all__ = ["TimelineList", "TimelineDelegate", "BAND_HEIGHT", "ROLE_BLOCK"]
 
@@ -75,13 +76,10 @@ class TimelineDelegate(QStyledItemDelegate):
     # -- geometry -------------------------------------------------------------
 
     def _fonts(self, base: QFont) -> tuple[QFont, QFont]:
-        """The bold title font and a slightly smaller font for the second line."""
-        title, meta = QFont(base), QFont(base)
-        title.setBold(True)
-        size = base.pointSizeF() if base.pointSize() > 0 else -1
-        if size > 0:
-            meta.setPointSizeF(max(6.0, size - 1))
-        return title, meta
+        """The bold title font and the scale's small step for the second line (it was one
+        point less than the title, a step of its own; review 2026-10-14, DS-8)."""
+        title = set_weight(QFont(base), "bold")
+        return title, scaled_font(base, "small")
 
     def sizeHint(self, option: Any, index: Any) -> QSize:          # noqa: N802
         """Row heights from the fonts alone; width 0 so the list never scrolls sideways."""
@@ -137,14 +135,8 @@ class TimelineDelegate(QStyledItemDelegate):
     def _paint_row(self, painter, option, block, colours, title_font, meta_font) -> None:
         text = row_text(block.folds[0])
         rect = option.rect.adjusted(4, 1, -4, -1)
-        if option.state & QStyle.StateFlag.State_Selected:
-            painter.setBrush(QColor(colours["accent_soft"]))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(rect, 8, 8)
-        elif option.state & QStyle.StateFlag.State_MouseOver:
-            painter.setBrush(QColor(colours["surface_hover"]))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(rect, 8, 8)
+        # The one hover, selection and keyboard ring every painted list draws (DS-2).
+        paint_row_state(painter, option.rect, option, colours, inset=(4, 1))
         left, right = rect.left() + _PAD, rect.right() - _PAD
         title_h = QFontMetrics(title_font).height()
         meta_h = QFontMetrics(meta_font).height()

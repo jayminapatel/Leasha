@@ -65,7 +65,7 @@ from app.ui.widgets.mail_card import MailBody, MailCardView
 from app.ui.widgets.spreadsheet_view import SpreadsheetView
 from app.ui.workers import CallableWorker, run
 from app.ui.widgets.buttons import ROW_SPACING, style_all
-from app.ui.theme import SPACE_XS, SPACE_S
+from app.ui.theme import SPACE_XS, SPACE_S, SPACE_M
 
 __all__ = ["PreviewPane", "PREVIEW_DEBOUNCE_MS", "attach_preview"]
 
@@ -116,7 +116,32 @@ def attach_preview(results: Any, on_open: Any, on_error: Any, *, store: Any = No
     split.setStretchFactor(1, 2)
     split.setChildrenCollapsible(False)
     pane.setVisible(False)
+    _attach_quick_look(split, results, pane, store=store, on_error=on_error)
     return pane, split
+
+
+def _attach_quick_look(split: Any, results: Any, pane: Any, *, store: Any, on_error: Any) -> None:
+    """Review 2026-10-14, MS-9: Space on the list opens a quick look (`quick_look.py`).
+
+    The row is the list's current one - `results.current_row()` where the list
+    has it, else the last row it said was selected (the signal the pane already
+    listens to). A picture's siblings are the list's other pictures, where it
+    can say (`image_rows`), so Left and Right walk them in the look.
+    """
+    from app.ui.widgets.quick_look import QuickLook
+
+    last: dict = {"row": None}
+    results.selected.connect(lambda row: last.__setitem__("row", row))
+
+    def current() -> Any:
+        ask = getattr(results, "current_row", None)
+        return ask() if callable(ask) else last["row"]
+
+    images = getattr(results, "image_rows", None)
+    split.quick_look = QuickLook(
+        split, current=current, siblings=images if callable(images) else None,
+        body_provider=lambda: getattr(pane, "body_provider", None),
+        store=store, on_error=on_error)
 
 _log = logger.bind(component="ui.preview")
 
@@ -209,8 +234,8 @@ class PreviewPane(QWidget):
         self.facts.setObjectName("inspectorFacts")
         self._facts_grid = QGridLayout(self.facts)
         self._facts_grid.setContentsMargins(0, SPACE_XS, 0, SPACE_S)
-        self._facts_grid.setHorizontalSpacing(14)
-        self._facts_grid.setVerticalSpacing(3)
+        self._facts_grid.setHorizontalSpacing(SPACE_M)
+        self._facts_grid.setVerticalSpacing(SPACE_XS)
         self.facts.setVisible(False)
 
         # Order 0y section 4a: a message's header, drawn as a card. It stands

@@ -28,8 +28,9 @@ from app.contacts.card import KINDS, Card, display_name
 from app.ui.contacts.logic import KIND_INFO, initials, label_icon
 from app.ui.theme import SPACE_M, SPACE_S, SPACE_XS, theme_colours
 from app.ui.widgets.buttons import action_button
-from app.ui.widgets.icons import icon
+from app.ui.widgets.icons import icon, icon_size
 from app.ui.widgets.scroll import scrollable
+from app.ui.widgets.paint_kit import points_for_pixels, scaled_font, set_weight
 
 __all__ = ["ContactReader", "round_photo", "work_line", "PHOTO_SIDE"]
 
@@ -58,9 +59,8 @@ def round_photo(photo: Any, name: str, side: int, colours: Optional[dict[str, st
         painter.drawPixmap((side - scaled.width()) // 2, (side - scaled.height()) // 2, scaled)
     else:
         painter.fillPath(path, QColor(c.get("accent_soft", "#dddddd")))
-        font = QFont(painter.font())
-        font.setBold(True)
-        font.setPixelSize(int(side * 0.38))
+        font = set_weight(QFont(painter.font()), "bold")
+        font.setPointSizeF(points_for_pixels(int(side * 0.38)))     # sized to the circle, in points
         painter.setFont(font)
         painter.setPen(QColor(c.get("accent_text", "#444444")))
         painter.drawText(QRect(0, 0, side, side), Qt.AlignmentFlag.AlignCenter, initials(name) if name else "?")
@@ -99,10 +99,10 @@ class ContactReader(QWidget):
         self.heading.setObjectName("contactName")
         self.heading.setWordWrap(True)
         self.heading.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        # The type scale's `title` step (it was x1.35, a step of its own; review 2026-10-14, DS-8).
         font = QFont(self.heading.font())
-        font.setBold(True)
-        font.setPointSizeF(max(font.pointSizeF(), 9.0) * 1.35)
-        self.heading.setFont(font)
+        font.setPointSizeF(max(font.pointSizeF(), 9.0))
+        self.heading.setFont(scaled_font(font, "title", weight="bold"))
         self.work = _selectable("", dim=True)
         self.work.setAccessibleName("Job and company")
         self.star = QLabel()
@@ -112,9 +112,9 @@ class ContactReader(QWidget):
         self.edit_button.setToolTip("Edit this contact (Enter or F2)")
         self.edit_button.clicked.connect(self.edit_requested.emit)
         names = QVBoxLayout()
-        names.setSpacing(2)
+        names.setSpacing(SPACE_XS)
         top = QHBoxLayout()
-        top.setSpacing(6)
+        top.setSpacing(SPACE_S)
         top.addWidget(self.heading, 1)
         top.addWidget(self.star, 0, Qt.AlignmentFlag.AlignTop)
         names.addLayout(top)
@@ -134,12 +134,12 @@ class ContactReader(QWidget):
         #: Where the page puts the panels it lends (`add_panels`).
         self._panels = QVBoxLayout()
         self._panels.setContentsMargins(0, 0, 0, 0)
-        self._panels.setSpacing(10)
+        self._panels.setSpacing(SPACE_S)
 
         body = QWidget()
         col = QVBoxLayout(body)
-        col.setContentsMargins(12, 10, 12, 12)
-        col.setSpacing(14)
+        col.setContentsMargins(SPACE_M, SPACE_M, SPACE_M, SPACE_M)
+        col.setSpacing(SPACE_M)
         col.addLayout(head)
         col.addWidget(self.details)
         col.addLayout(self._panels)
@@ -159,7 +159,7 @@ class ContactReader(QWidget):
     def clear(self) -> None:
         self.cid = None
         self._card = Card()
-        self._kept, self._tags = [], []
+        self._kept, self._tags, self._marks = [], [], []
         self.heading.setText("")
         self.work.setText("")
         self.work.hide()
@@ -168,11 +168,14 @@ class ContactReader(QWidget):
         self._rebuild()
 
     def show_contact(self, cid: int, card: Card, *, kept_in: Iterable[str] = (), tags: Iterable[str] = (),
-                     editable: bool = True) -> None:
-        """Show one contact. `kept_in` are the account names; `editable` is False in the bin."""
+                     editable: bool = True, kept_marks: Iterable[Any] = ()) -> None:
+        """Show one contact. `kept_in` are the account names; `editable` is False in the bin. `kept_marks`
+        (`presenter.link_marks.LinkMark`, review 2026-10-14 CS-9) gives each account's link state - synced,
+        waiting to be written, deleted there, refused - as a mark and a tooltip; without them, the names alone."""
         self.cid = int(cid)
         self._card = card
         self._kept = list(kept_in)
+        self._marks = list(kept_marks)
         self._tags = list(tags)
         self.heading.setText(display_name(card))
         line = work_line(card)
@@ -183,9 +186,13 @@ class ContactReader(QWidget):
         self._rebuild()
 
     def set_kept(self, names: Iterable[str]) -> None:
-        """After the editor changed where the contact is kept."""
+        """After the editor changed where the contact is kept. The marks are of the old set: dropped until the
+        contact is read again."""
         self._kept = list(names)
+        self._marks = []
         self._rebuild()
+
+    _marks: list = []
 
     def retint(self, colours: dict[str, str]) -> None:
         self.star.setPixmap(icon("star", colours.get("warning", "#b06000")).pixmap(16, 16))
@@ -216,7 +223,11 @@ class ContactReader(QWidget):
         notes = self._card.get("notes")
         if notes:
             self._details.addWidget(self._section("sticky-note", "Notes", [("", notes, "")], ink))
-        if self._kept:
+        if self._marks:
+            self._details.addWidget(self._section(
+                "cloud", "Kept in", [(m.glyph, m.name, m.words) for m in self._marks], ink,
+                inks=[c.get(m.tone, ink) for m in self._marks], tips=[m.tip for m in self._marks]))
+        elif self._kept:
             self._details.addWidget(self._section("cloud", "Kept in", [("", ", ".join(self._kept), "")], ink))
         if self._card.groups:
             self._details.addWidget(self._section("users", "Groups", [("", ", ".join(self._card.groups), "")], ink))
@@ -224,8 +235,10 @@ class ContactReader(QWidget):
             self._details.addWidget(self._section("tag", "Tags", [("", ", ".join(self._tags), "")], ink))
 
     @staticmethod
-    def _section(glyph: str, words: str, lines: list[tuple[str, str, str]], ink: str) -> QWidget:
-        """A titled block: the kind's icon and name, then one line per value with its label beside it."""
+    def _section(glyph: str, words: str, lines: list[tuple[str, str, str]], ink: str, *,
+                 inks: Optional[list[str]] = None, tips: Optional[list[str]] = None) -> QWidget:
+        """A titled block: the kind's icon and name, then one line per value with its label beside it. `inks`
+        colours each line's mark and `tips` is its tooltip (the "Kept in" marks, CS-9)."""
         box = QWidget()
         box.setObjectName("contactReadSection")
         box.setAccessibleName(words)
@@ -233,7 +246,7 @@ class ContactReader(QWidget):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(SPACE_XS)
         title_row = QHBoxLayout()
-        title_row.setSpacing(6)
+        title_row.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon(glyph, ink).pixmap(16, 16))
         title = QLabel(words)
@@ -243,18 +256,28 @@ class ContactReader(QWidget):
         title_row.addStretch(1)
         col.addLayout(title_row)
         grid = QGridLayout()
-        grid.setContentsMargins(22, 0, 0, 0)
+        grid.setContentsMargins(icon_size("list").width() + SPACE_XS, 0, 0, 0)
         grid.setHorizontalSpacing(SPACE_S)
-        grid.setVerticalSpacing(3)
+        grid.setVerticalSpacing(SPACE_XS)
         grid.setColumnStretch(1, 1)
         for row, (line_glyph, value, label) in enumerate(lines):
+            tip = tips[row] if tips and row < len(tips) else ""
             if line_glyph:
                 mark = QLabel()
-                mark.setPixmap(icon(line_glyph, ink).pixmap(14, 14))
+                mark.setPixmap(icon(line_glyph, inks[row] if inks and row < len(inks) else ink).pixmap(14, 14))
+                if tip:
+                    mark.setToolTip(tip)
+                    mark.setAccessibleName(tip)
                 grid.addWidget(mark, row, 0, Qt.AlignmentFlag.AlignTop)
-            grid.addWidget(_selectable(value), row, 1)
+            shown = _selectable(value)
+            if tip:
+                shown.setToolTip(tip)
+            grid.addWidget(shown, row, 1)
             if label:
-                grid.addWidget(_selectable(label, dim=True), row, 2, Qt.AlignmentFlag.AlignTop)
+                said = _selectable(label, dim=True)
+                if tip:
+                    said.setToolTip(tip)
+                grid.addWidget(said, row, 2, Qt.AlignmentFlag.AlignTop)
         col.addLayout(grid)
         return box
 

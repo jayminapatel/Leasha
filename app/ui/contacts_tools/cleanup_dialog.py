@@ -35,6 +35,7 @@ from app.ui.contacts_tools import actions
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, make_table, named, plural
 from app.ui.later import later
 from app.ui.widgets.icons import icon
+from app.ui.theme import SPACE_S
 
 __all__ = ["CleanupDialog", "compute", "FINDERS"]
 
@@ -93,7 +94,7 @@ class _Tab(QWidget):
         self.kind = kind
         self.dialog = dialog
         self.layout_ = QVBoxLayout(self)
-        self.layout_.setContentsMargins(0, 6, 0, 0)
+        self.layout_.setContentsMargins(0, SPACE_S, 0, 0)
         self.options = QHBoxLayout()
         self.layout_.addLayout(self.options)
         self.count = QLabel("")
@@ -423,7 +424,7 @@ def _fit_columns(table: Any) -> None:
 def _row(*buttons: QWidget) -> QHBoxLayout:
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
-    row.setSpacing(8)
+    row.setSpacing(SPACE_S)
     for b in buttons:
         row.addWidget(b)
     row.addStretch(1)

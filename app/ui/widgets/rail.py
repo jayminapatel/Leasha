@@ -43,7 +43,7 @@ from app.ui.rail_state import PillState
 from app.ui.widgets.icons import icon as themed_icon
 from app.ui.widgets.icons import ICON_SIZES
 from app.ui.widgets.shimmer_bar import ShimmerBar
-from app.ui.theme import SPACE_XS, SPACE_M
+from app.ui.theme import SPACE_XS, SPACE_S, SPACE_M
 
 __all__ = ["Rail", "RAIL_WIDTH", "ICON_SIZE"]
 
@@ -112,7 +112,7 @@ class _Pill(QFrame):
         # same room above and below as a rail button's 7 + 5, and the full
         # 60px width is left for the word.
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)
+        layout.setSpacing(SPACE_XS)
         #: The icon with its status dot, drawn by `_draw_glyph`.
         self.glyph = QLabel()
         self.glyph.setObjectName("railPillGlyph")
@@ -263,6 +263,8 @@ class Rail(QWidget):
     tabMoved = Signal(int, int)           # noqa: N815 - QTabWidget's name
     order_changed = Signal(list)
     reset_requested = Signal()
+    #: IA-11 (2026-10-14): the titles of the pages taken off the rail, after a change.
+    hidden_changed = Signal(list)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -276,6 +278,8 @@ class Rail(QWidget):
         #: every label showing, re-read whenever the labels are showing.
         self._compact = False
         self._natural = 0
+        #: IA-11: titles of the pages the owner took off the rail (`hide_page`).
+        self._hidden: set[str] = set()
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -287,7 +291,7 @@ class Rail(QWidget):
         self.column.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.column.setAccessibleName("Pages")
         col = QVBoxLayout(self.column)
-        col.setContentsMargins(6, 12, 6, 10)
+        col.setContentsMargins(SPACE_XS, SPACE_M, SPACE_XS, SPACE_S)
         col.setSpacing(SPACE_XS)
         self.mark = QLabel("L")
         self.mark.setObjectName("railMark")
@@ -310,7 +314,7 @@ class Rail(QWidget):
                     Qt.TransformationMode.SmoothTransformation))
                 self.mark.setText("")
         col.addWidget(self.mark, 0, Qt.AlignmentFlag.AlignHCenter)
-        col.addSpacing(10)
+        col.addSpacing(SPACE_S)
         self._top = QVBoxLayout()
         self._top.setSpacing(SPACE_XS)
         col.addLayout(self._top)
@@ -471,7 +475,9 @@ class Rail(QWidget):
             # Showing it now is what the layout was going to do anyway. A
             # button somebody hid on purpose carries Qt's "explicitly shown or
             # hidden" flag and is left exactly as it is.
-            if not button.testAttribute(Qt.WidgetAttribute.WA_WState_ExplicitShowHide):
+            if self._titles[index] in self._hidden:
+                button.setVisible(False)
+            elif not button.testAttribute(Qt.WidgetAttribute.WA_WState_ExplicitShowHide):
                 button.show()
         if self.isVisible():
             self._measure()
@@ -548,8 +554,49 @@ class Rail(QWidget):
         return -1
 
     def page_order(self) -> list[str]:
-        """The movable pages' titles, top to bottom."""
+        """The movable pages' titles on the rail, top to bottom - a hidden page is left out,
+        so whatever numbers the pages by this list (Ctrl+1..9) skips it."""
+        return [self._titles[i] for i in sorted(self._buttons)
+                if self.movable(i) and self.shown(i)]
+
+    def all_page_order(self) -> list[str]:
+        """Every movable page's title, hidden or not, top to bottom - what is remembered."""
         return [self._titles[i] for i in sorted(self._buttons) if self.movable(i)]
+
+    # -- IA-11 (2026-10-14): pages taken off the rail, and put back ---------------------
+
+    def shown(self, index: int) -> bool:
+        """Whether page `index` has a button on the rail now (not hidden by the owner)."""
+        return index in self._buttons and self.tabText(index) not in self._hidden
+
+    def hideable(self, index: int) -> bool:
+        """A movable page other than Search may be hidden; Search, Indexing and Settings stay."""
+        return self.movable(index) and self.tabText(index) != "Search"
+
+    def hidden_pages(self) -> list[str]:
+        """The hidden pages' titles, in rail order."""
+        return [t for t in self.all_page_order() if t in self._hidden]
+
+    def hide_page(self, index: int) -> bool:
+        """Take page `index`'s button off the rail. The page itself stays, and opens from
+        the Go menu as before. Returns whether anything changed."""
+        if not self.hideable(index) or not self.shown(index):
+            return False
+        return self.set_hidden([*self._hidden, self.tabText(index)])
+
+    def set_hidden(self, titles: Any) -> bool:
+        """Hide exactly these pages (a title that is not a hideable page is ignored) and
+        show every other. Says `hidden_changed` when the set changed."""
+        hideable = {self.tabText(i) for i in self._buttons if self.hideable(i)}
+        wanted = {str(t) for t in titles if str(t) in hideable}
+        if wanted == self._hidden:
+            return False
+        self._hidden = wanted
+        for index, button in self._buttons.items():
+            button.setVisible(self.tabText(index) not in wanted)
+        self._relayout()
+        self.hidden_changed.emit(self.hidden_pages())
+        return True
 
     def moveTab(self, source: int, target: int) -> bool:                # noqa: N802
         """Move page `source` to position `target`; both must be movable pages.
@@ -584,7 +631,7 @@ class Rail(QWidget):
         self._retint_buttons()
         self._sync_checked(self.stack.currentIndex())
         self.tabMoved.emit(source, target)
-        self.order_changed.emit(self.page_order())
+        self.order_changed.emit(self.all_page_order())
         return True
 
     def describe(self, index: int, words: str) -> None:
@@ -610,8 +657,9 @@ class Rail(QWidget):
         self.pill.set_selected(index == self._pill_index)
 
     def _column_key(self, event: Any) -> None:
-        """Up/Down move between pages; Enter or Space opens the one under the cursor."""
-        order = sorted(self._buttons)
+        """Up/Down move between pages; Enter or Space opens the one under the cursor.
+        A page hidden from the rail (IA-11) is stepped over."""
+        order = [i for i in sorted(self._buttons) if self.shown(i)]
         if not order:
             return QFrame.keyPressEvent(self.column, event)
         current = self.stack.currentIndex()

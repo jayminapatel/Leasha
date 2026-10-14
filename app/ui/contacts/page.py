@@ -43,6 +43,7 @@ from app.ui.contacts.reader import ContactReader
 from app.ui.contacts.sidebar import ContactSidebar
 from app.ui.contacts.smart import SmartDialog
 from app.ui.contacts.toolbar import ContactToolbar
+from app.ui.presenter.link_marks import link_marks
 from app.ui.theme import theme_colours
 from app.ui.widgets import list_keys
 from app.ui.widgets.menus import global_point
@@ -102,6 +103,11 @@ class ContactsPage(QWidget):
         # under the read view. The editor still fills and clears them.
         self.reader.add_panels(self.editor.enrich_panel, self.editor.index_panel)
         self.editor.index_panel.configure(hub)
+        # IA-6: "See all photos" / "See mail from them" - the window opens the page.
+        self.editor.index_panel.photos_requested.connect(
+            lambda box: (self._hook("show_photos_for") or (lambda _b: None))(box))
+        self.editor.index_panel.mail_requested.connect(
+            lambda box: (self._hook("show_mail_for") or (lambda _b: None))(box))
         self.editor.enrich_panel.configure(hub)
         self.editor.enrich_panel.enrich_requested.connect(self.enrich_one)
         self.history = HistoryPanel()
@@ -537,8 +543,9 @@ class ContactsPage(QWidget):
             if in_bin:
                 self.editor.setEnabled(False)
             names = self._names()
+            marks = link_marks(getattr(d, "link_states", {}) or {}, names, getattr(d, "refused", {}) or {})
             self.reader.show_contact(d.id, d.card, kept_in=[names[a] for a in d.kept_in if names.get(a)],
-                                     tags=d.tags, editable=not in_bin)
+                                     tags=d.tags, editable=not in_bin, kept_marks=marks)
             if self.toolbar.history_button.isChecked():
                 self._load_history(cid, d.row.display_name if d.row else "")
             elif in_bin:
@@ -546,7 +553,8 @@ class ContactsPage(QWidget):
             else:
                 self._show_contact_pane()
 
-        loader.run_task(self, lambda: loader.load_detail(hub, cid), done)
+        accounts = self.accounts
+        loader.run_task(self, lambda: loader.load_detail(hub, cid, accounts), done)
 
     def new_contact(self) -> None:
         if self.editor.is_dirty() and not self._confirm_discard():

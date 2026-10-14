@@ -290,10 +290,9 @@ def test_the_photo_grids_open_opens_the_file_and_view_opens_the_lightbox(qapp, m
     monkeypatch.setattr(thumbnail_grid, "show_for", lambda *a: menus.append(a[3]))
     grid = thumbnail_grid.ThumbnailGrid()
     row = SimpleNamespace(path="D:/p/beach.jpg", ext="jpg", chunk_id=1, file_id=1)
-    grid._rows = [row]
-    monkeypatch.setattr(grid._list, "itemAt", lambda _p: None)
-    monkeypatch.setattr(grid._list, "selectedItems", lambda: [object()])
-    monkeypatch.setattr(grid, "_row_at", lambda _item: row)
+    # Dated note, 2026-10-14 (review MS-6): the grid is a model view now, so the
+    # row under the pointer is stood in for at `_row_at`, which every route asks.
+    monkeypatch.setattr(grid, "_row_at", lambda _index: row)
     files, lightbox = [], []
     grid.file_requested.connect(files.append)
     grid.opened.connect(lambda r, siblings: lightbox.append(r))

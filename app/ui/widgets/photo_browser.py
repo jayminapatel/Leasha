@@ -12,6 +12,9 @@ system" and "make it like a professional photo management/viewer".
   place, what it shows, type, size and folder. Sorts by any column.
 - **Small / Medium / Large** - a grid of thumbnails, 96, 160 and 256 pixels,
   the name under each in the two larger sizes.
+- **Aspect** (MS-12, 2026-10-14; off unless chosen) - rows of photos at their own
+  shape, each row filling the width, as Apple and Google Photos lay them out
+  (`photo_aspect.py`, the row arithmetic in `presenter.photo_rows`).
 
 All four read the same `PhotoModel` and share one selection, so switching view
 keeps what was selected and where you were. Thumbnails come from `ThumbLoader`
@@ -65,6 +68,8 @@ MODES: tuple[tuple[str, str, int], ...] = (
     ("small", "Small thumbnails", 96),
     ("medium", "Medium thumbnails", 160),
     ("large", "Large thumbnails", 256),
+    # MS-12 (2026-10-14): the fifth choice, never the default - the square grid is the owner's.
+    ("aspect", "Aspect - each photo at its own shape", 180),
 )
 _EDGE = {key: edge for key, _label, edge in MODES}
 
@@ -201,6 +206,15 @@ class PhotoModel(QAbstractTableModel):
 
     def rows(self) -> list[Any]:
         return list(self._rows)
+
+    def rows_ref(self) -> list[Any]:
+        """The rows themselves, not a copy - for the Aspect layout, read on every paint."""
+        return self._rows
+
+    @property
+    def thumbs(self) -> Any:
+        """The `ThumbLoader` the pictures come from."""
+        return self._thumbs
 
     def number_of(self, path: str) -> Optional[int]:
         return self._index.get(str(path))
@@ -439,7 +453,9 @@ class PhotoBrowser(QWidget):
     opened = Signal(object)
     #: Right-click: `(row, global point)`.
     menu_requested = Signal(object, object)
-    #: Space on a photo: the page shows or hides its info panel (`list_keys`).
+    #: I on a photo: the page shows or hides its info panel (`list_keys`).
+    #: Review 2026-10-14, MS-9: Space opens the viewer now (`_view_current`),
+    #: the quick look every list gives; the View menu's Info panel stays.
     preview_requested = Signal()
     selection_changed = Signal()
 
@@ -448,6 +464,8 @@ class PhotoBrowser(QWidget):
         self.model = PhotoModel(thumbs, self)
         self.mode = "medium"
         self._month_follows = True
+        #: MS-12: the square grid's delegate, kept while the Aspect view has its own.
+        self._fade_delegate: Any = None
 
         self.grid = QListView()
         self.grid.setObjectName("photo_grid")
@@ -486,9 +504,10 @@ class PhotoBrowser(QWidget):
             # and then `activated` (no Windows style activates on one click), and
             # Enter emits `activated` - so listening to both opened the viewer
             # twice for one double-click (2026-10-12). `list_keys` keeps it so, and
-            # gives Space (the info panel) and Ctrl+C (the selected photos' paths).
-            list_keys.install(view, default=self._open_index, preview=self.preview_requested.emit,
-                              copy=self._copy_selected)
+            # gives Space (the viewer, MS-9), I (the info panel) and Ctrl+C (the
+            # selected photos' paths).
+            list_keys.install(view, default=self._open_index, preview=self._view_current,
+                              info=self.preview_requested.emit, copy=self._copy_selected)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         # One selection for both, so a switch of view keeps it.
         self.table.setSelectionModel(self.grid.selectionModel())
@@ -546,13 +565,21 @@ class PhotoBrowser(QWidget):
             self.active_view().verticalScrollBar().setValue(scroll)
 
     def set_mode(self, mode: str) -> None:
-        """Switch between Details and the three grid sizes, keeping the selection in view."""
+        """Switch between Details, the three grid sizes and Aspect, keeping the selection in view."""
+        from app.ui.widgets import photo_aspect
+
         if mode not in _EDGE:
             mode = "medium"
         self.mode = mode
         edge = _EDGE[mode]
         self.model.set_edge(edge)
-        if mode == "details":
+        if mode != "aspect":
+            photo_aspect.leave(self)             # the square grid back, if Aspect had it
+        if mode == "aspect":
+            photo_aspect.enter(self)
+            self.grid.setModelColumn(0)
+            self._stack.setCurrentWidget(self.grid)
+        elif mode == "details":
             self.model.names = True
             self.table.setIconSize(QSize(edge, edge))
             self.table.verticalHeader().setDefaultSectionSize(edge + 6)
@@ -640,6 +667,12 @@ class PhotoBrowser(QWidget):
         if row is not None:
             self.opened.emit(row)
 
+    def _view_current(self) -> None:
+        """Space: the current photo in the viewer - quick look, as on every list."""
+        row = self.current_row()
+        if row is not None:
+            self.opened.emit(row)
+
     def _copy_selected(self) -> None:
         copy_paths([(str(row.path), row) for row in self.selected_rows()])
 
@@ -665,12 +698,16 @@ class PhotoBrowser(QWidget):
         # empty margin past its last column, which reads as "no picture".
         # Stepping up past the gap between two rows, if the probe lands in one.
         bottom = QModelIndex()
-        for y in range(viewport.height() - 8, max(0, viewport.height() - 8
-                                                   - self.grid.gridSize().height()), -8):
-            bottom = self.grid.indexAt(QPoint(8, y))
+        # Aspect (MS-12) has no grid size: a row is about `ROW_HEIGHT` tall, and the last
+        # tile of the bottom row is read from the right, so one row is one "column".
+        aspect = self.mode == "aspect"
+        tall = 2 * _EDGE["aspect"] if aspect else self.grid.gridSize().height()
+        probe_x = viewport.width() - 12 if aspect else 8
+        for y in range(viewport.height() - 8, max(0, viewport.height() - 8 - tall), -8):
+            bottom = self.grid.indexAt(QPoint(probe_x, y))
             if bottom.isValid():
                 break
-        columns = max(1, viewport.width() // max(1, self.grid.gridSize().width()))
+        columns = 1 if aspect else max(1, viewport.width() // max(1, self.grid.gridSize().width()))
         last = (bottom.row() + columns - 1 if bottom.isValid()
                 else self.model.rowCount() - 1)
         span = max(1, last - top.row() + 1)

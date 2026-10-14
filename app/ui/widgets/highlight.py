@@ -158,7 +158,9 @@ def _formats_for(palette: QPalette) -> dict[str, QTextCharFormat]:
         if italic:
             form.setFontItalic(True)
         if bold:
-            form.setFontWeight(QFont.Weight.DemiBold)
+            from app.ui.theme import weight
+
+            form.setFontWeight(QFont.Weight(weight("semibold")))
         return form
 
     plain = QTextCharFormat()

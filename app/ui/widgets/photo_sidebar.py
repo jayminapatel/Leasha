@@ -12,6 +12,11 @@ is in force, and anything clicked can be typed and the other way round.
 Ticked entries are the ones in the box now (`set_box`). "People to name" at
 the top is not a narrowing: it opens the naming page, and says how many faces
 are waiting for a Yes or No.
+
+IA-6 (2026-10-14): a person's right-click has "Open contact" when the person is
+linked to one, and "Link to contact…" (`presenter.photo_people.person_menu`); the
+links come with the counts (`counts["links"]`, `photo_contacts.read_links`) and the
+page acts on the choice (`photo_contacts.wire`).
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from PySide6.QtWidgets import QWidget
 
 from app.ui.widgets.side_list import SideList
 
+from app.ui.presenter.photo_people import fold, linked_contact, person_menu
 from app.ui.presenter.photos import KINDS, box_has
 
 __all__ = ["PhotoSidebar", "SECTIONS"]
@@ -70,6 +76,8 @@ class PhotoSidebar(SideList):
         self._box = ""
         self._counts: dict = {}
         self._waiting = 0
+        #: IA-6: `photo_contacts.read_links` - who in Photos is linked to which contact.
+        self.links: dict = {}
         self.picked.connect(self._picked)
         self.door.connect(lambda entry: self.action.emit(str(entry.value)))
         self.fill({}, 0)
@@ -77,6 +85,7 @@ class PhotoSidebar(SideList):
     def fill(self, counts: dict, waiting: int) -> None:
         """Rebuild from `presenter.photos.facets` counts and the faces waiting."""
         self._counts, self._waiting = counts, int(waiting or 0)
+        self.links = dict((counts or {}).get("links") or {})
         self._draw()
 
     def set_box(self, text: str) -> None:
@@ -108,8 +117,16 @@ class PhotoSidebar(SideList):
                 label = kinds.get(value, str(value).upper() if key == "types" else str(value))
                 entries.append(SideEntry(
                     f"{key}:{value}", label, section=heading, icon=SECTION_ICONS.get(key, ""),
-                    count=count, value=(switch, value), checked=box_has(self._box, switch, value)))
+                    count=count, value=(switch, value), checked=box_has(self._box, switch, value),
+                    menu=self._person_menu(value) if key == "people" else ()))
         self.set_entries(entries)
+
+    def _person_menu(self, name: Any) -> tuple:
+        """IA-6: Open contact (when linked) and Link to contact… for one named person."""
+        pile_id = (self.links.get("piles") or {}).get(fold(name))
+        if pile_id is None:
+            return ()
+        return person_menu(linked_contact(self.links.get("contacts"), pile_id) is not None)
 
     def _picked(self, entry: Any) -> None:
         if entry.kind == "all":

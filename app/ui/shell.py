@@ -6,8 +6,10 @@ Search is the window; indexing and settings are tabs behind it. That ordering is
 the whole point of the app — it is a search tool that happens to need an index,
 not an indexer with a search box.
 
-**The search bar has focus on launch and `Ctrl+K` returns to it from anywhere.**
-Every keyboard path is bound, because the spec requires keyboard-only operation
+**The search bar has focus on launch; `Ctrl+K` opens the command palette from
+anywhere** (2026-10-14, IA-1 - every page, setting and action by name, and plain
+words searched for), and `Ctrl+F` puts the cursor in the page's own box, or
+Search's (`controllers/navigation_controller.py`). Every keyboard path is bound, because the spec requires keyboard-only operation
 end to end and because reaching for a mouse to start typing is the difference
 between a tool people use and one they open occasionally.
 
@@ -121,7 +123,7 @@ def _on_battery() -> bool:
 #: must not bind it a second time (§7a).
 _BOUND_ELSEWHERE = frozenset({"Ctrl+K", "Ctrl+F", "Ctrl+,", "Ctrl+I", "Ctrl+P",
                               "Ctrl+Shift+P", "Ctrl+M", "Ctrl+E", "Esc", "F5",
-                              "Ctrl+Shift+O"})
+                              "Ctrl+Shift+O", "Alt+Left", "Alt+Right"})
 
 
 
@@ -751,6 +753,7 @@ class MainWindow(QMainWindow):
         self.photos_view.error.connect(self._show_error)
         self.photos_view.open_requested.connect(self._open_path)
         self.photos_view.reveal_requested.connect(self._reveal_path)
+        self.photos_view.contact_requested.connect(self._open_contact)     # IA-6
         photos_wrapped = wrap_if_needed(self.photos_view, scroll=False)
         mail_wrapped = wrap_if_needed(self.mail_view, scroll=False)
         self.rail.insertTab(at(self.files_view), mail_wrapped, "Mail", icon="mail")
@@ -794,6 +797,8 @@ class MainWindow(QMainWindow):
         side_panel.wire_files(self.files_view)
         side_panel.wire_code(self.code_view)
         side_panel.wire_browse(self.timeline_view)
+        # MS-4 (2026-10-14): type, then arrow, on Files, Mail, Code and Photos.
+        self.nav.wire_arrows()
         guarded = protect_all(self)
         _log.debug("wheel-guarded {} controls (second pass, Mail + Code)", guarded)
         fit_number_fields(self)
@@ -1489,7 +1494,12 @@ class MainWindow(QMainWindow):
             action.triggered.connect(slot)
             self.addAction(action)
 
-        bind("Ctrl+K", self._focus_search)
+        # 2026-10-14 (IA-1, IA-3, IA-10): Ctrl+K is the command palette, Ctrl+1..9 the
+        # rail's pages by place, Alt+Left / Alt+Right back and forward - bound there.
+        from app.ui.controllers.navigation_controller import NavigationController
+
+        self.nav = NavigationController(self)
+        self.nav.bind()
         bind("Ctrl+F", self._find_or_search)
         # `getattr`: Indexing and Settings are built a beat after the window
         # appears (`_construct_deferred_pages`); `_show(None)` does nothing.
@@ -1570,7 +1580,8 @@ class MainWindow(QMainWindow):
             role=QAction.MenuRole.QuitRole)
 
         edit = bar.addMenu("&Edit")
-        add(edit, "Search", self._focus_search, "Ctrl+K", icon="search",
+        # 2026-10-14 (IA-1): Ctrl+K is the command palette's now, shown on it in Go.
+        add(edit, "Search", self._focus_search, icon="search",
             tip="Put the cursor in the search box")
         add(edit, "New contact", self._new_contact, icon="user-plus",
             tip="Start a new contact (Ctrl+N on the Contacts page)")
@@ -1586,27 +1597,56 @@ class MainWindow(QMainWindow):
         # Order 1m: the rail back in Leasha's order (D3).
         add(view, "Reset page order", lambda: getattr(self, "reset_page_order", lambda: None)(),
             icon="rotate-ccw", tip="Put the pages on the left back in Leasha's order")
+        # IA-11 (2026-10-14): the pages hidden from the rail, back (`rail_order.wire`).
+        shown = add(view, "Show hidden pages",
+                    lambda: getattr(self, "show_hidden_pages", lambda: None)(), icon="eye",
+                    tip="Put every page you hid back on the rail")
+        view.aboutToShow.connect(lambda item=shown: item.setEnabled(bool(self.rail.hidden_pages())))
         # 2026-10-04, the owner: the tab's View options here too, changing with the tab.
         view.aboutToShow.connect(lambda menu=view: self._fill_view_menu(menu))
 
         go = bar.addMenu("&Go")
-        # 2026-10-11: in the rail's order (the owner's).
-        add(go, "Mail", self._focus_mail, "Ctrl+M", icon="mail")
-        add(go, "Photos", self._show_photos, icon="image",
-            tip="See, find and name your photos")
-        add(go, "Files", self._focus_files, "Ctrl+P", icon="folder")
-        add(go, "Contacts", self._show_contacts, icon="contact",
-            tip="Your people: lists, cards, groups and the accounts they are kept in")
-        add(go, "Code", self._focus_code, "Ctrl+E", icon="code")
-        add(go, "Offline", self._show_offline, icon="hard-drive")
-        add(go, "Browse", lambda: self._show(self.timeline_view), icon="calendar",
-            tip="Browse your timeline")
-        add(go, "Tidy", lambda: self._show(self.tidy_view), icon="wand-sparkles",
-            tip="What is indexed, and the copies, similar photos and leftovers to clear")
-        add(go, "Indexing", lambda: self._show(getattr(self, "indexing_view", None)),
-            "Ctrl+I", icon="database")
-        add(go, "People in photos", self._open_photo_tagger, icon="image",
-            tip="Name the groups of faces Leasha has found in your photos")
+        # 2026-10-11: in the rail's order (the owner's). 2026-10-14 (IA-3): that order is
+        # read as the menu opens (`nav.fill_go_menu`), so a page dragged on the rail moves
+        # here too, and every rail page is listed - Search and Chat included.
+        from app.ui.presenter.actions import TITLE as PALETTE_TITLE
+
+        nav = self.nav
+        nav.go_pages = {
+            "Search": add(go, "Search", self._focus_search, icon="search",
+                          tip="Put the cursor in the search box"),
+            "Mail": add(go, "Mail", self._focus_mail, "Ctrl+M", icon="mail"),
+            "Photos": add(go, "Photos", self._show_photos, icon="image",
+                          tip="See, find and name your photos"),
+            "Files": add(go, "Files", self._focus_files, "Ctrl+P", icon="folder"),
+            "Contacts": add(go, "Contacts", self._show_contacts, icon="contact",
+                            tip="Your people: lists, cards, groups and the accounts they are kept in"),
+            "Code": add(go, "Code", self._focus_code, "Ctrl+E", icon="code"),
+            "Browse": add(go, "Browse", lambda: self._show(self.timeline_view), icon="calendar",
+                          tip="Browse your timeline"),
+            "Chat": add(go, "Chat", lambda: self._show(getattr(self, "chat_view", None)),
+                        icon="message-square", tip="Ask a question about your files and mail"),
+            "Tidy": add(go, "Tidy", lambda: self._show(self.tidy_view), icon="wand-sparkles",
+                        tip="What is indexed, and the copies, similar photos and leftovers to clear"),
+            "Indexing": add(go, "Indexing", lambda: self._show(getattr(self, "indexing_view", None)),
+                            "Ctrl+I", icon="database"),
+        }
+        # IA-7: Photos' own naming page, not a second window holding the same page.
+        nav.go_extras = [
+            add(go, "Offline", self._show_offline, icon="hard-drive"),
+            add(go, "People in photos", lambda: self._show_photos(naming=True), icon="image",
+                tip="Name the groups of faces Leasha has found in your photos"),
+            add(go, "Back", nav.back, "Alt+Left", icon="arrow-left",
+                tip="Return to the page you were on before this one"),
+            add(go, "Forward", nav.forward, "Alt+Right", icon="arrow-right",
+                tip="Go forward again to the page you came back from"),
+            add(go, PALETTE_TITLE, nav.open_palette, "Ctrl+K", icon="command",
+                tip="Go to any page, setting or action by typing its name"),
+        ]
+        nav.go_extras[-1].palette_skip = True    # the palette does not list itself
+        nav.go_menu = go
+        nav.fill_go_menu(go)
+        go.aboutToShow.connect(self.nav.fill_go_menu_now)
 
         help_menu = bar.addMenu("&Help")
         add(help_menu, "Keyboard shortcuts", self._show_shortcuts, icon="keyboard",
@@ -1679,7 +1719,10 @@ class MainWindow(QMainWindow):
             if keys:
                 lines.append(f"{keys:<14} {action.text().replace('&', '')}")
         lines.append(f"{'Ctrl+Enter':<14} Interpret")
-        lines.append(f"{'Ctrl+F':<14} Search (also Ctrl+K)")
+        # 2026-10-14 (IA-1, IA-9): Ctrl+K is the palette (its menu line above), and Ctrl+F
+        # the page's own box first - the line that said "Search (also Ctrl+K)" was untrue.
+        lines.append(f"{'Ctrl+F':<14} Find in this page's box, or Search")
+        lines.append(f"{'Ctrl+1 … 9':<14} The page at that place on the left")
         lines.append(f"{'Ctrl+B':<14} Chat: show or hide the Sources and Preview panel")
         QMessageBox.information(self, "Keyboard shortcuts", "\n".join(lines))
 
@@ -1768,7 +1811,7 @@ class MainWindow(QMainWindow):
                     self._engine, preferences=lambda: getattr(self, "search_preferences", None),
                     offer_recent=lambda: recent_wanted(self._settings, self._settings_overrides))
                 self._mini.chosen.connect(self._open_result)
-                self._mini.expanded.connect(self._search_from_mini)
+                self._mini.expanded_to.connect(self._search_from_mini)  # IA-4: with its scope
             self._mini.summon()
             self._offer_foreground_selection()
         except Exception as exc:                 # noqa: BLE001 - see docstring
@@ -1817,13 +1860,15 @@ class MainWindow(QMainWindow):
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.debug("could not read the foreground selection: {}", exc)
 
-    def _search_from_mini(self, query: str) -> None:
-        """"Show me all of it": bring the window up with this query in it."""
+    def _search_from_mini(self, query: str, scope: str = "all") -> None:
+        """"Show me all of it": bring the window up with this query in it, and
+        the scope the quick search's chip had chosen (review 2026-10-14, IA-4)."""
         try:
             # Keeps a maximised window maximised - see `bring_forward`.
             bring_forward(self)
             self._show(self.search_view)
             self.search_view.input.setText(str(query or ""))
+            self.search_view.set_scope(str(scope or "all"))
             self.search_view.search_now()
         except Exception as exc:                 # noqa: BLE001 - never fatal
             _log.debug("could not expand the mini search: {}", exc)
@@ -2335,29 +2380,23 @@ class MainWindow(QMainWindow):
         for index in range(self.rail.count()):
             if wanted and self.rail.tabText(index) == wanted:
                 self.rail.setCurrentIndex(index)
-                return
+                break
+        self.nav.reset()                         # IA-10: history starts where the window opens
 
     def _focus_search(self) -> None:
-        """Ctrl+K / Ctrl+F: the Search page, cursor in the box."""
+        """Edit / Go > Search, and Ctrl+F on a page with no box: the Search page, cursor in the box."""
         self._show(self.search_view)
         self.search_view.focus()
 
     def _find_or_search(self) -> None:
-        """Ctrl+F: in a preview pane, that pane's find; anywhere else, Search.
+        """Ctrl+F: in a preview pane, that pane's find; else the page's own box; else Search.
 
         The pane binds no Ctrl+F of its own: two window-wide bindings of one key are ambiguous
         and Qt fires neither, so while a preview showed Ctrl+F did nothing anywhere
-        (`find_bar.attach_find`, 2026-10-12). Ctrl+K always goes to Search.
+        (`find_bar.attach_find`, 2026-10-12). 2026-10-14 (IA-9): the page's box before
+        Search - see `NavigationController.find_here`.
         """
-        from PySide6.QtWidgets import QApplication
-
-        from app.ui.widgets.find_bar import focused_find
-
-        bar = focused_find(QApplication.focusWidget())
-        if bar is not None:
-            bar.focus()
-            return
-        self._focus_search()
+        self.nav.find_here()
 
     def _save_current_search(self) -> None:
         """Edit > Save this search. Adoptions 3b: only ever because somebody asked."""
@@ -2384,13 +2423,12 @@ class MainWindow(QMainWindow):
     def _clear_search(self) -> None:
         """Escape. **An open find bar closes first**; only a second press empties
         the box, so dismissing a little bar never throws away the search that
-        produced the document being read."""
-        for pane in self._preview_panes():
-            find = getattr(pane, "find", None)
-            if find is not None and find.isVisible():
-                find.dismissed.emit()
-                return
-        self.search_view.input.clear()
+        produced the document being read.
+
+        2026-10-14 (IA-2 / MS-3): **the box of the page in front**, never Search's
+        from another page - that silently threw away a query out of sight.
+        See `NavigationController.clear_current`."""
+        self.nav.clear_current()
 
     # -- startup ------------------------------------------------------------
 
@@ -2490,6 +2528,22 @@ class MainWindow(QMainWindow):
         self._show(view)
         if naming:
             view.show_naming()
+            self.nav.remember_sub_state()        # IA-10: back returns to the naming page
+
+    def show_photos_for(self, box: str) -> None:
+        """IA-6: a contact's "See all photos" - Photos, its box set to `box` (`who:Name`)."""
+        view = getattr(self, "photos_view", None)
+        if view is not None and box:
+            self._show_photos()
+            view.show_photos()
+            view.input.setText(box)
+
+    def show_mail_for(self, box: str) -> None:
+        """IA-6: a contact's "See mail from them" - Mail, its box set to `box` (`from:address`)."""
+        view = getattr(self, "mail_view", None)
+        if view is not None and box:
+            self._focus_mail()
+            view.input.setText(box)
 
     def _open_path(self, path: str, *, reveal: bool = False) -> None:
         """The same, for a caller with a path and no row - the log, a chip.

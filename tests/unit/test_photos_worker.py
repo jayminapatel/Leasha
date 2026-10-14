@@ -76,6 +76,9 @@ def test_library_returns_the_side_counts_so_the_window_does_not_compute_them() -
     library_rows, waiting, counts = photo_page_parts.library(_Store())
     assert library_rows == rows
     assert waiting == 3
+    # IA-6 (2026-10-14): the people's contact links come with the counts; this stand-in
+    # store has no contact tables, so there are none - and no error.
+    assert counts.pop("links") == {"contacts": {}, "piles": {}}
     assert counts == pp.facets(rows)
 
 

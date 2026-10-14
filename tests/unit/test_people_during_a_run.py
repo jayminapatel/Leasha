@@ -176,8 +176,8 @@ def test_naming_a_second_group_after_a_named_person_combines_them(store):
 
 def test_the_page_asks_before_combining_and_no_leaves_both(qapp, store, monkeypatch):
     from PySide6.QtCore import QThreadPool
-    from PySide6.QtWidgets import QMessageBox
 
+    from app.ui.widgets import photo_tagger_page
     from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
 
     photo = store.upsert_file(path="/photos/k.jpg", size_bytes=1, mtime_ns=1,
@@ -188,14 +188,16 @@ def test_the_page_asks_before_combining_and_no_leaves_both(qapp, store, monkeypa
     page = PhotoTaggerPage(store)
     monkeypatch.setattr(page, "reload", lambda: None)
 
-    monkeypatch.setattr(QMessageBox, "question",
-                        lambda *a, **k: QMessageBox.StandardButton.No)
+    # Review DS-1: the question goes through `confirm`, its button saying Combine.
+    verbs = []
+    monkeypatch.setattr(photo_tagger_page, "confirm",
+                        lambda *a, **k: verbs.append(a[3]) and False)
     page._name_checked(other, "Jason", jason)
     QThreadPool.globalInstance().waitForDone(5000)
     assert store.conn.execute("SELECT count(*) FROM piles").fetchone()[0] == 2
+    assert verbs == ["Combine"]
 
-    monkeypatch.setattr(QMessageBox, "question",
-                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(photo_tagger_page, "confirm", lambda *a, **k: True)
     page._name_checked(other, "Jason", jason)
     QThreadPool.globalInstance().waitForDone(5000)
     assert store.conn.execute("SELECT count(*) FROM piles").fetchone()[0] == 1
@@ -267,8 +269,8 @@ def test_accept_all_files_every_suggestion_for_one_person_or_everyone(store):
 
 def test_the_page_asks_with_the_numbers_before_accepting_all(qapp, store, monkeypatch):
     from PySide6.QtCore import QThreadPool
-    from PySide6.QtWidgets import QMessageBox
 
+    from app.ui.widgets import photo_tagger_page
     from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
 
     jason, _ = _suggested(store, "Jason", 2)
@@ -280,14 +282,13 @@ def test_the_page_asks_with_the_numbers_before_accepting_all(qapp, store, monkey
         "Everyone (2)", "Jason (2)"]
 
     asked = []
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: asked.append(a[2])
-                        or QMessageBox.StandardButton.No)
+    monkeypatch.setattr(photo_tagger_page, "confirm",
+                        lambda *a, **k: asked.append(a[2]) and False)
     assert page.accept_all(None) is False
     assert "File 2 face(s)" in asked[0] and "Jason: 2" in asked[0]
-    assert store.suggestion_counts(), "No leaves them waiting"
+    assert store.suggestion_counts(), "Cancel leaves them waiting"
 
-    monkeypatch.setattr(QMessageBox, "question",
-                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    monkeypatch.setattr(photo_tagger_page, "confirm", lambda *a, **k: True)
     assert page.accept_all(jason) is True
     QThreadPool.globalInstance().waitForDone(5000)
     assert store.suggestion_counts() == []

@@ -696,7 +696,10 @@ def test_a_worker_body_is_only_called_through_a_worker(path):
     # Work order 0h §3a: a result set can carry dozens of photos, and
     # decoding even one on the UI thread is the freeze non-negotiable #5
     # forbids - `_load_thumbnails` hands every one of them to its own worker.
-    ("widgets/thumbnail_grid.py", "_load_thumbnails"),
+    # Dated note, 2026-10-14 (review MS-6): the grid's thumbnails are made by
+    # the Photos page's loader now (`search_photos.py`), whose `_next` is where
+    # every one of them is handed to a worker.
+    ("widgets/photo_thumbs.py", "_next"),
     # 2026-10-04, code review: four more that ran on the interface thread -
     # the logs folder's mkdir and Explorer launch, the location dialog's
     # walk of the whole index and its per-keystroke stats, and the stat per

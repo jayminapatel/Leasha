@@ -34,14 +34,17 @@ from typing import Any, Optional
 
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLayout, QVBoxLayout, QWidget
 
+from app.ui.theme import SCALE
+from app.ui.widgets.paint_kit import set_weight
+
 __all__ = ["MARGINS", "SPACING", "TITLE_SCALE", "PageFrame", "page_row", "page_title", "frame_of"]
 
 #: left, top, right, bottom - Search's since the redesign, now every page's.
 MARGINS = (16, 12, 16, 12)
 #: Between rows, and between the controls of a toolbar row.
 SPACING = 8
-#: A page title is this much larger than the body text, and bold.
-TITLE_SCALE = 1.25
+#: A page title is this much larger than the body text, and bold: the type scale's 	itle`n#: step (review 2026-10-14, DS-8), so the sheet and the painters name the same size.
+TITLE_SCALE = SCALE["title"]
 
 
 def page_title(label: Optional[QLabel] = None, text: str = "") -> QLabel:
@@ -51,8 +54,7 @@ def page_title(label: Optional[QLabel] = None, text: str = "") -> QLabel:
     still do; the `pageTitle` property says what it is.
     """
     label = label if label is not None else QLabel(text)
-    font = label.font()
-    font.setBold(True)
+    font = set_weight(label.font(), "bold")
     font.setPointSizeF(max(9.0, font.pointSizeF()) * TITLE_SCALE)
     label.setFont(font)
     label.setProperty("pageTitle", True)

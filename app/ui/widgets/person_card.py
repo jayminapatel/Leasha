@@ -28,13 +28,15 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QRectF, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPixmap
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.core.logging import logger
 from app.ui.later import when_done
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, SPACE_S, SPACE_M, theme_colours
 from app.ui.widgets.buttons import action_button
+from app.ui.widgets.card import CARD_MARGINS, Card
 from app.ui.widgets.icons import icon
+from app.ui.widgets.paint_kit import points_for_pixels, set_weight
 
 __all__ = ["PersonInfo", "PersonCard", "PersonStrip", "lookup_people", "attach",
            "LOOKUP_DEBOUNCE_MS", "PHOTO_SIDE"]
@@ -114,7 +116,7 @@ def lookup_people(store: Any, query: str, limit: int = MAX_CARDS) -> list[Person
         return []
 
 
-class PersonCard(QFrame):
+class PersonCard(Card):
     """One contact: who they are at a glance, and a way into their page."""
 
     open_requested = Signal(int)
@@ -125,9 +127,7 @@ class PersonCard(QFrame):
         self.setObjectName("personCard")
         self.setAccessibleName(f"Contact card: {info.name}")
         colours = theme_colours()
-        self.setStyleSheet(
-            f"#personCard {{ background: {colours.get('surface', '#ffffff')}; "
-            f"border: 1px solid {colours.get('border', '#cccccc')}; border-radius: 8px; }}")
+        # The theme's card (`Card`, DS-7), not a sheet of its own with a literal 8px.
         self.photo = QLabel()
         self.photo.setFixedSize(PHOTO_SIDE, PHOTO_SIDE)
         self.photo.setAccessibleName("Photo")
@@ -140,12 +140,12 @@ class PersonCard(QFrame):
         self.work.setAccessibleName("Title and company")
         self.work.setVisible(bool(work))
         text = QVBoxLayout()
-        text.setSpacing(2)
+        text.setSpacing(SPACE_XS)
         text.addWidget(self.name)
         text.addWidget(self.work)
         self.lines: list[QLabel] = []
         reach = QHBoxLayout()
-        reach.setSpacing(14)
+        reach.setSpacing(SPACE_M)
         for glyph, value, words in (("mail", info.email, "Email"), ("phone", info.phone, "Phone")):
             if value:
                 reach.addLayout(self._line(glyph, value, words, colours))
@@ -160,15 +160,15 @@ class PersonCard(QFrame):
         self.open_button.setAccessibleName(f"Open contact {info.name}")
         self.open_button.clicked.connect(lambda: self.open_requested.emit(self.info.id))
         row = QHBoxLayout(self)
-        row.setContentsMargins(10, 8, 10, 8)
-        row.setSpacing(10)
+        row.setContentsMargins(*CARD_MARGINS)
+        row.setSpacing(SPACE_M)
         row.addWidget(self.photo, 0, Qt.AlignmentFlag.AlignTop)
         row.addLayout(text, 1)
         row.addWidget(self.open_button, 0, Qt.AlignmentFlag.AlignVCenter)
 
     def _line(self, glyph: str, value: str, words: str, colours: dict) -> QHBoxLayout:
         box = QHBoxLayout()
-        box.setSpacing(4)
+        box.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon(glyph, colours.get("text_dim", "#888888")).pixmap(14, 14))
         pic.setAccessibleName(words)
@@ -213,9 +213,9 @@ class PersonCard(QFrame):
             from app.ui.contacts.logic import initials
 
             painter.fillPath(path, QColor(colours.get("accent_soft", "#dddddd")))
-            font = QFont(painter.font())
-            font.setBold(True)
-            font.setPixelSize(int(side * 0.38))
+            # Sized to the circle (0.38 of it), in points (DS-8).
+            font = set_weight(QFont(painter.font()), "bold")
+            font.setPointSizeF(points_for_pixels(int(side * 0.38)))
             painter.setFont(font)
             painter.setPen(QColor(colours.get("accent_text", "#444444")))
             painter.drawText(QRectF(0, 0, side, side), Qt.AlignmentFlag.AlignCenter, initials(self.info.name))
@@ -250,7 +250,7 @@ class PersonStrip(QWidget):
         self.person_timer.timeout.connect(self.lookup_now)
         self._column = QVBoxLayout(self)
         self._column.setContentsMargins(0, 0, 0, 0)
-        self._column.setSpacing(6)
+        self._column.setSpacing(SPACE_S)
         self.setAccessibleName("People matching your search")
         self.hide()
 

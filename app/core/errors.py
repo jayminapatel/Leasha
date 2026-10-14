@@ -1002,6 +1002,13 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         suggestion="Press Test connection in the account's panel; if it keeps happening, send the log file.",
         action_type=ActionType.USER_RETRY,
     ),
+    # Review CS-7 (2026-10-14): HTTP 500, 502 or 504 is the provider's own trouble, for the whole account - not a
+    # refusal of one contact, and not something the person did.
+    "ERR_ACCOUNT_TROUBLE": _Spec(
+        message="{account} is having trouble at its end ({reason}).",
+        suggestion="Nothing to do - Leasha tries again at the next sync. If it lasts for hours, press Test connection.",
+        action_type=ActionType.AUTO_FIX,
+    ),
     "ERR_PROVIDER_LIMIT": _Spec(
         message="{account} asked Leasha to slow down ({reason}).",
         suggestion="Nothing to do - Leasha waits as long as the provider asks and tries again.",

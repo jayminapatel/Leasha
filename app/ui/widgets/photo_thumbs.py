@@ -25,6 +25,12 @@ made also leaves a 24-pixel copy, kept for the whole library in one file,
 not in memory yet is painted from that copy, soft, and the sharp picture
 fades in over it - a photo library's "blur-up", with no change to the index.
 
+**Its own shape too** (MS-12, 2026-10-14). The grid's tiles are the centre square
+(`_square`), but the Photos page's optional "Aspect" view lays pictures out at their
+own shape. Every thumbnail made says its shape (`aspect`, a float per photo), and
+while `keep_shape` is on the whole thumbnail is kept as well (`shaped`), from the
+same decode - no second read of the photo.
+
 Lives in Leasha's own data folder, never beside the photos (rule 10).
 """
 
@@ -216,18 +222,27 @@ class ThumbLoader(QObject):
 
     ready = Signal(str)
 
-    def __init__(self, cache_dir: Optional[Path], parent: Optional[QObject] = None) -> None:
+    def __init__(self, cache_dir: Optional[Path], parent: Optional[QObject] = None, *,
+                 pool: Optional[QThreadPool] = None) -> None:
         super().__init__(parent)
         self._cache_dir = Path(cache_dir) if cache_dir else None
         self._pixmaps: "OrderedDict[str, QPixmap]" = OrderedDict()
         self._waiting: "OrderedDict[str, tuple[int, int]]" = OrderedDict()
         self._running: set[str] = set()
         self._failed: set[str] = set()
-        self._pool = QThreadPool.globalInstance()
+        #: The global pool unless told: the Search page's loader brings its own
+        #: (`search_photos.shared_loader`, review 2026-10-14 MS-6), so its decodes
+        #: never queue ahead of an Open or a preview.
+        self._pool = pool if pool is not None else QThreadPool.globalInstance()
         #: Blurred previews: encoded, by `cache_name`; and decoded, as shown.
         self._tiny: dict[str, bytes] = {}
         self._tiny_shown: "OrderedDict[str, QPixmap]" = OrderedDict()
         self._tiny_new = 0
+        #: MS-12: each photo's width / height, from its thumbnail; and, while the
+        #: Aspect view wants them (`keep_shape`), the thumbnails uncropped.
+        self._aspects: dict[str, float] = {}
+        self._shaped: "OrderedDict[str, QPixmap]" = OrderedDict()
+        self.keep_shape = False
         self._read_pack()
 
     # -- the blurred previews ------------------------------------------------------
@@ -290,9 +305,28 @@ class ThumbLoader(QObject):
             self._pixmaps.move_to_end(path)
         return found
 
+    def set_keep_shape(self, on: bool) -> None:
+        """Keep the uncropped thumbnails from now on - or stop, and let them go."""
+        self.keep_shape = bool(on)
+        if not on:
+            self._shaped.clear()
+
+    def aspect(self, path: str) -> Optional[float]:
+        """`path`'s width divided by its height, once its thumbnail has been made; else None."""
+        return self._aspects.get(path)
+
+    def shaped(self, path: str) -> Optional[QPixmap]:
+        """The whole thumbnail, uncropped, if it is in memory (only while `keep_shape`)."""
+        found = self._shaped.get(path)
+        if found is not None:
+            self._shaped.move_to_end(path)
+        return found
+
     def request(self, path: str, size: int, mtime_ns: int) -> None:
-        """Make `path`'s thumbnail soon - before anything asked for earlier."""
-        if path in self._pixmaps or path in self._running or path in self._failed:
+        """Make `path`'s thumbnail soon - before anything asked for earlier. With
+        `keep_shape` on, one in memory only as its square is made again (from disk)."""
+        have = path in self._pixmaps and (not self.keep_shape or path in self._shaped)
+        if have or path in self._running or path in self._failed:
             return
         self._waiting.pop(path, None)
         self._waiting[path] = (int(size), int(mtime_ns))
@@ -334,7 +368,14 @@ class ThumbLoader(QObject):
         if image is None or image.isNull():
             self._failed.add(path)
         else:
-            self._pixmaps[path] = _square(QPixmap.fromImage(image))
+            whole = QPixmap.fromImage(image)
+            if image.height() > 0:
+                self._aspects[path] = image.width() / image.height()
+            if self.keep_shape:
+                self._shaped[path] = whole
+                while len(self._shaped) > KEEP:
+                    self._shaped.popitem(last=False)
+            self._pixmaps[path] = _square(whole)
             while len(self._pixmaps) > KEEP:
                 self._pixmaps.popitem(last=False)
             self.ready.emit(path)

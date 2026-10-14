@@ -55,7 +55,9 @@ def test_the_more_tools_menu_opens_cleanup_enrich_and_duplicates(world, doors):
     assert [a.text() for a in acts.values()][0] == "Clean up contacts…"
     assert all(a.toolTip() for a in acts.values())
     acts["cleanup"].trigger()
-    acts["duplicates"].trigger()
+    # Review 2026-10-14 IA-8: Find duplicates is on the bar only, not twice.
+    assert "duplicates" not in acts
+    page.toolbar.tools["duplicates"].click()
     page.select_ids([cid])
     settle(page)
     assert acts["enrich"].text() == "Enrich this contact…"

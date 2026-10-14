@@ -29,10 +29,10 @@ from app.ui.contacts.loader import Detail, read_photo, run_task
 from app.ui.contacts.logic import KIND_INFO, initials, merge_order, source_words
 from app.ui.contacts.parts import TokenEdit, retint_tools, tool_button
 from app.ui.contacts.review import ReviewBox
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_M, SPACE_S, SPACE_XS, theme_colours
 from app.ui.widgets.buttons import action_button, button_row
 from app.ui.widgets.flow_layout import FlowLayout
-from app.ui.widgets.icons import icon
+from app.ui.widgets.icons import icon, icon_size
 from app.ui.widgets.scroll import scrollable
 
 __all__ = ["ContactEditor", "SaveRequest", "PHOTO_SIDE"]
@@ -98,7 +98,7 @@ class ContactEditor(QWidget):
         self.acknowledge.setToolTip("I have looked: take the 'changed in two places' marker off this contact")
         self.acknowledge.clicked.connect(self._acknowledge)
         bl = QHBoxLayout(self.banner)
-        bl.setContentsMargins(8, 6, 8, 6)
+        bl.setContentsMargins(SPACE_S, SPACE_XS, SPACE_S, SPACE_XS)
         bl.addWidget(self.banner_icon)
         bl.addWidget(self.banner_text, 1)
         bl.addWidget(self.acknowledge)
@@ -150,14 +150,14 @@ class ContactEditor(QWidget):
         # fifteen rows of a narrow pane; this takes six, and a filled box still says what it is.
         form = QGridLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(8)
-        form.setVerticalSpacing(4)
+        form.setHorizontalSpacing(SPACE_S)
+        form.setVerticalSpacing(SPACE_XS)
         for i, (key, words) in enumerate(_NAME_PARTS):
             form.addWidget(self._cell(key, words), i // 2, i % 2)
         work = QGridLayout()
         work.setContentsMargins(0, 0, 0, 0)
-        work.setHorizontalSpacing(8)
-        work.setVerticalSpacing(4)
+        work.setHorizontalSpacing(SPACE_S)
+        work.setVerticalSpacing(SPACE_XS)
         for i, (key, words, _glyph) in enumerate(_WORK):
             work.addWidget(self._cell(key, words), i // 2, i % 2, 1, 2 if i == len(_WORK) - 1 and i % 2 == 0 else 1)
         for grid in (form, work):
@@ -167,7 +167,7 @@ class ContactEditor(QWidget):
         # -- repeatable kinds
         self.lists: dict[str, FieldList] = {}
         lists_box = QVBoxLayout()
-        lists_box.setSpacing(10)
+        lists_box.setSpacing(SPACE_S)
         for kind in KINDS:
             fl = FieldList(kind)
             fl.changed.connect(self._touch)
@@ -192,8 +192,8 @@ class ContactEditor(QWidget):
 
         body = QWidget()
         col = QVBoxLayout(body)
-        col.setContentsMargins(10, 8, 10, 12)
-        col.setSpacing(10)
+        col.setContentsMargins(SPACE_M, SPACE_S, SPACE_M, SPACE_M)
+        col.setSpacing(SPACE_S)
         col.addWidget(self.review)
         col.addWidget(self.banner)
         col.addWidget(self.banner_detail)
@@ -237,7 +237,7 @@ class ContactEditor(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(self.scroll, 1)
         buttons = button_row(self.save_button, self.cancel_button)
-        buttons.setContentsMargins(10, 4, 10, 8)
+        buttons.setContentsMargins(SPACE_M, SPACE_XS, SPACE_M, SPACE_S)
         outer.addLayout(buttons)
         self.setAccessibleName("Contact editor")
         self.retint(theme_colours())
@@ -258,7 +258,7 @@ class ContactEditor(QWidget):
         box = QWidget()
         col = QVBoxLayout(box)
         col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(1)
+        col.setSpacing(0)
         caption = QLabel(words)
         caption.setObjectName("resultsSummary")
         col.addWidget(caption)
@@ -270,7 +270,7 @@ class ContactEditor(QWidget):
         box = QWidget()
         row = QHBoxLayout(box)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
+        row.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon(glyph, theme_colours().get("text_dim", "#888888")).pixmap(16, 16))
         row.addWidget(pic)
@@ -282,7 +282,7 @@ class ContactEditor(QWidget):
         box = QWidget()
         row = QHBoxLayout(box)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
+        row.setSpacing(SPACE_XS)
         pic = QLabel()
         pic.setPixmap(icon(glyph, theme_colours().get("text_dim", "#888888")).pixmap(16, 16))
         title = QLabel(words)
@@ -322,8 +322,12 @@ class ContactEditor(QWidget):
         """Every account's name (also those that no longer sync contacts), for the review bars."""
         self._names = dict(names)
 
+    #: {account id: `LinkMark`} of the contact shown (CS-9); empty for a new or no contact.
+    _marks: dict = {}
+
     def clear(self) -> None:
         self.cid = None
+        self._marks = {}
         self.review.clear()
         self.banner_detail.hide()
         self._load(Card(), [], [], {}, {}, "")
@@ -336,6 +340,7 @@ class ContactEditor(QWidget):
         """Ctrl+N: an empty card, kept in the default account (D5)."""
         self.setEnabled(True)
         self.cid = None
+        self._marks = {}
         kept = [default_account] if default_account in self._accounts else []
         self._load(Card(), kept, [], {}, {}, "")
         self.index_panel.clear()
@@ -351,9 +356,13 @@ class ContactEditor(QWidget):
         self.setEnabled(True)
         self.cid = d.id
         flagged = bool((d.meta or {}).get("conflict_at")) or bool(d.conflicts)
+        names = {**{i: (a.name or a.address) for i, a in self._accounts.items()}, **self._names}
+        # Review 2026-10-14 CS-9: each chip's link state, as a mark beside it.
+        from app.ui.presenter.link_marks import link_marks  # noqa: PLC0415
+        self._marks = {m.account_id: m for m in link_marks(getattr(d, "link_states", {}) or {}, names,
+                                                            getattr(d, "refused", {}) or {})}
         self._load(d.card, d.kept_in, d.tags, d.sources, d.meta, display_name(d.card))
         self.banner.setVisible(flagged)
-        names = {**{i: (a.name or a.address) for i, a in self._accounts.items()}, **self._names}
         self.review.show_for(d.id, list(d.links), list(d.conflicts), names)
         # Under "Ask me every time" the choice is the review box's; the newest-edit banner keeps its
         # words and its Acknowledge, and says which value won and where the other one is kept.
@@ -492,9 +501,10 @@ class ContactEditor(QWidget):
             from PySide6.QtGui import QColor, QFont
 
             painter.fillPath(path, QColor(c.get("accent_soft", "#dddddd")))
-            font = QFont(painter.font())
-            font.setBold(True)
-            font.setPixelSize(int(side * 0.38))
+            from app.ui.widgets.paint_kit import points_for_pixels, set_weight
+
+            font = set_weight(QFont(painter.font()), "bold")
+            font.setPointSizeF(points_for_pixels(int(side * 0.38)))     # sized to the circle, in points
             painter.setFont(font)
             painter.setPen(QColor(c.get("accent_text", "#444444")))
             name = self.heading.text() if self.heading.text() != "New contact" else ""
@@ -521,9 +531,14 @@ class ContactEditor(QWidget):
             if item is not None and item.widget() is not None:
                 item.widget().deleteLater()
         self.kept_buttons = {}
+        self.kept_marks: dict[int, QLabel] = {}
         from app.ui.contacts.logic import account_glyph
 
         for aid, a in self._accounts.items():
+            mark = QLabel()                    # CS-9: synced / waiting / deleted there / refused, beside the chip
+            mark.setObjectName("keptMark")
+            mark.setVisible(False)
+            self.kept_marks[aid] = mark
             b = QToolButton()
             b.setText(a.name or a.address)
             b.setCheckable(True)
@@ -535,6 +550,7 @@ class ContactEditor(QWidget):
             b.clicked.connect(lambda checked, i=aid: self._kept_clicked(i, checked))
             self.kept_buttons[aid] = b
             self.kept_row.addWidget(b)
+            self.kept_row.addWidget(mark)
         self._paint_kept()
 
     def _paint_kept(self) -> None:
@@ -550,6 +566,15 @@ class ContactEditor(QWidget):
             fill = c.get("accent_soft", "#eeeeee") if on else "transparent"
             b.setStyleSheet(f"QToolButton {{ border: 2px solid {border}; border-radius: 11px; "
                             f"padding: 2px 8px; background: {fill}; }}")
+            mark, state = getattr(self, "kept_marks", {}).get(aid), self._marks.get(aid)
+            if mark is not None:
+                shown = on and state is not None and aid in self._orig_kept
+                mark.setVisible(shown)
+                if shown:
+                    side = icon_size("inline").width()
+                    mark.setPixmap(icon(state.glyph, c.get(state.tone, c.get("text_dim", "#888888"))).pixmap(side, side))
+                    mark.setToolTip(state.tip)
+                    mark.setAccessibleName(f"{state.name}: {state.words}")
 
     def confirm_removal(self, account_name: str) -> bool:
         """D4: taking a contact out of an account deletes it from that account. Asks first."""

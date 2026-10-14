@@ -518,7 +518,6 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     if not install_window_icon(application):
         pass  # cosmetic only; the app is fully usable without it
     _make_ctrl_c_work(application)
-
     # **The splash is shown immediately** (<300ms), hiding the wait for
     # single-instance handover and model loading. It reports progress through
     # startup breadcrumbs and optionally a download progress bar.
@@ -540,6 +539,12 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     splash.show()
     startup_timer.record_splash_visible()
     application.processEvents()  # Ensure splash is painted
+
+    # A button clicked does not wear the keyboard's focus ring (review 2026-10-14, DS-4). After the
+    # splash: only stdlib, Qt and the splash family may come before it (test_startup_import_order).
+    from app.ui.widgets.focus_visible import install as install_focus_visible
+
+    install_focus_visible(application)
 
     # Status reporter forwards startup log messages to the splash
     status_reporter = StatusReporter(splash)

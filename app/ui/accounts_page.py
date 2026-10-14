@@ -54,6 +54,10 @@ class AccountsPage(QWidget):
     settings_saved = Signal()
     #: The state was read: (PageState). The runtime uses it for the tray and toasts.
     state_loaded = Signal(object)
+    #: "Open sync status" (IA-5): the runtime opens the one Sync window.
+    sync_window_requested = Signal()
+    #: A Contacts tool from an account's row ("duplicates", "conflicts"): the runtime opens it there.
+    contacts_tool_requested = Signal(str)
 
     def __init__(self, factory: Callable[[], Any], parent: Optional[QWidget] = None, *,
                  scheduler: Any = None) -> None:
@@ -106,8 +110,13 @@ class AccountsPage(QWidget):
         self.add_button = parts.btn("Add account", "user-plus", "primary", tip="Connect another account")
         self.sync_all_button = parts.btn("Sync now", "refresh-cw", tip="Sync every account now",
                                          name="Sync all accounts now")
+        # Review 2026-10-14 IA-5: the Sync window, live, from where accounts are set up.
+        self.sync_window_button = parts.btn("Open sync status", "gauge",
+                                            tip="Open the Sync window: what every account's contacts and mail are "
+                                                "doing now, with Stop, Allow and Retry")
         row.addWidget(self.add_button)
         row.addWidget(self.sync_all_button)
+        row.addWidget(self.sync_window_button)
         row.addStretch(1)
         lay.addLayout(row)
         lay.addWidget(parts.hint("Each row shows when the account last synced and when it will next. "
@@ -130,6 +139,9 @@ class AccountsPage(QWidget):
         self.account_list.reordered.connect(self._reordered)
         self.panel.sync_requested.connect(self.request_sync)
         self.panel.stop_requested.connect(self._stop_run)
+        self.panel.allow_requested.connect(lambda aid: self.request_sync(aid, "contacts", allow_brake=True))
+        self.panel.contacts_tool_requested.connect(self.contacts_tool_requested.emit)
+        self.sync_window_button.clicked.connect(lambda: self.sync_window_requested.emit())
         self.panel.removed.connect(self._removed)
         self.log.approve_requested.connect(lambda aid: self.request_sync(aid, "contacts", approve=True))
         self.log.allow_requested.connect(lambda aid: self.request_sync(aid, "contacts", allow_brake=True))

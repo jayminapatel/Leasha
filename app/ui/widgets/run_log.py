@@ -54,6 +54,7 @@ from PySide6.QtWidgets import (
 
 from app.ui.presenter.activity import LOG_LINES_SHOWN, activity_line
 from app.ui.presenter.log_filter import LOG_FILTER_ALL, LOG_FILTERS, shown_under
+from app.ui.theme import SPACE_XS
 
 __all__ = ["RunLog", "FOLLOW_SLACK"]
 
@@ -117,7 +118,7 @@ class RunLog(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(SPACE_XS)
         layout.addLayout(header)
         layout.addWidget(self.view)
 

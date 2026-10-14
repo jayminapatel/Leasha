@@ -548,8 +548,13 @@ class AccountService:
             return (account_id, kind) in self._running
 
     def undo_run(self, run_id: int) -> UndoResult:
-        """Undo a whole sync (3e): the hub is put back and the accounts are written to match."""
+        """Undo a whole sync (3e): the hub is put back and the accounts are written to match.
+
+        A held sync can be undone too (review CS-3): what it wrote to Leasha before it was held is put back, the
+        contacts whose deletes the brake held come back out of the Bin, and a churn hold it caused is lifted."""
+        run = self.accounts.run(int(run_id))
         res = self.hub.undo_sync(run_id)
+        self.engine.release_held(run, res)
         if res.accounts:
             self.engine.push(res.accounts, trigger="undo")
         return res
@@ -700,12 +705,19 @@ class AccountService:
                     snap["live_progress"] = dict(self._live_progress.get(a.id) or {})
                 snap.update(
                     mode=policy.mode, next=nxt.timestamp() if nxt else None, last_success=st.last_success_at,
-                    failures=st.failures,
+                    failures=st.failures, retry_at=st.next_retry_at,   # review CS-5: the provider's Retry-After
                     run=({"status": status, "added": run.added, "changed": run.changed, "deleted": run.deleted,
                           "error_text": run.error_text or "", "finished_at": run.finished_at,
                           "started_at": run.started_at, "error_code": run.error_code or ""} if run else None))
                 if kind == "contacts":
                     snap["check"] = self.accounts.check(a.id)     # order 1t 3c: the last check, or None
+                    # Review 2026-10-14 CS-2/4/10: what was held (by name), what is still refused, and whether
+                    # the mirror waited on duplicates - so the row and the Allow question can say so.
+                    snap["refused"] = len(self.accounts.failures(a.id))
+                    if snap["run"] is not None:
+                        plan = dict(run.plan or {})
+                        snap["run"]["plan"] = {k: plan.get(k) for k in (
+                            "held_deletes", "flagged_deleted", "failed_out", "delete_out", "names") if k in plan}
                 if kind == "mail":
                     others = [o for o in accounts if o.id != a.id and live[(o.id, "mail")]]
                     if others and not snap["live"]:

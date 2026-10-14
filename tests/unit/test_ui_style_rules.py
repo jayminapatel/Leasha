@@ -240,10 +240,9 @@ def test_the_chat_slash_menu_leads_with_the_icon_not_a_character(qtbot):
 # 3. One table of icon sizes
 # ---------------------------------------------------------------------------
 
-#: Files that still give an icon size as a number, each named with why. **Owned by the Contacts wave**
-#: (`ui/c-contacts`, running beside this one): moved onto `ICON_SIZES` when it lands, not here, so the two do
-#: not collide. `person_photo.py`'s 96px is a face picture, not an icon.
-_SIZE_LITERALS_OK = {"contacts/parts.py", "contacts/person_photo.py", "contacts_tools/_common.py"}
+#: Files that still give an icon size as a number, each named with why. `person_photo.py`'s 96px is a face
+#: picture, not an icon.
+_SIZE_LITERALS_OK = {"contacts/person_photo.py"}
 
 
 def _literal_icon_sizes(source: str) -> list:
@@ -288,11 +287,7 @@ def test_the_size_guard_would_notice_a_number():
 
 #: Files that still write a gap the scale names as a number. **Owned by the Contacts wave** (`ui/c-contacts`,
 #: running beside this one), so moved onto `theme.SPACE_*` when it lands rather than here. Never grows.
-_SPACING_LITERALS_OK = {
-    "contacts/editor.py", "contacts/fields.py", "contacts/index_panel.py", "contacts/bulkbar.py",
-    "contacts/enrich_panel.py", "contacts_tools/cleanup_dialog.py", "contacts_tools/duplicates_dialog.py",
-    "contacts_tools/_common.py", "widgets/person_card.py",
-}
+_SPACING_LITERALS_OK: set[str] = set()
 
 _SPACING_CALLS = {"setSpacing", "addSpacing", "setContentsMargins", "setHorizontalSpacing", "setVerticalSpacing"}
 

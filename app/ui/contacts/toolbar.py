@@ -16,11 +16,12 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QToolButton, QWidget
+from PySide6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QToolButton, QWidget
 
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.contacts.parts import name_inner_buttons, tool_button
 from app.ui.presenter.contact_commands import CONTACT_COMMANDS, contact_matching
+from app.ui.widgets import menus
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.icons import icon
 
@@ -42,7 +43,7 @@ MORE_TOOLS = (
      "and find contacts that are empty or have repeated values - you see every change first"),
     ("enrich", "wand-sparkles", "Enrich selection…", "Look for missing details in your own mail and photos "
      "(and the internet, if you switched that on) - nothing is kept until you accept it"),
-    ("duplicates", "merge", "Find duplicates…", "Find people who are in your book twice, and merge them"),
+    # Review 2026-10-14 IA-8: "Find duplicates…" was here as well as on the bar (TOOLS); one place is enough.
     ("conflicts", "triangle-alert", "Changed in two places…", "Review the details changed in Leasha and at an "
      "account, and accept which value to keep - all at once or one by one"),
     ("select_all", "list-checks", "Select all contacts", "Pick every contact in the list (Ctrl+A), to act on them "
@@ -93,8 +94,8 @@ class ContactToolbar(QWidget):
         self.list_button.setChecked(True)
         self.tools: dict[str, object] = {}
         row = QHBoxLayout(self)
-        row.setContentsMargins(6, 4, 6, 4)
-        row.setSpacing(2)
+        row.setContentsMargins(SPACE_XS, SPACE_XS, SPACE_XS, SPACE_XS)
+        row.setSpacing(SPACE_XS)
         row.addWidget(self.new_button)
         row.addWidget(self._bar())
         row.addWidget(self.list_button)
@@ -116,15 +117,12 @@ class ContactToolbar(QWidget):
         self.more_button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.more_button.setProperty("glyph", "ellipsis")
         self.more_button.setIcon(icon("ellipsis", theme_colours().get("text_dim", "#888888")))
-        self.more_menu = QMenu(self.more_button)
-        self.more_actions: dict[str, object] = {}
-        for name, glyph, words, tip in MORE_TOOLS:
-            act = self.more_menu.addAction(icon(glyph, theme_colours().get("text_dim", "#888888")), words)
-            act.setToolTip(tip)
-            act.setStatusTip(tip)
-            act.triggered.connect(lambda _c=False, n=name: self.tool_requested.emit(n))
-            self.more_actions[name] = act
-        self.more_button.setMenu(self.more_menu)
+        self.more_menu = menus.attach(self.more_button, [
+            menus.Item(words, lambda n=name: self.tool_requested.emit(n), icon=glyph, tip=tip, key=name)
+            for name, glyph, words, tip in MORE_TOOLS])
+        self.more_actions: dict[str, object] = menus.lines(self.more_menu)
+        for name, _glyph, _words, tip in MORE_TOOLS:
+            self.more_actions[name].setStatusTip(tip)
         row.addWidget(self.more_button)
         row.addWidget(self._bar())
         self.history_button = tool_button("history", "History", "Show the changes made to the picked contact",
@@ -140,6 +138,11 @@ class ContactToolbar(QWidget):
         for b in self.findChildren(QToolButton):
             if b.accessibleName():
                 labelled(b)
+        # Review 2026-10-14 CS-8: what the account sync is doing, beside the tools; hidden while idle. Its words
+        # are its own (`presenter.sync_chip`), so it is added after the bar's buttons are labelled.
+        from app.ui.widgets.sync_chip import SyncChip  # noqa: PLC0415
+        self.sync_chip = SyncChip("contacts")
+        row.addWidget(self.sync_chip)
         self.fit_level = 0
         self._fitting = False
         row.addStretch(1)
@@ -184,6 +187,10 @@ class ContactToolbar(QWidget):
         finally:
             self._fitting = False
 
+    def showEvent(self, event: object) -> None:                   # noqa: N802 - Qt's naming
+        super().showEvent(event)
+        self.sync_chip.try_attach()
+
     def resizeEvent(self, event: object) -> None:                 # noqa: N802 - Qt's naming
         super().resizeEvent(event)
         self.fit(self.width())
@@ -203,8 +210,7 @@ class ContactToolbar(QWidget):
     def retint(self, colours: dict[str, str]) -> None:
         ink = colours.get("text_dim", "#888888")
         self.more_button.setIcon(icon("ellipsis", ink))
-        for name, glyph, _w, _t in MORE_TOOLS:
-            self.more_actions[name].setIcon(icon(glyph, ink))
+        menus.retint(self.more_menu)
 
     def set_view(self, mode: str) -> None:
         (self.cards_button if mode == "cards" else self.list_button).setChecked(True)

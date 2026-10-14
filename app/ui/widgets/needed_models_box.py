@@ -91,9 +91,9 @@ class _Line:
         self.key = str(model.key)
         self.title_words = str(model.title)
         self.title = QLabel(self.title_words)
-        font = self.title.font()
-        font.setBold(True)
-        self.title.setFont(font)
+        from app.ui.widgets.paint_kit import set_weight
+
+        self.title.setFont(set_weight(self.title.font(), "bold"))
         self.title.setWordWrap(True)
         self.purpose = QLabel(str(model.purpose))
         self.purpose.setWordWrap(True)
@@ -123,7 +123,7 @@ class _Line:
         self.text.setObjectName("rowCell")     # the theme leaves it transparent
         column = QVBoxLayout(self.text)
         column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(1)
+        column.setSpacing(0)
         for label in (self.title, self.purpose, self.name, self.note):
             column.addWidget(label)
 

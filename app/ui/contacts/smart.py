@@ -12,13 +12,13 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Optional
 
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit,
                              QVBoxLayout, QWidget)
 
 from app.ui.contacts.logic import RULE_FIELDS, RULE_OPS, SMART_EXAMPLES
 from app.ui.contacts.parts import tool_button
 from app.ui.widgets.buttons import action_button, style_all
-from app.ui.widgets.dialog_frame import frame
+from app.ui.widgets.dialog_frame import buttons as dialog_buttons, frame
 
 __all__ = ["SmartDialog", "RuleRow"]
 
@@ -115,10 +115,9 @@ class SmartDialog(QDialog):
         self.add_rule_button.setToolTip("Another test a contact has to pass")
         self.add_rule_button.clicked.connect(lambda: self.add_rule())
         self.rows: list[RuleRow] = []
-        self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
         layout = frame(self)                      # the one dialog frame (UI phase B)
+        # Review DS-13: the frame's button row, OK named for what it does.
+        self.buttons = dialog_buttons(self, "Save smart group")
         layout.addWidget(QLabel("A contact is in this group when it matches every rule."))
         layout.addWidget(self.name_edit)
         layout.addWidget(self.examples)

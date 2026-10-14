@@ -13,10 +13,16 @@ this once and says what its actions are:
 * **Double-click and Enter run the default action, from one signal**:
   `activated`, which Qt sends for a double-click; Enter is answered here by
   sending the same `activated`, so the action has exactly one source.
-* **Space shows the preview** where the page has one - the page's own Preview
-  toggle (`view_button.toggle_preview`, the one Ctrl+Shift+P presses), found
-  by walking up from the list. On a line that carries a tick box Space stays
-  Qt's, which ticks it: Tidy's lists are marked from the keyboard that way.
+* **Space is quick look** where the page has one (review 2026-10-14, MS-9):
+  `preview=PAGE_PREVIEW` opens the current row in a look window of its own and
+  closes it on the next Space (`quick_look.py`, found by walking up from the
+  list - every list with a docked preview pane has one). The docked pane stays
+  on Ctrl+Shift+P and the View menu; a page with a pane but no quick look (Chat)
+  keeps Space on its own Preview toggle (`view_button.toggle_preview`). On a line
+  that carries a tick box Space stays Qt's, which ticks it: Tidy's lists are
+  marked from the keyboard that way.
+* **I shows the information panel** where a list has one (`info=`): Photos,
+  where Space now opens the viewer.
 * **Delete runs the destructive line** where there is one, through the same
   function the menu calls - so its confirmation is the one it always asked.
 * **F2 renames** where a rename exists.
@@ -38,11 +44,11 @@ from PySide6.QtWidgets import QAbstractItemView
 
 from app.ui.widgets.menus import weak_call
 
-__all__ = ["ListKeys", "install", "PAGE_PREVIEW", "page_preview"]
+__all__ = ["ListKeys", "install", "PAGE_PREVIEW", "page_preview", "page_look"]
 
-#: `preview=PAGE_PREVIEW`: use the page's own Preview toggle, found at the key
-#: press - a list does not know which page it is on, and Chat's sources list is
-#: the same widget as Search's.
+#: `preview=PAGE_PREVIEW`: the page's quick look, else its own Preview toggle,
+#: found at the key press - a list does not know which page it is on, and Chat's
+#: sources list is the same widget as Search's.
 PAGE_PREVIEW = "page"
 
 _ENTER = (Qt.Key.Key_Return, Qt.Key.Key_Enter)
@@ -65,11 +71,23 @@ def page_preview(widget: Any) -> Optional[Callable[[], Any]]:
     return None
 
 
+def page_look(widget: Any) -> Optional[Callable[[], Any]]:
+    """What Space does on a `PAGE_PREVIEW` list: the page's quick look
+    (`quick_look.nearest`), else the page's own Preview toggle, else nothing."""
+    from app.ui.widgets.quick_look import nearest
+
+    look = nearest(widget)
+    if look is not None:
+        return look.toggle
+    return page_preview(widget)
+
+
 class ListKeys(QObject):
     """The behaviour on one list. A child of the list, so it goes with it."""
 
     def __init__(self, view: QAbstractItemView, *, default: Any = None, preview: Any = None,
-                 delete: Any = None, rename: Any = None, copy: Any = None) -> None:
+                 delete: Any = None, rename: Any = None, copy: Any = None,
+                 info: Any = None) -> None:
         super().__init__(view)
         # Nothing here holds the view: it is `self.parent()`. The view holds this
         # (`install`), and a reference back would be a cycle only the collector
@@ -81,6 +99,7 @@ class ListKeys(QObject):
         self._delete = weak_call(delete) if delete is not None else None
         self._rename = weak_call(rename) if rename is not None else None
         self._copy = weak_call(copy) if copy is not None else None
+        self._info = weak_call(info) if info is not None else None
         if self._default is not None:
             view.activated.connect(self._activated)
         view.installEventFilter(self)
@@ -103,8 +122,10 @@ class ListKeys(QObject):
             if current.isValid() and current.data(Qt.ItemDataRole.CheckStateRole) is not None:
                 return None
             if self._preview == PAGE_PREVIEW:
-                return page_preview(view)
+                return page_look(view)
             return self._preview
+        if key == Qt.Key.Key_I and not mods and self._info is not None:
+            return self._info
         if key == Qt.Key.Key_Delete and not mods:
             return self._delete
         if key == Qt.Key.Key_F2 and not mods:
@@ -132,8 +153,9 @@ def install(view: QAbstractItemView, **actions: Any) -> ListKeys:
     """Give `view` the one list behaviour. Once per list. See the module docstring.
 
     `default(index)` is what a double-click and Enter do; `preview()`, `delete()`,
-    `rename()` and `copy()` take nothing. Any left out is not offered, and its key
-    stays Qt's. `preview=PAGE_PREVIEW` uses the page's own Preview toggle.
+    `rename()`, `copy()` and `info()` take nothing. Any left out is not offered, and
+    its key stays Qt's. `preview=PAGE_PREVIEW` is the page's quick look (or, on a
+    page without one, its own Preview toggle).
     """
     keys = ListKeys(view, **actions)
     # Held by the view: a filter with only a C++ parent can lose its Python half,

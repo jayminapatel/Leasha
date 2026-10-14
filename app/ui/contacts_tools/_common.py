@@ -29,9 +29,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.contacts.card import SCALARS, Card, display_name
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_S, theme_colours
 from app.ui.widgets.buttons import action_button
-from app.ui.widgets.icons import icon
+from app.ui.widgets.icons import icon, icon_size
 from app.ui.workers import CallableWorker, run
 from app.ui.widgets.dialog_frame import frame
 
@@ -203,7 +203,7 @@ class ToolDialog(QDialog):
         root.addWidget(self.status)
         root.addWidget(self.progress)
         self.footer = QHBoxLayout()
-        self.footer.setSpacing(8)
+        self.footer.setSpacing(SPACE_S)
         self.footer.addStretch(1)
         self.close_button = btn("Close", "x", "secondary", "Close this window", "Close")
         self.close_button.clicked.connect(self.close)
@@ -329,7 +329,7 @@ class CardList(QListWidget):
         super().__init__(parent)
         self.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
-        self.setIconSize(QSize(16, 16))
+        self.setIconSize(icon_size("list"))
         self.setWordWrap(True)
         named(self, name, tip)
 

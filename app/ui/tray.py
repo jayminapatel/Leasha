@@ -252,10 +252,12 @@ class TrayPresence:
 
     _account_hooks: Optional[dict] = None
 
-    def set_account_actions(self, *, pause: Any, sync_now: Any, open_page: Any) -> None:
+    def set_account_actions(self, *, pause: Any, sync_now: Any, open_page: Any, open_sync: Any = None) -> None:
         """Give the tray its account items: `pause(choice)` with 'hour' | 'tomorrow' | 'forever' |
-        'off', `sync_now()` and `open_page()`. Safe before or after `install`."""
-        self._account_hooks = {"pause": pause, "sync_now": sync_now, "open_page": open_page}
+        'off', `sync_now()`, `open_page()` and - for the live sync line - `open_sync()`, the Sync window.
+        Safe before or after `install`."""
+        self._account_hooks = {"pause": pause, "sync_now": sync_now, "open_page": open_page,
+                               "open_sync": open_sync or open_page}
         if self._tray is not None:
             self._add_account_items()
 
@@ -279,6 +281,12 @@ class TrayPresence:
         self._account_warning_action = _action("", menu, hooks["open_page"])
         self._account_warning_action.setVisible(False)
         put(self._account_warning_action)
+        # Review 2026-10-14 CS-8: what the account sync is doing now ("Accounts: syncing 2 accounts - writing 120
+        # of 1,436"); hidden while idle. A click opens the Sync window.
+        self._account_activity_action = _action("", menu, hooks["open_sync"])
+        self._account_activity_action.setToolTip("Open the Sync window")
+        self._account_activity_action.setVisible(False)
+        put(self._account_activity_action)
         sub = self._account_pause_menu = QMenu("Pause account sync", menu)
         if before is not None:
             menu.insertMenu(before, sub)
@@ -306,6 +314,22 @@ class TrayPresence:
         if action is not None:
             action.setText(text)
             action.setVisible(bool(text))
+
+    _accounts_line = ""
+    _status_text = ""
+
+    def set_accounts_activity(self, text: str) -> None:
+        """The live account-sync line (CS-8): in the menu, and as the tooltip's second line; "" hides it."""
+        self._accounts_line = str(text or "")
+        action = getattr(self, "_account_activity_action", None)
+        if action is not None:
+            action.setText(self._accounts_line)
+            action.setVisible(bool(self._accounts_line))
+        if self._tray is not None and self._status_text:
+            self._tray.setToolTip(self._tooltip())
+
+    def _tooltip(self) -> str:
+        return f"Leasha — {self._status_text}" + (f"\n{self._accounts_line}" if self._accounts_line else "")
 
     def toast(self, title: str, text: str) -> bool:
         """A Windows notification through the tray icon. False when the tray is not installed."""
@@ -374,7 +398,8 @@ class TrayPresence:
         2026-10-05: the whole line is `text` - `presenter.tray_words` words it."""
         if self._tray is None:
             return
-        self._tray.setToolTip(f"Leasha — {text}")
+        self._status_text = text
+        self._tray.setToolTip(self._tooltip())
         action = getattr(self, "_status_action", None)
         if action is not None and action.text() != text:
             action.setText(text)

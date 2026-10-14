@@ -26,8 +26,10 @@ from typing import Any, Optional
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QHeaderView, QLabel, QTreeWidget, QTreeWidgetItem, QWidget
 
+from app.ui.accounts import parts
 from app.ui.contacts_tools._common import ToolDialog, btn, named
 from app.ui.presenter import sync_status as words
+from app.ui.presenter.account_actions import allow_question, handle
 from app.ui.presenter.account_activity import overall_line
 from app.ui.widgets.activity_table import ActivityTable
 
@@ -129,41 +131,61 @@ class SyncDialog(ToolDialog):
     # -- the buttons on a row -------------------------------------------------------------------------
 
     def do(self, account_id: int, kind: str, action: str) -> None:
-        """A row's button. Sync and Stop go to the scheduler; Pause and Resume to the mail syncer (on a worker);
-        Test, Reconnect and Settings open the account in Settings > Accounts, where those live."""
-        service = getattr(self.ctx, "service", None)
-        if action in ("sync", "retry"):
-            if self.scheduler is None:
-                return
-            self._trust_the_scheduler()
-            if self.scheduler.sync_now(account_id, kind):
-                self._running, self._stopping = True, False
-                self._show_buttons()
-            else:
-                self.say("A sync is already running; this window shows it, and this one starts after it.")
-        elif action == "stop":
-            self.stop_sync()
-        elif action in ("pause", "resume"):
-            call = getattr(service, "pause_mail" if action == "pause" else "resume_mail", None)
-            if callable(call):
-                self.job(lambda: call(account_id), lambda _r: self._ask_activity())
-        elif action == "allow":
-            if self.scheduler is None:
-                return
-            self._trust_the_scheduler()
-            if self.scheduler.sync_now(account_id, "contacts", allow_brake=True):
-                self._running, self._stopping = True, False
-                self._show_buttons()
-            else:
-                self.say("A sync is already running; press Allow again when it has finished.")
-        elif action == "fix":
-            fix = getattr(service, "fix_check", None)
-            if callable(fix) and self.scheduler is not None:
-                self.job(lambda: fix(account_id), lambda _r: self.do(account_id, "contacts", "sync"))
-        elif action in ("settings", "test", "reconnect"):
-            opener = getattr(service, "open_account", None)
-            if callable(opener):
-                opener(account_id, action)
+        """A row's button, through the one handler the account panel uses too (`presenter.account_actions`, CS-1).
+        Sync and Stop go to the scheduler; Pause and Resume to the mail syncer (on a worker); Allow asks first
+        (CS-2); Test, Reconnect and Settings open the account in Settings > Accounts, where those live."""
+        handle(self, account_id, kind, action)
+
+    # -- the row's host methods (`presenter.account_actions.HOST_METHODS`)
+    def row_sync(self, account_id: int, kind: str) -> None:
+        if self.scheduler is None:
+            return
+        self._trust_the_scheduler()
+        if self.scheduler.sync_now(account_id, kind):
+            self._running, self._stopping = True, False
+            self._show_buttons()
+        else:
+            self.say("A sync is already running; this window shows it, and this one starts after it.")
+
+    def row_stop(self) -> None:
+        self.stop_sync()
+
+    def row_pause(self, account_id: int, paused: bool) -> None:
+        call = getattr(getattr(self.ctx, "service", None), "pause_mail" if paused else "resume_mail", None)
+        if callable(call):
+            self.job(lambda: call(account_id), lambda _r: self._ask_activity())
+
+    def row_allow(self, account_id: int) -> None:
+        if self.scheduler is None:
+            return
+        snap = next((s for s in self._snaps if int(s.get("account_id") or 0) == account_id
+                     and s.get("kind") == "contacts"), {})
+        run = snap.get("run") or {}
+        if not parts.ask_allow(self, allow_question(str(snap.get("name") or ""), run.get("plan"),
+                                              str(run.get("error_code") or ""), str(run.get("error_text") or ""))):
+            return
+        self._trust_the_scheduler()
+        if self.scheduler.sync_now(account_id, "contacts", allow_brake=True):
+            self._running, self._stopping = True, False
+            self._show_buttons()
+        else:
+            self.say("A sync is already running; press Allow again when it has finished.")
+
+    def row_fix(self, account_id: int) -> None:
+        fix = getattr(getattr(self.ctx, "service", None), "fix_check", None)
+        if callable(fix) and self.scheduler is not None:
+            self.job(lambda: fix(account_id), lambda _r: self.row_sync(account_id, "contacts"))
+
+    def row_account(self, account_id: int, action: str) -> None:
+        opener = getattr(getattr(self.ctx, "service", None), "open_account", None)
+        if callable(opener):
+            opener(account_id, action)
+
+    def row_contacts_tool(self, name: str) -> None:
+        """Find duplicates (CS-10: the mirror waits on them) or Changed in two places (a clash waits on you)."""
+        opener = getattr(getattr(self.ctx, "service", None), "open_contacts_tool", None)
+        if callable(opener):
+            opener(name)
 
     # -- what the accounts last refused -----------------------------------------------------------------
 
@@ -234,8 +256,9 @@ class SyncDialog(ToolDialog):
         phase = str(e.get("phase", ""))
         live = self._live.setdefault(aid, {"started": time.time()})
         live.update(e)
-        for name, why in e.get("failures", []) or []:
-            self._problem(str(e.get("account", "")), str(name), str(why))
+        for entry in e.get("failures", []) or []:
+            self._problem(str(e.get("account", "")), str(entry[0]), str(entry[1]),
+                          entry[2] if len(entry) > 2 else None, aid)
         self._running = phase != "done" or self._running
         if self._snaps:
             self._draw_activity()
@@ -246,8 +269,9 @@ class SyncDialog(ToolDialog):
         self._running = self._stopping = False
         self._live.clear()
         for out in outcomes or []:
-            for name, why in out.plan.failures:
-                self._problem(str(out.account_name), str(name), str(why))
+            for entry in out.plan.failures:
+                self._problem(str(out.account_name), str(entry[0]), str(entry[1]),
+                              entry[2] if len(entry) > 2 else None, int(out.account_id or 0))
         self._show_buttons()
         self._summarise()
         self.reload()
@@ -296,8 +320,13 @@ class SyncDialog(ToolDialog):
 
 
 def open_sync_window(parent: Any, ctx: Any, *, start: bool = True) -> Any:
-    """The one Sync window: shown if it is not, raised if it is, and a sync started if none is going."""
-    owner = parent if parent is not None else ctx
+    """The one Sync window: shown if it is not, raised if it is, and a sync started if none is going (unless
+    `start` is False - the Mail page, Settings > Accounts and the status chips only want to look).
+
+    Kept on the parent's top-level window, so the Contacts page, the Mail page and Settings share one (review
+    2026-10-14 IA-5: before, each parent kept its own)."""
+    top = parent.window() if parent is not None and callable(getattr(parent, "window", None)) else parent
+    owner = top if top is not None else ctx
     window = getattr(owner, "_sync_window", None)
     try:
         if window is None or not window.isVisible() and window.scheduler is None:

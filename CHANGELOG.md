@@ -17,6 +17,44 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### The UX review of 2026-10-14, built: keys, palette, honest search and sync status, one paint layer (2026-10-14)
+
+From `docs/REVIEW-2026-10-14-ux-architecture.md` (48 findings); the owner: "do recommended ... do all
+and fix all". Built in seven parallel branches and tested together.
+
+- **Command palette (Ctrl+K)**: every page, Settings category and menu-bar action by typing its
+  name; `>` for actions only; plain words end in "Search for '…'". Go > Command palette…
+- **Keys**: Ctrl+1..9 open the page at that place on the rail; Alt+Left/Right and the mouse's back
+  and forward buttons walk page history; Esc clears only the page in front (it used to empty the
+  Search box from any page); Ctrl+F goes to the page's own box first; arrow keys from the box move
+  the list on Files, Mail, Code and Photos; Space is quick look on result lists (the docked pane is
+  Ctrl+Shift+P), and in Photos Space opens the viewer and I the info panel; pop-outs close on Esc.
+- **Search says what it is doing**: a hairline while a search is in flight over rows already shown;
+  an empty answer dims the kept rows and says "No matches for … - showing the previous results";
+  pictures among mixed results show in a Photos strip; the grid is drawn by the Photos thumbnail
+  pipeline, is reached by the arrow keys, and is offered when most results are pictures; a
+  "Photos only" scope; superseded searches are taken back from the pool before they start.
+- **Sync status that is true everywhere**: Allow and Fix these work on Settings > Accounts (they did
+  nothing there); Allow asks first and names the contacts it would delete; new row states for a
+  partial run, a mirror waiting on duplicates, and a clash waiting for your choice; a sync chip on
+  Contacts and Mail, a sync line in the tray, Open sync status on Settings > Accounts and in the
+  palette; each contact shows per account whether it is synced, waiting, deleted there or refused.
+- **Sync contract**: Retry-After reaches the schedule; HTTP 500/502/504 are retried and reported as
+  `ERR_ACCOUNT_TROUBLE`; a held sync can be undone; the held toast names the real reason; a clash
+  settled in Changed in two places is no longer asked again at the next sync (found by a test
+  first); `ERR_SYNC_CONFLICT_HELD` is now raised; refused contacts open from the live Sync window.
+- **Photos and Contacts linked both ways**: Open contact / Link to contact… on a person in Photos;
+  See all photos / See mail from them on a contact. Rail pages can be hidden and shown again. An
+  optional Aspect view in Photos shows each photo at its own shape (the square grid stays default).
+- **One look**: `widgets/paint_kit.py` draws every painted list's hover, selection and a 2 px
+  keyboard focus ring; one focus width with a quiet ring after a click; pressed states; table and
+  tree selectors; radius, weight and title-size tokens; no pixel font sizes; one `Card` for the
+  answer, mail header, contact card and This machine; every question through `confirm()` with a
+  verb, every drop-down through the menu builder; layout gaps on the spacing scale.
+- **New guards**: no Yes/No question outside `confirm.py`; no hand-built `QMenu`; no raw Ok/Cancel
+  box; painted selection only through `paint_kit`; no `setPixelSize`; no layout gap off the spacing
+  scale (the ceiling is 0, with the geometries named).
+
 ### The indexing cockpit, every thread visible, and the held photos read (2026-10-14, order 1v)
 
 - **Indexing > Status is a cockpit.** Fixed tiles, a phase stepper, the counts on top, one row per

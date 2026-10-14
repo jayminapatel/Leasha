@@ -149,13 +149,18 @@ def test_an_unknown_density_falls_back_rather_than_raising():
 
 
 def test_a_pixel_sized_font_is_handled():
-    """`theme.py` sets `font-size: 13px`, so `pointSize()` returns -1. Adding to
-    it would produce `setPointSize(-1)`, which Qt warns about and ignores - the
-    exact bug that reached the console this morning."""
-    source = DELEGATE.read_text(encoding="utf-8")
-    fonts = source.split("def _fonts")[1].split("\n    def ")[0]
-    assert "pixelSize" in fonts
-    assert "setPixelSize" in fonts
+    """A font sized in pixels reports `pointSize() == -1`. Adding to it would
+    produce `setPointSize(-1)`, which Qt warns about and ignores - the exact bug
+    that once reached the console. Since review 2026-10-14 (DS-8) the pixel size
+    is turned into points rather than copied as pixels."""
+    from PySide6.QtGui import QFont
+
+    from app.ui.result_delegate import ResultDelegate
+
+    base = QFont()
+    base.setPixelSize(16)
+    for font in ResultDelegate()._fonts(base):
+        assert font.pointSize() > 0 and font.pixelSize() == -1
 
 
 # ---------------------------------------------------------------------------
@@ -829,13 +834,16 @@ def test_hover_paints_a_different_background_from_the_ordinary_row():
 def test_hover_never_wins_over_selection():
     """Selection is the stronger signal - a selected, hovered row must still
     read as selected, never fall back to the plain hover tint."""
-    from app.ui.result_delegate import ResultDelegate
-
+    # The row state is painted by `paint_kit.paint_row_state` (review 2026-10-14,
+    # DS-2), for every painted list: selected is checked first, and hover is only
+    # an elif - a selected row can never also take the hover branch.
+    # `test_paint_kit` checks the same thing on the pixels.
     source = DELEGATE.read_text(encoding="utf-8")
-    body = source.split("def paint")[1].split("\n    def ")[0]
-    # Selected is checked first, and hover is only an elif - a selected row
-    # can never also take the hover branch.
-    assert body.index("State_Selected") < body.index("State_MouseOver")
+    body = source.split("def paint(")[1].split("\n    def ")[0]
+    assert "paint_row_state(" in body
+    kit = (DELEGATE.parent / "widgets" / "paint_kit.py").read_text(encoding="utf-8")
+    state = kit.split("def paint_row_state(")[1].split("\ndef ")[0]
+    assert state.index("if selected:") < state.index("elif hovered:")
 
 
 # ---------------------------------------------------------------------------

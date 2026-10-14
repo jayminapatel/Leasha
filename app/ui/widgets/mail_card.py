@@ -24,7 +24,6 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QMimeData, Qt, Signal
 from PySide6.QtWidgets import (
-    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -36,7 +35,9 @@ from PySide6.QtWidgets import (
 
 from app.ui.presenter.mail import RECIPIENTS_LABEL, RECIPIENTS_TIP, MailCard
 from app.ui.widgets.flow_layout import FlowLayout
-from app.ui.theme import SPACE_S
+from app.ui.theme import SPACE_XS, SPACE_S
+from app.ui.widgets.card import CARD_MARGINS, Card
+from app.ui.widgets.paint_kit import set_weight
 
 __all__ = ["MailCardView", "MailBody", "attach_mail"]
 
@@ -85,7 +86,7 @@ def _label(name: str, *, wrap: bool = False) -> QLabel:
     return label
 
 
-class MailCardView(QFrame):
+class MailCardView(Card):
     """The card. `show_card` fills it; an empty part is not drawn."""
 
     #: 4c: a message in the conversation list was clicked. Carries the Mail
@@ -130,8 +131,8 @@ class MailCardView(QFrame):
         self._chip_flow = FlowLayout(self.chips, spacing=6)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 8)
-        layout.setSpacing(3)
+        layout.setContentsMargins(*CARD_MARGINS)
+        layout.setSpacing(SPACE_XS)
         layout.addWidget(self.subject)
         layout.addLayout(who)
         layout.addWidget(self.recipients_row)
@@ -155,8 +156,8 @@ class MailCardView(QFrame):
         self.conversation.itemClicked.connect(self._chosen)
         self.conversation.itemActivated.connect(self._chosen)
         box = QVBoxLayout(self.conversation_box)
-        box.setContentsMargins(0, 6, 0, 0)
-        box.setSpacing(3)
+        box.setContentsMargins(0, SPACE_S, 0, 0)
+        box.setSpacing(SPACE_XS)
         box.addWidget(self.conversation_heading)
         box.addWidget(self.conversation)
         self.conversation_box.setVisible(False)
@@ -194,9 +195,7 @@ class MailCardView(QFrame):
             if line.current:
                 # Bold, not only selected: the selection moves when the list is
                 # clicked, and which message is on show must survive greyscale.
-                font = item.font()
-                font.setBold(True)
-                item.setFont(font)
+                item.setFont(set_weight(item.font(), "bold"))
             self.conversation.addItem(item)
         shown = bool(heading and lines)
         if shown:
