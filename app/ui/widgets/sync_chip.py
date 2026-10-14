@@ -58,7 +58,6 @@ class SyncChip(QToolButton):
         self.setAutoRaise(True)
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.setIconSize(icon_size("toolbar"))
-        self.setAccessibleName("Sync status" if kind == "contacts" else "Mail sync status")
         self.setToolTip(_TIP)
         self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.clicked.connect(lambda _c=False: open_sync_status(self))
@@ -124,6 +123,9 @@ class SyncChip(QToolButton):
             self.words = self.tracker.words()
         colours = theme_colours()
         self.setText(self.words.text)
+        # Its name is its words, as on every bar button (`test_ui_c_contacts`); none while it is hidden and says
+        # nothing.
+        self.setAccessibleName(self.words.text)
         self.setToolTip(self.words.tip or _TIP)
         self.setIcon(icon(self.words.glyph, colours.get(self.words.tone, colours.get("text_dim", "#888888"))))
         self.setVisible(bool(self.words.text))

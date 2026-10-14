@@ -241,6 +241,9 @@ def test_a_held_run_offers_allow_which_syncs_with_allow_brake(world, monkeypatch
     page.log.tree.setCurrentItem(page.log.tree.topLevelItem(0))
     assert not page.log.allow.isHidden() and "delete 30 from the account" in page.log.plan.text()
     assert "FIX" in page.log.tree.topLevelItem(0).text(10)       # the fix is added for a held run
+    # Review 2026-10-14 CS-2: Allow asks first; the person says yes here.
+    from app.ui.accounts import parts
+    monkeypatch.setattr(parts, "ask_allow", lambda parent, q: True)
     page.log.allow.click()
     assert wait_until(lambda: [(c[0], c[1], c[2].get("allow_brake")) for c in calls] == [(a.id, "contacts", True)])
 
