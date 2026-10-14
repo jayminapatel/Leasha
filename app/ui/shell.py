@@ -1583,6 +1583,11 @@ class MainWindow(QMainWindow):
         # Order 1m: the rail back in Leasha's order (D3).
         add(view, "Reset page order", lambda: getattr(self, "reset_page_order", lambda: None)(),
             icon="rotate-ccw", tip="Put the pages on the left back in Leasha's order")
+        # IA-11 (2026-10-14): the pages hidden from the rail, back (`rail_order.wire`).
+        shown = add(view, "Show hidden pages",
+                    lambda: getattr(self, "show_hidden_pages", lambda: None)(), icon="eye",
+                    tip="Put every page you hid back on the rail")
+        view.aboutToShow.connect(lambda item=shown: item.setEnabled(bool(self.rail.hidden_pages())))
         # 2026-10-04, the owner: the tab's View options here too, changing with the tab.
         view.aboutToShow.connect(lambda menu=view: self._fill_view_menu(menu))
 
