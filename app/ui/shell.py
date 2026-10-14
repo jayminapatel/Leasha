@@ -2105,7 +2105,10 @@ class MainWindow(QMainWindow):
                 window.closed.connect(self._forget_log_window)
                 window.restore(self._log_window_state())
                 self._log_window = window
-                self._apply_theme()          # paints it in the current theme
+                # 2026-10-15: the palette only (`set_palette`), as the tagger above. The
+                # log window has no parent, so the main window's sheet never reached it;
+                # re-setting that sheet only re-polished every widget in the main window.
+                self._push_palette()         # paints it in the current theme
             self._log_window.show()
             self._log_window.raise_()
             self._log_window.activateWindow()
@@ -2129,7 +2132,12 @@ class MainWindow(QMainWindow):
                 window = PhotoTaggerWindow(self._store, self)
                 window.opened.connect(self._open_path)
                 self._photo_tagger = window
-                self._apply_theme()
+                # 2026-10-15: the palette only, not `_apply_theme`. Re-setting the
+                # window's stylesheet re-polished every widget in the tree - the lag
+                # monitor caught it 2 s in the list event filters on 2026-10-14 -
+                # and the tagger needs none of it: a child window takes the sheet
+                # from its parent. Its pictures (button icons) are what is pushed.
+                self._push_palette()
             self._photo_tagger.show()
             self._photo_tagger.raise_()
             self._photo_tagger.activateWindow()
@@ -2978,13 +2986,22 @@ class MainWindow(QMainWindow):
         # the drain gave its run the index grace to finish; one still going
         # now is given a few seconds more and then ended. Nothing to do (and
         # nothing imported that is not already loaded) on a normal close.
+        #
+        # 2026-10-15: **waited for off the window's thread.** The lag monitor
+        # caught this stage holding the window 5 s in `subprocess.wait` on
+        # 2026-10-14 (grace, then terminate). The guarantee is unchanged - the
+        # next stage still starts only once every child has ended - but the wait
+        # runs on a thread of its own while this one serves paint and timer
+        # events (`close_windows.wait_off_window`). Same for the folder watch.
         from app.index.child_run import end_all_children
-        stage("index process", end_all_children)
+        from app.ui.close_windows import wait_off_window
+        stage("index process", lambda: wait_off_window(end_all_children, name="closing-index-child"))
         # 0z F1: nor may the folder watch. Asked to stop, then given a few
         # seconds; nothing to do when the switch is off.
         from app.index.watch_child import end_all_watch_children
         stage("folder watch", self.folder_watch.shutdown)
-        stage("folder watch process", end_all_watch_children)
+        stage("folder watch process",
+              lambda: wait_off_window(end_all_watch_children, name="closing-watch-child"))
         stage("recorder", self.recorder.close)
         stage("engine", self._engine.close)
 

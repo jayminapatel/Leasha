@@ -118,9 +118,13 @@ def _store_api() -> frozenset[str]:
 #: same one being named here). Everywhere else it is a symptom of work on
 #: the wrong thread, and it reenters the event loop in ways that produce bugs
 #: nobody can reproduce.
+#:
+#: 2026-10-15: `wait_off_window` (`app/ui/close_windows.py`) is `_drain_workers`'
+#: trade for the child processes `closeEvent` must see end before the stores
+#: close: the wait runs on its own thread and this one pumps paint and timers.
 PROCESS_EVENTS_ALLOWED_IN = {
     "closeEvent", "_drain_workers", "_wait_for_workers",
-    "_wait_out_minimum_hold", "_fade_out",
+    "_wait_out_minimum_hold", "_fade_out", "wait_off_window",
 }
 
 
