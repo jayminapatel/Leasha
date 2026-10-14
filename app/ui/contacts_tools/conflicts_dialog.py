@@ -18,9 +18,10 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QTableWidgetItem, QToolButton, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QTableWidgetItem, QToolButton, QWidget
 
 from app.ui.contacts.logic import conflict_items
+from app.ui.widgets import menus
 from app.ui.contacts_tools import actions
 from app.ui.contacts_tools._common import ToolDialog, btn, make_table, named, plural
 
@@ -49,13 +50,13 @@ class ConflictsDialog(ToolDialog):
         self.tick_button.setToolTip("Tick clashes: all, none, those where Leasha's value is kept, the account's, "
                                     "or those waiting for you")
         self.tick_button.setAccessibleName("Tick clashes")
-        menu = QMenu(self.tick_button)
-        for words, rule in (("All", lambda r: True), ("None", None),
-                            ("Where Leasha's value is kept", lambda r: r["winner"] == "local"),
-                            ("Where the account's value is kept", lambda r: r["winner"] == "remote"),
-                            ("Waiting for me", lambda r: r["winner"] == "held")):
-            menu.addAction(words).triggered.connect(lambda _c=False, f=rule: self.tick(f))
-        self.tick_button.setMenu(menu)
+        menus.attach(self.tick_button, [
+            menus.Item(words, lambda f=rule: self.tick(f), icon=glyph)
+            for words, rule, glyph in (
+                ("All", lambda r: True, "list-checks"), ("None", None, "list-x"),
+                ("Where Leasha's value is kept", lambda r: r["winner"] == "local", "filter"),
+                ("Where the account's value is kept", lambda r: r["winner"] == "remote", "filter"),
+                ("Waiting for me", lambda r: r["winner"] == "held", "filter"))])
         self.ticked_label = QLabel("")
         named(self.ticked_label, "Clashes ticked", "How many clashes are ticked")
         bar = QHBoxLayout()

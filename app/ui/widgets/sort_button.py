@@ -18,12 +18,18 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from PySide6.QtGui import QAction, QActionGroup
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QMenu, QToolButton, QWidget
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QToolButton, QWidget
 
 from app.ui.presenter import SORT_CHOICES, sort_in, with_sort
+from app.ui.widgets import menus
 
-__all__ = ["SortButton", "build_sort"]
+__all__ = ["SortButton", "build_sort", "SORT_ICONS"]
+
+#: Each order's picture in the menu, by its value in `SORT_CHOICES`.
+SORT_ICONS: dict[str, str] = {
+    "": "sparkles", "newest": "calendar-clock", "oldest": "history", "name": "list",
+}
 
 
 class SortButton(QToolButton):
@@ -40,18 +46,13 @@ class SortButton(QToolButton):
         self.setToolTip("Put the results in another order. The same as typing "
                         "/newest, /oldest or /sort name in the box.")
         self.setAccessibleName("Sort the results")
-        menu = QMenu(self)
-        group = QActionGroup(menu)
-        group.setExclusive(True)
-        self._actions: dict[str, QAction] = {}
-        for label, value in SORT_CHOICES:
-            action = QAction(label, menu)
-            action.setCheckable(True)
-            action.triggered.connect(lambda _c=False, v=value: self.choose(v))
-            group.addAction(action)
-            menu.addAction(action)
-            self._actions[value] = action
-        self.setMenu(menu)
+        # Review DS-6: built by the menu builder, an icon on every order.
+        menu = menus.attach(self, [
+            menus.Item(label, lambda v=value: self.choose(v), icon=SORT_ICONS.get(value, "list"),
+                       choice=True)
+            for label, value in SORT_CHOICES])
+        found = menus.lines(menu)
+        self._actions: dict[str, QAction] = {value: found[label] for label, value in SORT_CHOICES}
         box.textChanged.connect(self.follow)
         self.follow(box.text())
 

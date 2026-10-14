@@ -35,14 +35,22 @@ CANCEL = "Cancel"
 
 
 def confirm(parent: Optional[QWidget], title: str, text: str, verb: str, *,
-            informative: str = "", danger: bool = True) -> bool:
+            informative: str = "", danger: bool = True, glyph: str = "") -> bool:
     """Ask, with `verb` on the button that goes ahead and Cancel as the default.
 
     True only when the `verb` button was pressed: Escape, the close box and
     Enter all land on Cancel. `informative` is the smaller second paragraph -
     what is and is not at risk - for a question whose first line is the
-    decision itself.
+    decision itself. `glyph` is the verb button's icon; without one it is the
+    button table's for those words (`buttons.BUTTONS`), else a bin for a
+    destructive question and a tick for any other - so "Combine" is not drawn
+    as a delete.
     """
+    from app.ui.widgets.buttons import lookup
+
+    if not glyph:
+        found = lookup(verb)
+        glyph = found[0] if found is not None else ("trash-2" if danger else "check")
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Warning if danger else QMessageBox.Icon.Question)
     box.setWindowTitle(title)
@@ -51,7 +59,7 @@ def confirm(parent: Optional[QWidget], title: str, text: str, verb: str, *,
         box.setInformativeText(informative)
     go = box.addButton(verb, QMessageBox.ButtonRole.AcceptRole)
     cancel = box.addButton(CANCEL, QMessageBox.ButtonRole.RejectRole)
-    style_button(go, "trash-2" if danger else "check", "danger" if danger else "primary")
+    style_button(go, glyph, "danger" if danger else "primary")
     style_button(cancel, "x", "secondary")
     box.setDefaultButton(cancel)
     box.setEscapeButton(cancel)
