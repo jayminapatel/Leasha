@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.174 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 7.175 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-14, night - the device test run on the owner's laptop (owner: "Option a").** Headless `run_device_test`, Leasha closed, saved to `D:\LeashaIndex\Data\state\device_test.json`. Graphics card wins (agreeing answers): faces 0.042 s against 0.174 s, picture search 0.123 against 0.247, describing 3.5 against 9.0, OCR 1.96 against 2.61, rerank 0.013 against 0.067. Meaning stays on the processor: the card's vectors disagreed. Every model is on Automatic, so all five follow this from their next load; `EMBED_DEVICE=cpu` is unchanged and no longer decides them. **Watch on the next run (UNCONFIRMED):** five models now share the conductor's one graphics-card slot, so faces, picture search, OCR and Florence take turns there while the processor carries only meaning and reading - the cockpit's lanes and `stats.resolved["model_busy_s"]` will show whether a split (say OCR back on the processor) would finish sooner. The entry below's "Open, the owner's call" is answered by this.
 
 **2026-10-14, late - order 1v step 2 on `main`: the conductor.** `app/index/conductor.py` (L3) hands out processor slots (`budget_for`: meaning + picture threads from `envelope`, 8 of 12 here) and one graphics-card slot by priority; lock-order rules in its docstring (a slot never held across the store's write lock; a write-lock holder is admitted over budget). The run's end runs describe / text-in-pictures / face grouping side by side (`_passes_side_by_side`), cards after; faces pool on the processor; `worker_ceiling` wired (`reader_ceiling`, 8 here); `IndexStats.resources` from the governor's probe. `PipelineConfig.conductor` exists only for `tools/conductor_bench.py`'s A/B. **Measured** (noisy, other suites running): 30-file sample off 339.5/469.0 s, on 235.9/259.4 s. **Open, the owner's call:** faces on the graphics card measured 1.62 photos/s against 0.72 best on the processor; `.env` has `EMBED_DEVICE=cpu` and no device test, so `auto` picks the processor. **Now untrue in the entry below:** "the conductor (§5) still building" and "`stats.resources` shows '-' until the conductor branch lands" - both landed.
 
