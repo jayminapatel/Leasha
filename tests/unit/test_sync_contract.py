@@ -190,6 +190,24 @@ def test_a_server_in_trouble_ends_the_run_once_and_lists_no_contact_as_refused(w
     assert world.accounts.failures(g) == []
 
 
+# ---------------------------------------------------------------------------------------------------- CS-12
+def test_a_live_refusal_names_the_contact_it_is_about(world):
+    from tests.unit.accounts_fakes import BatchFakeProvider
+    g = world.account("Google")
+    world.providers[g] = BatchFakeProvider(world.servers[g])
+    cid = world.hub.create(person("Bob", "Bell"))
+    world.hub.set_kept_in(cid, [g])
+    world.providers[g].refuse.add("new:Bob")
+    told = []
+    out = only(world.engine.sync(progress=told.append), g)
+    assert out.status == "partial"
+    assert out.plan.failures and out.plan.failures[0][0] == "Bob Bell" and out.plan.failures[0][2] == cid
+    live = [f for e in told for f in e.get("failures") or []]
+    assert live and all(f[2] == cid for f in live)
+    run = world.accounts.run(out.run_id)
+    assert run.plan["failures"][0][2] == cid and "Bob Bell: " in run.error_text
+
+
 # ----------------------------------------------------------------------------------------------------- CS-5
 def _limit(retry_after_s):
     from app.core.errors import AppErrorException, make_error

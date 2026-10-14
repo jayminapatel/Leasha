@@ -115,17 +115,19 @@ class Plan:
     held_conflicts: int = 0
     failed_out: int = 0           # contacts the account refused one by one (the sync went on without them)
     held_deletes: int = 0         # deletes past the brake, waiting for Allow (1t D2)
-    failures: list[list[str]] = field(default_factory=list)    # [name, why], the first few
+    failures: list[list] = field(default_factory=list)         # [name, why, contact id], the first few
     names: dict[str, list[str]] = field(default_factory=dict)
     timing: dict = field(default_factory=dict)                 # 1t 1a: seconds by phase, and the transport's meter
 
     def note(self, bucket: str, name: str) -> None:
         sample(self.names.setdefault(bucket, []), name)
 
-    def fail(self, name: str, why: str) -> None:
+    def fail(self, name: str, why: str, contact_id: Optional[int] = None) -> None:
+        """One contact the account refused. Its id rides along (review CS-12), so the Sync window's Open contact
+        works while the sync is still running, not only after a reload."""
         self.failed_out += 1
         if len(self.failures) < 50:
-            self.failures.append([name, why])
+            self.failures.append([name, why] + ([int(contact_id)] if contact_id is not None else []))
 
     def to_json(self) -> dict:
         return {k: getattr(self, k) for k in (
@@ -1025,7 +1027,7 @@ class ContactSyncEngine:
         if not acct.first_sync_done:
             self.accounts.update(acct.id, first_sync_done=True)
         if out.status == "partial":
-            first = "; ".join(f"{n}: {w}" for n, w in p.failures[:3])
+            first = "; ".join(f"{f[0]}: {f[1]}" for f in p.failures[:3])
             self.accounts.finish_run(
                 out.run_id, "partial", added=p.added, changed=p.changed, deleted=p.deleted, held=p.held,
                 error_text=f"{p.failed_out} contact(s) could not be written ({first}). They stay waiting; "
@@ -1096,7 +1098,7 @@ class _Pusher:
 
     def _record(self, kind: str, cid: int, err: AppError) -> None:
         name = self.e._name(cid)
-        self.ctx.plan.fail(name, err.message)
+        self.ctx.plan.fail(name, err.message, cid)
         self.refused.append({"contact_id": cid, "name": name, "kind": kind, "reason": err.message})
         _log.warning("{} could not be written to {}: {}", cid, self.acct.name, err.code)
 
