@@ -21,6 +21,7 @@ from typing import Any, Optional
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QWidget
 
+from app.ui.presenter.scopes import search_scopes
 from app.ui.widgets.segmented import SegmentedControl
 from app.ui.theme import SPACE_S
 
@@ -118,12 +119,11 @@ def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
 #: A filter, not a mode: nobody should have to decide whether a thing was an
 #: email or a document *before* typing, because the usual answer is "I do not
 #: remember, that is why I am searching".
-SCOPES: tuple[tuple[str, str], ...] = (
-    ("Everything", "all"),
-    ("Mail only", "mail"),
-    ("Documents only", "documents"),
-    ("Code only", "code"),
-)
+#:
+#: Review 2026-10-14, IA-4: read from the one scope table both boxes use
+#: (`presenter.scopes`), which added "Photos only" so this picker covers the
+#: same kinds the quick search's chips do. The other four words are unchanged.
+SCOPES: tuple[tuple[str, str], ...] = search_scopes()
 
 
 def build_scope(parent: Optional[QWidget], on_change: Any) -> SegmentedControl:
@@ -149,8 +149,18 @@ def build_scope(parent: Optional[QWidget], on_change: Any) -> SegmentedControl:
         "a README in a repository counts, a .py file in Downloads does not.\n\n"
         "For 'files that look like code' wherever they are, type type:code instead."
     )
+    # Review 2026-10-14, IA-4: the new segment says what it narrows to on its own
+    # button, so the picker's tooltip above stays word for word.
+    photos = scope.button(scope.findData("photos"))
+    if photos is not None:
+        photos.setToolTip(PHOTOS_TIP)
     scope.currentIndexChanged.connect(on_change)
     return scope
+
+
+#: The "Photos only" segment's tooltip - new words, 2026-10-14.
+PHOTOS_TIP = ("Photos only — pictures, wherever they are: the same as the quick "
+              "search's Photos. Type type:image anywhere for the same filter.")
 
 
 def scope_value(scope: Any) -> str:
@@ -339,6 +349,14 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     rows_changed = getattr(getattr(view, "results", None), "rows_changed", None)
     if callable(recount) and rows_changed is not None:
         rows_changed.connect(lambda _rows: recount(getattr(view.results, "shown", 0)))
+    # Review 2026-10-14 (MS-1, MS-7, MS-8): the searches in flight - their own
+    # pool, the busy line over the results, kept rows dimmed. See `search_flight`.
+    if getattr(view, "results", None) is not None:
+        from app.ui.widgets.search_flight import SearchFlight
+
+        view.flight = SearchFlight(view, status=status, notices=notices)
+        if rows_changed is not None:
+            rows_changed.connect(lambda _rows: view.flight.undim())
 
     # -- the home state, under the box ------------------------------------------
     def type_into(text: str) -> None:

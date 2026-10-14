@@ -116,7 +116,32 @@ def attach_preview(results: Any, on_open: Any, on_error: Any, *, store: Any = No
     split.setStretchFactor(1, 2)
     split.setChildrenCollapsible(False)
     pane.setVisible(False)
+    _attach_quick_look(split, results, pane, store=store, on_error=on_error)
     return pane, split
+
+
+def _attach_quick_look(split: Any, results: Any, pane: Any, *, store: Any, on_error: Any) -> None:
+    """Review 2026-10-14, MS-9: Space on the list opens a quick look (`quick_look.py`).
+
+    The row is the list's current one - `results.current_row()` where the list
+    has it, else the last row it said was selected (the signal the pane already
+    listens to). A picture's siblings are the list's other pictures, where it
+    can say (`image_rows`), so Left and Right walk them in the look.
+    """
+    from app.ui.widgets.quick_look import QuickLook
+
+    last: dict = {"row": None}
+    results.selected.connect(lambda row: last.__setitem__("row", row))
+
+    def current() -> Any:
+        ask = getattr(results, "current_row", None)
+        return ask() if callable(ask) else last["row"]
+
+    images = getattr(results, "image_rows", None)
+    split.quick_look = QuickLook(
+        split, current=current, siblings=images if callable(images) else None,
+        body_provider=lambda: getattr(pane, "body_provider", None),
+        store=store, on_error=on_error)
 
 _log = logger.bind(component="ui.preview")
 

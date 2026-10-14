@@ -82,7 +82,13 @@ def test_search_does_blank_before_it_has_ever_found_anything():
     """The first empty answer of a session is genuinely empty and must say so -
     otherwise the pane sits blank with no explanation at all."""
     body = source("search_view.py").split("def _on_results")[1].split("\n    def ")[0]
-    assert "self.results.clear(summary)" in body
+    # Dated note, 2026-10-14 (review MS-7): an answer of nothing is decided in
+    # `search_flight.nothing_found` now, which empties the list when nothing was
+    # ever shown (and when the full tier itself found nothing) - driven for real
+    # in `test_search_feedback.py`.
+    assert "nothing_found" in body and "shown=self._shown_anything" in body
+    flight = source("widgets/search_flight.py").split("def nothing_found")[1].split("\n    def ")[0]
+    assert "view.results.clear(summary)" in flight
 
 
 def test_emptying_the_box_resets_the_flag():

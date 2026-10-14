@@ -34,7 +34,7 @@ from app.ui.widgets.preview_window import DWG_PREVIEW_ENABLED_KEY
 from app.ui.widgets.thumbnail_grid import GRID_ENABLED_KEY, ThumbnailGrid
 from app.ui.widgets.timeline_strip import STRIP_ENABLED_KEY, TimelineStrip
 
-__all__ = ["build_results_pane"]
+__all__ = ["build_results_pane", "current_list"]
 
 
 class _PinnedRow(NamedTuple):
@@ -201,7 +201,7 @@ def _wire_similar(*, results: ResultsView, grid: ThumbnailGrid, engine: Any,
     grid.similar_requested.connect(_run)
 
 
-def _wire_lightbox(*, grid: ThumbnailGrid, store: Any, on_error: Any) -> None:
+def _wire_lightbox(*, grid: ThumbnailGrid, store: Any, on_error: Any, strip: Any = None) -> None:
     """Work order 0h §3b: a thumbnail opens straight into the lightbox.
 
     Not a pin of the in-app preview pane - the grid has no such pane (it is
@@ -240,6 +240,17 @@ def _wire_lightbox(*, grid: ThumbnailGrid, store: Any, on_error: Any) -> None:
             closed=lambda w: open_windows.remove(w) if w in open_windows else None))
 
     grid.opened.connect(_open)
+    # Review 2026-10-14: the photo strip opens into the same lightbox (MS-5), and
+    # Space on either is quick look - the lightbox, closed again by Space (MS-9).
+    from app.ui.widgets.quick_look import QuickLook
+
+    for source in (grid, strip):
+        if source is None:
+            continue
+        if source is strip:
+            strip.opened.connect(_open)
+        source.quick_look = QuickLook(source, current=source.current_row,
+                                      siblings=source.image_rows, store=store, on_error=on_error)
 
 
 def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_error: Any,
@@ -323,24 +334,38 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     # append (the timeline strip listens to the identical signal above), so
     # the grid needs no search-specific wiring, only a filter down to the
     # photos it already knows how to recognise.
-    grid = ThumbnailGrid()
+    grid = ThumbnailGrid(store=store)
     results.rows_changed.connect(grid.show_rows)
     grid.reveal_requested.connect(on_reveal)
     grid.file_requested.connect(on_opened)       # the menu's Open: the file (2026-10-04)
     grid.pin_requested.connect(pinned.pin)
     _wire_similar(results=results, grid=grid, engine=engine, on_error=on_error)
-    _wire_lightbox(grid=grid, store=store, on_error=on_error)
+    # Review 2026-10-14, MS-5: the pictures of a mixed result set, in a strip
+    # above the list - gone when there are none, and while the grid is in front.
+    from app.ui.widgets.photo_strip import PhotoStrip
+
+    strip = PhotoStrip(store=store)
+    results.rows_changed.connect(strip.show_rows)
+    _wire_lightbox(grid=grid, store=store, on_error=on_error, strip=strip)
+
+    listing = QWidget()             # the strip over the list + preview
+    listing_layout = QVBoxLayout(listing)
+    listing_layout.setContentsMargins(0, 0, 0, 0)
+    listing_layout.setSpacing(0)
+    listing_layout.addWidget(strip)
+    listing_layout.addWidget(split, stretch=1)
 
     stack = QStackedWidget()
-    stack.addWidget(split)          # index 0: list + preview - the default
+    stack.addWidget(listing)        # index 0: list + preview - the default
     stack.addWidget(grid)           # index 1: thumbnails
+    stack.currentChanged.connect(lambda _i: strip.set_allowed(stack.currentWidget() is listing))
 
     left = QWidget()
     left_layout = QVBoxLayout(left)
     left_layout.setContentsMargins(0, 0, 0, 0)
     switches = _switches(
         results=results, pinned=pinned, timeline=timeline,
-        stack=stack, split=split, grid=grid, store=store)
+        stack=stack, split=listing, grid=grid, store=store)
     left_layout.addWidget(switches)
     left_layout.addWidget(timeline)
     left_layout.addWidget(stack, stretch=1)
@@ -348,6 +373,7 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     outer = QSplitter()
     outer.switches = switches                 # for the toolbar's mirrors (§3e)
     outer.timeline = timeline                 # for the Life Timeline's door (0n §4b)
+    outer.stack, outer.grid, outer.strip = stack, grid, strip   # the box's keys (MS-2)
     outer.addWidget(left)
     outer.addWidget(pinned)
     outer.setStretchFactor(0, 4)
@@ -355,3 +381,15 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     outer.setChildrenCollapsible(False)
 
     return results, preview, outer
+
+
+def current_list(outer: Any, results: Any) -> Any:
+    """Whichever of the list and the photo grid is in front - review 2026-10-14,
+    MS-2. The Search box's Down/Up and Enter go to it (`forward_key`,
+    `current_row`, `open_current`), so with the grid on they move the grid's
+    selection rather than the hidden list's."""
+    stack = getattr(outer, "stack", None)
+    grid = getattr(outer, "grid", None)
+    if stack is not None and grid is not None and stack.currentWidget() is grid:
+        return grid
+    return results

@@ -453,7 +453,9 @@ class PhotoBrowser(QWidget):
     opened = Signal(object)
     #: Right-click: `(row, global point)`.
     menu_requested = Signal(object, object)
-    #: Space on a photo: the page shows or hides its info panel (`list_keys`).
+    #: I on a photo: the page shows or hides its info panel (`list_keys`).
+    #: Review 2026-10-14, MS-9: Space opens the viewer now (`_view_current`),
+    #: the quick look every list gives; the View menu's Info panel stays.
     preview_requested = Signal()
     selection_changed = Signal()
 
@@ -502,9 +504,10 @@ class PhotoBrowser(QWidget):
             # and then `activated` (no Windows style activates on one click), and
             # Enter emits `activated` - so listening to both opened the viewer
             # twice for one double-click (2026-10-12). `list_keys` keeps it so, and
-            # gives Space (the info panel) and Ctrl+C (the selected photos' paths).
-            list_keys.install(view, default=self._open_index, preview=self.preview_requested.emit,
-                              copy=self._copy_selected)
+            # gives Space (the viewer, MS-9), I (the info panel) and Ctrl+C (the
+            # selected photos' paths).
+            list_keys.install(view, default=self._open_index, preview=self._view_current,
+                              info=self.preview_requested.emit, copy=self._copy_selected)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         # One selection for both, so a switch of view keeps it.
         self.table.setSelectionModel(self.grid.selectionModel())
@@ -661,6 +664,12 @@ class PhotoBrowser(QWidget):
 
     def _open_index(self, index: QModelIndex) -> None:
         row = self.model.row_at(index.row())
+        if row is not None:
+            self.opened.emit(row)
+
+    def _view_current(self) -> None:
+        """Space: the current photo in the viewer - quick look, as on every list."""
+        row = self.current_row()
         if row is not None:
             self.opened.emit(row)
 

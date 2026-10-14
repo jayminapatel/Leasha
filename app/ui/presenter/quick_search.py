@@ -25,6 +25,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence
 
+from app.ui.presenter.scopes import by_bucket, engine_request, quick_chips, quick_tips
+
 __all__ = [
     "CHIP_ORDER", "SCOPE_CHIPS", "PLACEHOLDER", "PLACE_KEY", "DEFAULT_SIZE", "MIN_SIZE",
     "RowLines", "row_label", "row_lines", "kind_bucket", "chip_label", "chip_tip",
@@ -53,13 +55,9 @@ MIN_SIZE = (560, 380)
 CHIP_ORDER = ("files", "mail", "photos", "code")
 
 #: `(bucket, label, icon)`. `None` is "All". The icons are the app's own set.
-SCOPE_CHIPS: tuple[tuple[Optional[str], str, str], ...] = (
-    (None, "All", "layout-grid"),
-    ("files", "Files", "file-text"),
-    ("mail", "Mail", "mail"),
-    ("photos", "Photos", "image"),
-    ("code", "Code", "code"),
-)
+#: Review 2026-10-14, IA-4: read from the one scope table (`presenter.scopes`)
+#: the Search page's picker is read from too - same words, same order.
+SCOPE_CHIPS: tuple[tuple[Optional[str], str, str], ...] = quick_chips()
 
 #: `bucket -> (singular, plural)`, for `chip_label`.
 _CHIP_WORDS = {
@@ -69,13 +67,7 @@ _CHIP_WORDS = {
     "code": ("code result", "code results"),
 }
 
-_CHIP_TIPS = {
-    None: "Show every kind of result",
-    "files": "Show only documents and other files",
-    "mail": "Show only emails",
-    "photos": "Show only photos and pictures",
-    "code": "Show only code",
-}
+_CHIP_TIPS = quick_tips()
 
 PREVIEW_TIP = "Show the selected result beside the list, without opening it (Ctrl+P)"
 EXPAND_TIP = "Show every result in the main Leasha window (Shift+Enter)"
@@ -134,19 +126,9 @@ def scope_request(bucket: Optional[str], query: str) -> tuple[str, str]:
     with `type:image` added - unless the line already names a type, which
     the person's own words win over.
     """
-    text = str(query or "")
-    if bucket == "mail":
-        return "mail", text
-    if bucket == "code":
-        return "code", text
-    if bucket == "files":
-        return "documents", text
-    if bucket == "photos":
-        lowered = text.lower()
-        if "type:" in lowered or "/type" in lowered:
-            return "documents", text
-        return "documents", f"{text} type:image".strip()
-    return "all", text
+    # Review 2026-10-14, IA-4: the one table's rule, which the Search page's
+    # "Photos only" follows too (`presenter.scopes.engine_request`).
+    return engine_request(by_bucket(bucket), query)
 
 
 # ---------------------------------------------------------------------------

@@ -264,7 +264,13 @@ def test_the_scope_the_search_tab_offers_still_matches_the_engine():
     offered = {value for _label, value in SCOPES}
 
     assert "code" in offered
-    assert offered <= set(QUERY_SCOPES)
+    # Dated note, 2026-10-14 (review IA-4): the picker's values are read from the
+    # one scope table now, and "Photos only" is documents with `type:image` - so
+    # what must be the query layer's own is each value's *engine* scope.
+    from app.ui.presenter.scopes import by_key
+
+    assert {by_key(value).engine for value in offered} <= set(QUERY_SCOPES)
+    assert {value for value in offered if by_key(value).engine == value} == offered - {"photos"}
 
 
 def test_shutdown_is_safe_with_work_in_flight(view):
