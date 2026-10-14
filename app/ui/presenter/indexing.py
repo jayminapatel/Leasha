@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
+from app.index.live_progress import PHASE_WORDS
 from app.ui.presenter.formatting import (
     format_count,
     format_eta,
@@ -116,35 +117,10 @@ def group_skips(
 # ---------------------------------------------------------------------------
 
 #: What the detail line says while the run is in a stretch it cannot count,
-#: keyed by `pipeline.PHASE_*`. A phase absent from here - `reading`, or none
-#: yet - is drawn from the counts as usual.
-#:
-#: **Every one of these used to be a bar that did not move.** Loading the
-#: model, catching up on a previous run, building the vector index at the end:
-#: minutes each on a large index, with no tick at all, so the page showed
-#: whatever it showed last and the run was taken for a hang. A busy bar with a
-#: sentence beside it is the honest picture - something is happening, this is
-#: what, and nobody can say how long.
-PHASE_WORDS: dict[str, str] = {
-    "model": "Getting the search model ready…",
-    "word_index_check": "Checking the word index…",
-    "catch_up": "Finishing what the last run left undone…",
-    "planning": "Working out which folders to read…",
-    # 2026-09-29, `read_order` "newest": the whole walk before the first read.
-    # The count is the headline's "files seen", climbing as it goes.
-    "scanning": "Finding files, to read the newest first…",
-    "media": "Reading videos and recordings…",
-    # 2026-10-04: Florence-2 tags, moved to the end of a run.
-    "photo_tags": "Describing the photos that have no text in them…",
-    "picture_text": "Reading any text in the pictures, last of all…",
-    # 2026-10-12, order smarter-answers 2c.
-    "doc_cards": "Writing a card for each document - what it is, who and when…",
-    # 2026-10-08: text first - every file is findable by its words already.
-    "meaning": "Words are searchable now. Working out what they mean…",
-    "tidying": "Tidying up the index…",
-    "vector_index": "Organising the index so searches stay quick…",
-    "word_index": "Tidying the word index so searches stay quick…",
-}
+#: keyed by `pipeline.PHASE_*`. **Kept in `app/index/live_progress.py`** since
+#: 2026-10-14: the run's own lanes (`IndexStats.lanes`) say the same words for
+#: the same stretch, and the index layer cannot import this one. Re-exported
+#: here (imported at the top), so every reader of `PHASE_WORDS` is unchanged.
 
 #: Said the moment Start is pressed, before any run exists. The window works
 #: out the tuning numbers first, which on a cold cache means asking Windows
