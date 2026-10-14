@@ -269,6 +269,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "OK": ("check", "primary"),
     "Cancel": ("x", "secondary"),
     "Write them": ("check", "primary"),
+    # Review DS-13 (2026-10-14): the smart group dialog's OK, named for what it does.
+    "Save smart group": ("save", "primary"),
     "Re-embed everything": ("refresh-cw", "primary"),
     "Export": ("file-down", "primary"),
     "Scan": ("hard-drive", "primary"),

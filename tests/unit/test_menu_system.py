@@ -36,8 +36,8 @@ from app.ui.widgets.menus import Item, build, glyph_for     # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 UI = ROOT / "app" / "ui"
-#: Another branch owns these and their menus are left as they are.
-NOT_OURS = ("contacts", "contacts_tools", "accounts")
+#: Review DS-6 (2026-10-14): the branch that owned these has landed, so the guard sees them too.
+NOT_OURS: tuple[str, ...] = ()
 
 
 @pytest.fixture(scope="module")
@@ -208,14 +208,10 @@ NOT_A_RIGHT_CLICK: dict[str, tuple[int, str]] = {
     "app/ui/tray.py": (13, "the system tray's own menu, the taskbar's convention"),
     "app/ui/view_options.py": (10, "the View menu: tick boxes and a size row, a setting not an action; "
                                    "the table's header opens it too"),
-    "app/ui/widgets/model_download.py": (2, "a Download button's drop-down"),
     "app/ui/widgets/model_picker.py": (2, "a drop-down of models"),
     "app/ui/widgets/search_bar.py": (6, "the More button's drop-down and the scope menu"),
     "app/ui/widgets/side_panel.py": (1, "a line added to the View menu"),
     "app/ui/widgets/photo_page_parts.py": (9, "the Photos tab's View menu"),
-    "app/ui/widgets/photo_tagger_page.py": (7, "Accept all's drop-down, and the Sort "
-                                           "button's (an order to choose, 2026-10-14)"),
-    "app/ui/widgets/sort_button.py": (3, "the Sort button's drop-down: an order to choose, beside the scope"),
 }
 
 
@@ -240,6 +236,105 @@ def test_no_file_builds_a_right_click_menu_by_hand() -> None:
         "a right-click menu built by hand - build it with app/ui/widgets/menus.py "
         "(or file_menu.build_menu for a file); a menu that is not a right-click "
         "goes in NOT_A_RIGHT_CLICK with its reason")
+
+
+# ---------------------------------------------------------------------------
+# Review DS-6 (2026-10-14): a button's drop-down is built by the builder too
+# ---------------------------------------------------------------------------
+
+#: **Every hand-built `QMenu` left in `app/ui`, and why** - counted per file, across the
+#: whole tree (contacts and accounts included). Anything else goes through `menus.attach`,
+#: `menus.kept` or `menus.build`.
+QMENU_ALLOWED: dict[str, tuple[int, str]] = {
+    "app/ui/tray.py": (2, "the system tray's own menu and its Pause submenu: the taskbar's "
+                          "convention, drawn by Windows, not the window's theme"),
+    "app/ui/view_options.py": (1, "the View menu: tick boxes in titled sections and a Size row "
+                                  "(a widget), a setting not an action"),
+    "app/ui/widgets/photo_page_parts.py": (2, "the Photos tab's View menu, and the copy the "
+                                              "window's View menu borrows"),
+    "app/ui/widgets/search_bar.py": (1, "the Search toolbar's More menu: it holds the toolbar's own "
+                                        "switches (shared QActions) and the model submenu"),
+    "app/ui/widgets/model_picker.py": (1, "ModelMenu, the More menu's submenu of models, a QMenu "
+                                          "subclass that rebuilds its ticked choices"),
+}
+
+_QMENU = re.compile(r"\bQMenu\(|\(QMenu\)")
+
+
+def _code(path: Path) -> str:
+    return "\n".join(line for line in path.read_text(encoding="utf-8").splitlines()
+                     if not line.strip().startswith("#"))
+
+
+def test_no_menu_anywhere_is_hand_built_outside_the_allowlist() -> None:
+    builder = UI / "widgets" / "menus.py"
+    found = {}
+    for path in sorted(UI.rglob("*.py")):
+        if path == builder:
+            continue
+        count = len(_QMENU.findall(_code(path)))
+        if count:
+            found[path.relative_to(ROOT).as_posix()] = count
+    expected = {path: count for path, (count, _why) in QMENU_ALLOWED.items()}
+    assert found == expected, (
+        "a menu built by hand - a button's drop-down is menus.attach(button, items), a menu "
+        "a view pops up itself is menus.kept(parent, items); only QMENU_ALLOWED may stay")
+
+
+def test_attach_gives_a_button_a_built_menu_with_an_icon_on_every_line(qapp) -> None:
+    button = QPushButton("Tick")
+    ran = []
+    menu = menus.attach(button, [Item("All", lambda: ran.append("all"), icon="list-checks"),
+                                 Item("None", lambda: ran.append("none"), icon="list-x")])
+    assert button.menu() is menu and menu.property(menus.BUILT_PROPERTY) is True
+    assert [a.text() for a in _lines(menu)] == ["All", "None"], "the order given"
+    assert all(not a.icon().isNull() for a in _lines(menu))
+    _lines(menu)[1].trigger()
+    assert ran == ["none"]
+
+
+def test_a_right_click_built_later_leaves_an_attached_menu_alone(qapp) -> None:
+    button = QPushButton("More")
+    menu = menus.attach(button, [Item("Open", lambda: None)])
+    build(button, [Item("Pin", lambda: None)])
+    build(button, [Item("Pin", lambda: None)])   # the second tidies away the first's leftovers
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+    assert button.menu() is menu and _lines(menu)[0].text() == "Open"
+
+
+def test_refill_changes_the_lines_and_lines_finds_them_by_key(qapp) -> None:
+    button = QPushButton("Accept all")
+    menu = menus.attach(button)
+    assert _lines(menu) == []
+    menus.refill(menu, [Item("Everyone (2)", lambda: None, icon="list-checks"),
+                        Item("Jason (2)", lambda: None, icon="user", group="remember", key="jason")])
+    kinds = ["-" if a.isSeparator() else a.text() for a in menu.actions()]
+    assert kinds == ["Everyone (2)", "-", "Jason (2)"]
+    assert menus.lines(menu)["jason"].text() == "Jason (2)"
+
+
+def test_choices_are_ticked_one_at_a_time(qapp) -> None:
+    button = QPushButton("Sort")
+    menu = menus.attach(button, [Item(w, lambda: None, icon="list", choice=True, checked=(w == "A"))
+                                 for w in ("A", "B", "C")])
+    found = menus.lines(menu)
+    assert found["A"].isChecked() and found["A"].isCheckable()
+    found["C"].trigger()
+    assert found["C"].isChecked() and not found["A"].isChecked()
+    menus.refill(menu, [Item("D", lambda: None, icon="list", choice=True, checked=True)])
+    assert menus.lines(menu)["D"].isChecked()
+
+
+def test_a_drop_down_follows_a_theme_switch_when_it_opens(qapp, monkeypatch) -> None:
+    """Icons are pictures: a menu built before a theme switch kept the old colour."""
+    button = QPushButton("Tick")
+    menu = menus.attach(button, [Item("All", lambda: None, icon="list-checks")])
+    painted = []
+    monkeypatch.setattr(menus, "_colours", lambda: {"text_dim": "#123456"})
+    real = menus._paint
+    monkeypatch.setattr(menus, "_paint", lambda g, t, grp, c: painted.append(c["text_dim"]) or real(g, t, grp, c))
+    menu.aboutToShow.emit()
+    assert painted == ["#123456"]
 
 
 def test_the_file_menu_is_built_by_the_builder_with_an_icon_on_every_line(qapp) -> None:

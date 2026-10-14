@@ -28,9 +28,10 @@ import threading
 from typing import Any, Callable, Iterable, Optional
 
 from PySide6.QtCore import QCoreApplication, QObject, QThreadPool, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QPushButton, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from app.core import model_fetch
+from app.ui.widgets import menus
 from app.ui.widgets.buttons import style_button
 from app.ui.workers import CallableWorker, run
 
@@ -96,7 +97,7 @@ class DownloadRow(QWidget):
         self.status = QLabel("")
         self.status.setObjectName(f"download_status_{kind}")
         self.status.setWordWrap(True)
-        self.menu = QMenu(self)
+        self.menu = menus.kept(self)
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -176,10 +177,10 @@ class DownloadRow(QWidget):
     def set_offers(self, offers: Iterable[tuple[str, str]]) -> None:
         """`(name, note)` for each listed model not installed. Download becomes a menu."""
         self._offers = [(str(n), str(note or "")) for n, note in offers if str(n).strip()]
-        self.menu.clear()
-        for name, note in self._offers:
-            action = self.menu.addAction(f"{name}  -  {note}" if note else name)
-            action.triggered.connect(lambda _c=False, n=name: self.start(n))
+        menus.refill(self.menu, [
+            menus.Item(f"{name}  -  {note}" if note else name, lambda n=name: self.start(n),
+                       icon="download")
+            for name, note in self._offers])
         if not self._busy:
             self.download.setEnabled(bool(self._offers))
             if not self._offers and not self.status.text():

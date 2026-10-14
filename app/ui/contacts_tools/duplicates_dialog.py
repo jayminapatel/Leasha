@@ -23,13 +23,14 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QMenu, QPlainTextEdit, QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout,
+    QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout,
     QWidget,
 )
 
 from app.contacts.card import display_name
 from app.ui.contacts_tools import actions
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, make_table, named, plural
+from app.ui.widgets import menus
 from app.ui.widgets.icons import icon
 from app.ui.widgets.select_all import SelectBar
 from app.ui.widgets.dialog_frame import frame
@@ -101,14 +102,14 @@ class DuplicatesDialog(ToolDialog):
         self.tick_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.tick_button.setToolTip("Tick groups to merge: all, none, the safe ones, or those above a confidence")
         self.tick_button.setAccessibleName("Tick groups")
-        menu = QMenu(self.tick_button)
-        for words, rule in (("All groups", lambda g: True), ("None", None),
-                            ("Only the safe ones", lambda g: g.safe),
-                            ("Only the ones to look at first", lambda g: not g.safe),
-                            ("Confidence 90% or more", lambda g: g.confidence >= 0.9),
-                            ("Confidence 70% or more", lambda g: g.confidence >= 0.7)):
-            menu.addAction(words).triggered.connect(lambda _c=False, r=rule: self.tick(r))
-        self.tick_button.setMenu(menu)
+        menus.attach(self.tick_button, [
+            menus.Item(words, lambda r=rule: self.tick(r), icon=glyph)
+            for words, rule, glyph in (
+                ("All groups", lambda g: True, "list-checks"), ("None", None, "list-x"),
+                ("Only the safe ones", lambda g: g.safe, "shield-check"),
+                ("Only the ones to look at first", lambda g: not g.safe, "triangle-alert"),
+                ("Confidence 90% or more", lambda g: g.confidence >= 0.9, "filter"),
+                ("Confidence 70% or more", lambda g: g.confidence >= 0.7, "filter"))])
         self.ticked_label = QLabel("")
         named(self.ticked_label, "Groups ticked", "How many groups are ticked to merge")
         gl.addLayout(_row(self.tick_button, self.ticked_label))

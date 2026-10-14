@@ -19,7 +19,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QByteArray, QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QPainter, QPixmap
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QMenu, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.contacts.card import Card, Field, display_name
 from app.ui.contacts_tools._common import ToolDialog, btn, named
@@ -184,12 +184,15 @@ class QrDialog(ToolDialog):
         if len(addresses) == 1:
             self.open_address(addresses[0])
             return
-        menu = QMenu(self)
-        named(menu, "Choose an address", "Which address to open in maps")
+        from app.ui.widgets import menus                      # noqa: PLC0415
+
+        items = []
         for f in addresses:
             text = (f.label + ": " if f.label else "") + (f.value.replace("\n", ", ") or ", ".join(
                 v for v in f.data.values() if v))
-            menu.addAction(text).triggered.connect(lambda _c=False, field=f: self.open_address(field))
+            items.append(menus.Item(text, lambda field=f: self.open_address(field), icon="map-pin"))
+        menu = menus.build(self, items, grouped=False)
+        named(menu, "Choose an address", "Which address to open in maps")
         menu.exec(self.maps_button.mapToGlobal(self.maps_button.rect().bottomLeft()))
 
     def open_address(self, address: Field) -> None:
