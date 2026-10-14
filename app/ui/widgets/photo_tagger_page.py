@@ -285,10 +285,14 @@ class PhotoTaggerPage(QWidget):
     #: own preview; the opener (wherever this widget is placed) decides what
     #: "open" means, the same delegation `ThumbnailGrid.opened` already uses.
     opened = Signal(str)
+    #: IA-6 (2026-10-14): "Open contact" on a group linked to one - the contact's id.
+    contact_requested = Signal(int)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._store = store
+        #: IA-6: pile id -> its linked contacts `(id, name)`, read with the piles.
+        self._contact_links: dict = {}
         self._pool = QThreadPool.globalInstance()
         self._generation = 0
         self._pile_names: dict[int, str] = {}
@@ -515,6 +519,32 @@ class PhotoTaggerPage(QWidget):
         counts_worker.signals.failed.connect(
             lambda _error, g=generation: self._counts_ready([], g))
         run(self._pool, counts_worker)
+
+        # IA-6: which groups are linked to a contact, for the menu's Open contact.
+        from app.ui.widgets.photo_contacts import read_links
+
+        links_worker = CallableWorker(read_links, self._store, component="ui.photo_tagger")
+        when_done(self, links_worker,
+                  finished=lambda links, g=generation: self._links_ready(links, g))
+        run(self._pool, links_worker)
+
+    def _links_ready(self, links: Any, generation: int) -> None:
+        if generation == self._generation:
+            self._contact_links = dict((links or {}).get("contacts") or {})
+
+    def _open_contact(self, pile_id: int) -> None:
+        """IA-6: the contact this group is linked to, on the Contacts page."""
+        from app.ui.presenter.photo_people import linked_contact
+
+        contact_id = linked_contact(self._contact_links, pile_id)
+        if contact_id is not None:
+            self.contact_requested.emit(contact_id)
+
+    def _link_contact(self, pile_id: int, name: str) -> None:
+        """IA-6: "Link to contact…" - pick one from the contact book, linked at once."""
+        from app.ui.widgets.photo_contacts import pick_and_link
+
+        pick_and_link(self, self._store, pile_id, name, done=lambda _cid: self.reload())
 
     def _piles_ready(self, piles: Any, generation: int) -> None:
         r"""Bring the grid up to date **in place**.
@@ -995,6 +1025,12 @@ class PhotoTaggerPage(QWidget):
             # another already did this; the menu is where it is looked for.
             menus.Item("Combine with another person…", lambda: self._combine_with(pile_id, name)),
             menus.Item("Manage the faces in this pile…", lambda: self._manage_faces(pile_id)),
+            # IA-6 (2026-10-14): Photos and Contacts, linked both ways.
+            menus.Item("Open contact", lambda: self._open_contact(pile_id), icon="contact",
+                       enabled=pile_id in self._contact_links,
+                       tip="Show the contact this person is linked to"),
+            menus.Item("Link to contact…", lambda: self._link_contact(pile_id, name), icon="link",
+                       tip="Choose who this is from your contacts"),
             menus.Item("Forget this person…", lambda: self._forget(pile_id, name), group="danger",
                        shortcut="Del"),
         ])

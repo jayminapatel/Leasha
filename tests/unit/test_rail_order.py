@@ -129,6 +129,7 @@ def test_every_page_button_has_the_move_menu(rail):
     assert button.contextMenuPolicy() == Qt.ContextMenuPolicy.CustomContextMenu
     button.customContextMenuRequested.emit(QPoint(4, 4))
     menu = window.rail.last_menu
+    # IA-11 (2026-10-14) added Hide from the rail and Show hidden pages (test_rail_hide.py).
     assert [a.text() for a in menu.actions() if a.text()] == [
-        "Move up", "Move down", "Reset page order"]
+        "Move up", "Move down", "Hide from the rail", "Reset page order", "Show hidden pages"]
     menu.close()

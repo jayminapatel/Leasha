@@ -12,6 +12,12 @@ order ?". Two ways, the same moves (D1):
 Indexing (the pill) and Settings (the foot) neither move nor take a drop:
 `Rail.movable` says which pages may. The rail emits `order_changed`; the window
 remembers it (`ui:rail_order`). Kept out of `rail.py`, which is long already.
+
+**IA-11 (2026-10-14): a page the owner rarely uses can leave the rail.** The same
+menu has "Hide from the rail" (not on Search; Indexing and Settings have no menu)
+and "Show hidden pages"; the View menu has the second too. A hidden page is still
+a page - the Go menu opens it - and the keys that number the pages skip it
+(`Rail.page_order`). Remembered beside the order, as titles (`HIDDEN_KEY`).
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import QApplication
 
 __all__ = ["make_movable", "MIME", "target_index", "move_up", "move_down", "apply_order",
-           "wire", "restore", "DEFAULT_ORDER", "STATE_KEY"]
+           "wire", "restore", "DEFAULT_ORDER", "STATE_KEY", "HIDDEN_KEY"]
 
 #: What a dragged page button carries: the page's position, as text.
 MIME = "application/x-leasha-rail-page"
@@ -34,7 +40,8 @@ def target_index(rail: Any, y: float) -> int:
     coordinates), or the nearest one above or below. -1 when there is none."""
     best, best_distance = -1, None
     for index in sorted(rail._buttons):
-        if not rail.movable(index):
+        # A hidden page's button is not on the rail, and its geometry is stale.
+        if not rail.movable(index) or not rail.shown(index):
             continue
         geometry = rail._buttons[index].geometry()
         if geometry.top() <= y <= geometry.bottom():
@@ -46,7 +53,8 @@ def target_index(rail: Any, y: float) -> int:
 
 
 def _neighbour(rail: Any, index: int, step: int) -> int:
-    order = [i for i in sorted(rail._buttons) if rail.movable(i)]
+    """The movable page `step` places from `index` on the rail - a hidden one is stepped over."""
+    order = [i for i in sorted(rail._buttons) if rail.movable(i) and rail.shown(i)]
     if index not in order:
         return -1
     at = order.index(index) + step
@@ -75,8 +83,15 @@ def _menu(rail: Any, button: Any, point: Any) -> None:
         menus.Item("Move down", lambda: move_down(rail, rail.index_of_button(button)),
                    enabled=_neighbour(rail, index, +1) >= 0),
         # The order the window remembers, put back: after a separator, as before.
+        # IA-11: off the rail, and every one back. Search always stays.
+        menus.Item("Hide from the rail", lambda: rail.hide_page(rail.index_of_button(button)),
+                   icon="circle-minus", enabled=rail.hideable(index),
+                   tip="Take this page off the rail; the Go menu still opens it"),
         menus.Item("Reset page order", rail.reset_requested.emit, group="remember",
                    tip="Put the pages back in Leasha's order"),
+        menus.Item("Show hidden pages", lambda: rail.set_hidden(()), group="remember",
+                   icon="eye", enabled=bool(rail.hidden_pages()),
+                   tip="Put every page you hid back on the rail"),
     ])
     menus.show(menu, button, point, wait=False, keep=rail)
 
@@ -161,6 +176,8 @@ RENAMED = {"Reports": "Tidy"}
 
 #: Where the order is remembered: titles, `|`-separated (D2).
 STATE_KEY = "ui:rail_order"
+#: IA-11: where the hidden pages are remembered, beside the order - titles, `|`-separated.
+HIDDEN_KEY = "ui:rail_hidden"
 
 
 def apply_order(rail: Any, titles: Any) -> None:
@@ -205,9 +222,14 @@ def wire(window: Any) -> None:
         reindex()
         save_state(window._store, STATE_KEY, "", component="ui.rail")
 
+    def remember_hidden(titles: list) -> None:
+        save_state(window._store, HIDDEN_KEY, "|".join(titles), component="ui.rail")
+
     rail.order_changed.connect(remember)
     rail.reset_requested.connect(reset)
+    rail.hidden_changed.connect(remember_hidden)
     window.reset_page_order = reset
+    window.show_hidden_pages = lambda: rail.set_hidden(())
 
 
 def restore(window: Any) -> None:
@@ -220,3 +242,14 @@ def restore(window: Any) -> None:
         apply_order(window.rail, [RENAMED.get(t, t) for t in saved.split("|")])
         for view, wrapped in window._tab_wrapped.items():
             window._tab_index[view] = window.rail.indexOf(wrapped)
+    try:
+        hidden = str(window._store.get_state(HIDDEN_KEY, "") or "")
+    except Exception:                                  # noqa: BLE001 - every page shows
+        hidden = ""
+    if hidden:
+        # Applied without saying so: restoring is not choosing, as for the order.
+        window.rail.blockSignals(True)
+        try:
+            window.rail.set_hidden([RENAMED.get(t, t) for t in hidden.split("|") if t])
+        finally:
+            window.rail.blockSignals(False)

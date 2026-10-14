@@ -18,7 +18,8 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 __all__ = ["PileLink", "suggest_pile_links", "pile_link", "accept_pile_link", "decline_pile_link",
-           "link_to_pile", "unlink", "pending_suggestions", "faces_of_contact"]
+           "link_to_pile", "unlink", "pending_suggestions", "faces_of_contact",
+           "contacts_of_piles", "named_piles", "contact_choices"]
 
 
 @dataclass
@@ -98,3 +99,38 @@ def faces_of_contact(hub: Any, contact_id: int, limit: int = 50) -> list[dict]:
         "SELECT f.id AS face_id, f.file_id, fl.path, f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, f.confidence "
         "FROM faces f JOIN files fl ON fl.id = f.file_id WHERE f.pile_id = ? "
         "ORDER BY COALESCE(f.confidence, 0) DESC, f.id LIMIT ?", (link.pile_id, limit))]
+
+
+# -- IA-6 (UX review 2026-10-14): the same links, read from the photo side ------------------
+
+def contacts_of_piles(conn: Any) -> dict[int, list[tuple[int, str]]]:
+    """Every person in Photos an *accepted* link names -> its contacts `(id, name)`, by name.
+
+    A suggestion or a "no" is not a link (D9). Contacts in the bin are left out. Several
+    contacts may be linked to one person; each contact is linked to at most one."""
+    found: dict[int, list[tuple[int, str]]] = {}
+    for r in conn.execute(
+            "SELECT l.pile_id, c.id, c.display_name FROM contact_pile_links l "
+            "JOIN contacts c ON c.id = l.contact_id "
+            "WHERE l.state = 'accepted' AND c.deleted_at IS NULL "
+            "ORDER BY c.display_name COLLATE NOCASE, c.id"):
+        found.setdefault(int(r[0]), []).append((int(r[1]), str(r[2] or "")))
+    return found
+
+
+def named_piles(conn: Any) -> dict[str, int]:
+    """Every person named in Photos: name, folded -> the person's id (the first, should
+    two share a name)."""
+    named: dict[str, int] = {}
+    for r in conn.execute("SELECT id, name FROM piles WHERE name IS NOT NULL ORDER BY id"):
+        named.setdefault(_fold(r[1]), int(r[0]))
+    return named
+
+
+def contact_choices(conn: Any) -> list[tuple[int, str, str]]:
+    """Every contact not in the bin, for a picker: `(id, name, first email or "")`, by name."""
+    return [(int(r[0]), str(r[1] or ""), str(r[2] or "")) for r in conn.execute(
+        "SELECT c.id, c.display_name, (SELECT f.value FROM contact_fields f "
+        "WHERE f.contact_id = c.id AND f.kind = 'email' ORDER BY f.is_main DESC, f.position, f.id "
+        "LIMIT 1) FROM contacts c WHERE c.deleted_at IS NULL "
+        "ORDER BY c.display_name COLLATE NOCASE, c.id")]

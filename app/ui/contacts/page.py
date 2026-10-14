@@ -102,6 +102,11 @@ class ContactsPage(QWidget):
         # under the read view. The editor still fills and clears them.
         self.reader.add_panels(self.editor.enrich_panel, self.editor.index_panel)
         self.editor.index_panel.configure(hub)
+        # IA-6: "See all photos" / "See mail from them" - the window opens the page.
+        self.editor.index_panel.photos_requested.connect(
+            lambda box: (self._hook("show_photos_for") or (lambda _b: None))(box))
+        self.editor.index_panel.mail_requested.connect(
+            lambda box: (self._hook("show_mail_for") or (lambda _b: None))(box))
         self.editor.enrich_panel.configure(hub)
         self.editor.enrich_panel.enrich_requested.connect(self.enrich_one)
         self.history = HistoryPanel()
