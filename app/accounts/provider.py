@@ -34,6 +34,7 @@ __all__ = [
     "HttpResponse", "Transport", "TokenSource", "VersionConflict", "TokenExpired",
     "RemoteContact", "ContactPage", "ContactProvider", "WriteResult",
     "RemoteMessage", "RemoteMessageGone", "MailPage", "MailProvider",
+    "SERVER_TROUBLE", "TROUBLE_HEADER", "is_server_trouble",
 ]
 
 
@@ -56,6 +57,23 @@ class HttpResponse:
 
     def header(self, name: str, default: str = "") -> str:
         return self.headers.get(name.lower(), default)
+
+
+#: The provider's own trouble (review CS-7): an internal error, a bad gateway, a gateway timeout. A read is tried
+#: again like a 503 (`http.RetryingTransport`), and one still failing after the tries is `ERR_ACCOUNT_TROUBLE` - the
+#: whole account's, for now - never one contact's refusal. A write is not repeated (it may have been applied before
+#: the error): a 502 or 504 on one is still the account's trouble, but a 500 may be the server choking on that one
+#: contact, so it stays a refusal of that contact (`providers._common.fail`).
+SERVER_TROUBLE = (500, 502, 504)
+
+#: The header `RetryingTransport` adds to a read's answer it tried again and gave up on, so a connector can tell
+#: "the server kept failing" from "the server failed once on this write".
+TROUBLE_HEADER = "x-leasha-server-trouble"
+
+
+def is_server_trouble(resp: HttpResponse) -> bool:
+    """The answer is the provider's own trouble (`ERR_ACCOUNT_TROUBLE`), not a refusal (review CS-7)."""
+    return resp.status in (502, 504) or (resp.status in SERVER_TROUBLE and bool(resp.header(TROUBLE_HEADER)))
 
 
 @runtime_checkable

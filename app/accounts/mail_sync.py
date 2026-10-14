@@ -68,6 +68,7 @@ from datetime import datetime
 from typing import Any, Callable, Iterator, Optional
 
 from app.accounts.engine import SyncOutcome, _with_fix  # noqa: PLC2701 - one wording for a fix in the log
+from app.accounts.http import retry_at_of
 from app.accounts.mail_index import MailIndexer, MailSpace, PreparedMessage
 from app.accounts.provider import (MailPage, MailProvider, RemoteMessage, RemoteMessageGone,
                                    TokenExpired)
@@ -327,7 +328,9 @@ class MailSyncer:
         p = out.plan
         counts = dict(added=p.added, changed=p.changed, deleted=p.deleted, held=p.held, plan=p.to_json())
         if out.status == "failed" and out.error is not None:
-            self.accounts.record_failure(account.id, "mail", out.error.code, out.error.message)
+            # A provider that said how long to wait is waited for that long (review CS-5).
+            self.accounts.record_failure(account.id, "mail", out.error.code, out.error.message,
+                                         next_retry_at=retry_at_of(out.error, self._clock()))
             self.accounts.finish_run(out.run_id, "failed", error_code=out.error.code,
                                      error_text=_with_fix(out.error), **counts)
         elif out.status == "paused":

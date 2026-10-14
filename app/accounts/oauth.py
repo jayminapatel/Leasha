@@ -217,6 +217,9 @@ def classify_token_error(payload: object, *, account: str, provider: str, status
     if status in (429, 503):
         return AppErrorException(make_error(
             "ERR_PROVIDER_LIMIT", component, account=account, reason=f"HTTP {status}", details=safe))
+    if status in (502, 504):                               # the provider's own trouble (review CS-7)
+        return AppErrorException(make_error(
+            "ERR_ACCOUNT_TROUBLE", component, account=account, reason=f"HTTP {status}", details=safe))
     return AppErrorException(make_error(
         "ERR_ACCOUNT_REJECTED", component, account=account,
         reason=(err or f"HTTP {status}")[:80], details=safe, provider=provider))
