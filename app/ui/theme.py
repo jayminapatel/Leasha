@@ -813,6 +813,59 @@ QComboBox QAbstractItemView {{
 /* 2026-10-05, the UI review: the People window's title had a name and no rule. */
 #photoTaggerTitle {{ font-size: {large}; font-weight: 600; }}
 #indexTotals {{ color: {text_dim}; font-size: {small}; }}
+/* The Indexing cockpit (2026-10-14, `widgets/cockpit_parts.py`,
+   `widgets/indexing_workers.py`). Every box here is coloured by a property its
+   widget sets - `state`, `step`, `on` - so the words decide, and the colour
+   only repeats them. Sizes come from the font, never from what a box holds. */
+#cockpitPill {{
+    background: {surface_alt}; border: 1px solid {border};
+    border-radius: {radius_control};
+}}
+#cockpitPill[state="running"] {{ background: {accent_soft}; border-color: {accent}; }}
+#cockpitPill[state="paused"], #cockpitPill[state="stopping"] {{ border-color: {warning}; }}
+#cockpitPill[state="failed"] {{ border-color: {danger}; }}
+#cockpitPillWord {{ font-weight: 600; color: {text}; }}
+#cockpitPill[state="running"] #cockpitPillWord {{ color: {accent_text}; }}
+#cockpitStep {{
+    background: {surface}; border: 1px solid {divider};
+    border-radius: {radius_control}; min-height: 22px;
+}}
+#cockpitStepWord {{ color: {text_faint}; font-size: {small}; }}
+#cockpitStep[step="done"] {{ border-color: {border}; }}
+#cockpitStep[step="done"] #cockpitStepWord {{ color: {text_dim}; }}
+#cockpitStep[step="current"] {{ background: {accent_soft}; border-color: {accent}; }}
+#cockpitStep[step="current"] #cockpitStepWord {{ color: {accent_text}; font-weight: 600; }}
+#cockpitTile, #cockpitResource {{
+    background: {surface}; border: 1px solid {border};
+    border-radius: {radius_control};
+}}
+#cockpitTileCaption, #cockpitResourceCaption {{ color: {text_faint}; font-size: {small}; }}
+#cockpitTileValue {{ color: {text}; font-size: {large}; font-weight: 600; }}
+#cockpitResourceValue {{ color: {text}; font-size: {small}; font-weight: 600; }}
+#indexWorkers {{ background: {surface}; border: 1px solid {border}; border-radius: {radius_control}; }}
+#laneTable, #laneBody {{ background: transparent; }}
+#laneHeader {{ border-bottom: 1px solid {border}; }}
+#laneHeader QLabel {{ color: {text_faint}; font-size: {small}; font-weight: 600; }}
+#laneRow {{ border-bottom: 1px solid {divider}; }}
+#laneRow[state="working"] {{ background: {surface_alt}; }}
+#laneRow QLabel {{ color: {text_dim}; }}
+#laneRow[state="working"] QLabel {{ color: {text}; }}
+#laneDot {{ border-radius: 4px; background: {text_faint}; }}
+#laneDot[state="none"] {{ background: transparent; }}
+#laneDot[state="working"] {{ background: {accent}; }}
+#laneDot[state="waiting"], #laneDot[state="paused"] {{ background: {warning}; }}
+#laneDot[state="done"] {{ background: {success}; }}
+#laneDevice {{ font-size: {small}; }}
+#laneDevice[on="true"] {{
+    color: {accent_text}; background: {accent_soft};
+    border-radius: {radius_input}; padding: 0px 4px;
+}}
+#indexHeartbeat, #indexWriter {{ color: {text_faint}; font-size: {small}; }}
+#indexHeartbeat[quiet="true"] {{ color: {warning}; }}
+/* A reader row's skip button: icon only, short enough for a 24px row. */
+QPushButton[iconOnly="true"][compact="true"] {{
+    padding: 1px 4px 1px 6px; min-height: 16px;
+}}
 #skipHeading {{ font-weight: 600; }}
 #skipFix {{ color: {text_dim}; }}
 #skipExamples {{ color: {text_faint}; font-size: {small}; }}

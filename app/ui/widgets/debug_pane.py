@@ -76,8 +76,13 @@ class DebugPane(QGroupBox):
     pop_out = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None, *,
-                 poppable: bool = True) -> None:
+                 poppable: bool = True, source: Any = None) -> None:
         super().__init__("Recent activity", parent)
+        #: Where the lines come from: `limit -> list[str]`. The window's own
+        #: ring by default; the Indexing page's System log tab passes the
+        #: application log file's tail instead (2026-10-14), because a run in
+        #: the indexing process logs there and never into this window's ring.
+        self._source = source or recent_lines
 
         caption = QLabel(
             "The most recent log lines. The full log is in the logs folder - "
@@ -168,7 +173,7 @@ class DebugPane(QGroupBox):
         mid-copy and fight the scrollbar of anybody reading, once a second, for
         as long as the pane is open.
         """
-        lines = recent_lines(SHOWN_LINES)
+        lines = list(self._source(SHOWN_LINES))
         if lines == self._shown:
             return
         self._shown = lines

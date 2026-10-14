@@ -45,6 +45,7 @@ from app.core.logging import logger
 from app.ui.presenter import read_index_summary
 from app.ui.indexing_settings import IndexingSettings
 from app.ui.widgets.archived_roots import ArchivedRoots
+from app.ui.widgets.elided_label import ElidedLabel
 from app.ui.widgets.external_run import paint_external
 from app.ui.widgets.index_stats import IndexStats
 from app.ui.widgets.indexing_bar import GlidingBar
@@ -144,7 +145,9 @@ class IndexingView(QWidget):
         #: `stop` answer without touching a database on the UI thread.
         self._external: Optional[dict] = None
 
-        self.headline = QLabel("Nothing indexed yet.")
+        # One line, cut with "…" rather than growing (2026-10-14, the cockpit).
+        self.headline = ElidedLabel()
+        self.headline.setText("Nothing indexed yet.")
         self.headline.setObjectName("indexHeadline")
 
         # What is in the index right now, independent of any run. The page
@@ -163,21 +166,19 @@ class IndexingView(QWidget):
         # 0x §4b: one plain sentence for what the run is doing right now, under
         # the counts. Hidden until there is one; see `widgets/indexing_headline`
         # for where its words come from.
-        self.now_line = QLabel("")
+        self.now_line = ElidedLabel("")
         self.now_line.setObjectName("indexNow")
-        self.now_line.setWordWrap(True)
         self.now_line.setVisible(False)
 
         self.stats_box = IndexStats()
 
         # 0x §4c: glides between ticks, busy while the total is unknown - see
         # `widgets/indexing_bar.py`. Otherwise an ordinary `QProgressBar`.
+        # Its text, range and empty start are set where it is placed
+        # (`widgets/cockpit_layout.build_status_page`).
         self.bar = GlidingBar()
-        self.bar.setTextVisible(True)
-        self.bar.setRange(0, 1)
-        self.bar.setValue(0)
 
-        self.detail = QLabel("")
+        self.detail = ElidedLabel("")
         self.detail.setObjectName("indexDetail")
 
         # Things that are not failures but are worth knowing before a run that
