@@ -118,6 +118,12 @@ class _Chip(QFrame):
             "Take this document out of scope. Questions stop looking at it "
             "until you drag it back in. The file itself is not touched.")
         drop.clicked.connect(lambda _c=False: on_remove(item.path))
+        # A chip's two actions carry icons too (2026-10-14): Keep / Kept a pin from `CONTROLS`, and Remove
+        # the × a chip is taken away by everywhere else - not the folder list's folder-minus.
+        from app.ui.widgets.buttons import give_icon
+
+        give_icon(pin, size="inline")
+        give_icon(drop, "x", size="inline")
         row = QHBoxLayout(self)
         row.setContentsMargins(2, 1, 2, 1)
         row.setSpacing(2)

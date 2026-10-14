@@ -125,7 +125,9 @@ def test_the_widget_draws_sections_icons_counts_and_nesting(qapp):
     assert [e.key for e in heard] == ["a"] and [e.key for e in doors] == ["d"]
     assert side.current_key() == "a", "a door moved the highlight"
     side._clicked(places.child(places.childCount() - 1), 0)               # More...
-    assert side.topLevelItem(1).childCount() == 3
+    # By the words: Alpha, Beta and More were three rows too, so a count proved nothing (2026-10-14).
+    places = side.topLevelItem(1)
+    assert [places.child(i).text(0) for i in range(places.childCount())] == ["Alpha", "Beta", "Gamma"]
 
 
 @pytest.mark.gui
@@ -215,12 +217,12 @@ def test_the_folder_tree_of_a_big_index_builds_at_once_and_in_the_right_order():
     began = time.perf_counter()
     tree = folder_tree([r"D:\Data"], counts)
     assert time.perf_counter() - began < 1.5                                        # it was 7 s at this size
-    assert tree[0] == ("place:D:\Data", "", "D:\Data", sum(c for _f, c in counts))
+    assert tree[0] == (r"place:D:\Data", "", r"D:\Data", sum(c for _f, c in counts))
     by_parent: dict = {}
     for key, parent, _folder, total in tree[1:]:
         by_parent.setdefault(parent, []).append(total)
     assert all(v == sorted(v, reverse=True) for v in by_parent.values())          # largest first at each level
-    assert len(by_parent["place:D:\Data"]) == 30 and max(len(v) for v in by_parent.values()) == 30
+    assert len(by_parent[r"place:D:\Data"]) == 30 and max(len(v) for v in by_parent.values()) == 30
     assert tree.index(next(r for r in tree if r[2] == r"D:\Data\Company 0")) < tree.index(
         next(r for r in tree if r[2] == r"D:\Data\Company 0\Project 0"))               # parents before children
 
@@ -294,8 +296,98 @@ def test_the_files_kinds_list_also_lists_the_types_the_person_always_wants(tmp_p
         plain = dict(side_counts.kind_counts(store, limit=3))
         assert "vsdx" not in plain and "mpp" not in plain                      # the three commonest only
         listed = dict(side_counts.kind_counts(store, limit=3, always=["vsdx", "mpp", "vsd"]))
-        assert listed["vsdx"] == 2 and listed["mpp"] == 1 and "vsd" not in listed   # none indexed: not listed
+        # None indexed: listed with 0 since 2026-10-14 (the owner asked for the types to be there).
+        assert listed["vsdx"] == 2 and listed["mpp"] == 1 and listed["vsd"] == 0
         entries = files_entries([], [], [], side_counts.kind_counts(store, limit=3, always=["vsdx", "mpp"]))
         labels = {e.label for e in entries if e.section == "Kinds"}
         assert {"VSDX - Visio", "MPP - Microsoft Project", "PDF"} <= labels
         assert kind_label("pdf") == "PDF" and kind_label("VSDX") == "VSDX - Visio"
+
+
+# -- "More... (N)" and the kinds always listed (the owner, 2026-10-14) ----------------------
+
+def _labels_under(side, heading: str) -> list[str]:
+    for i in range(side.topLevelItemCount()):
+        top = side.topLevelItem(i)
+        if top.text(0) == heading:
+            return [top.child(n).text(0) for n in range(top.childCount())]
+    raise AssertionError(f"no {heading} section")
+
+
+@pytest.mark.gui
+def test_more_shows_every_hidden_entry_when_clicked(qapp, qtbot):
+    """**Before:** "More... (2)" under Files > Kinds and "More... (44)" under Photos > Years did nothing.
+    The click asked the list to draw itself again, but `set_entries` saw the same entries as last time
+    and only restyled the ticks, so the hidden rows never came. A real mouse click, not a call."""
+    from PySide6.QtCore import Qt
+
+    from app.ui.widgets.side_list import SideList
+
+    side = SideList("t", accessible="Test", shown=2)
+    qtbot.addWidget(side)
+    side.resize(300, 400)
+    side.show()
+    side.set_entries([SideEntry(f"k{n}", f"Kind {n}", section="Kinds", icon="file", count=10 - n)
+                      for n in range(5)])
+    assert _labels_under(side, "Kinds") == ["Kind 0", "Kind 1", "More... (3)"]
+    kinds = side.topLevelItem(0)
+    more = kinds.child(kinds.childCount() - 1)
+    assert not more.icon(0).isNull(), "a side list line carries an icon - More too"
+    qtbot.mouseClick(side.viewport(), Qt.MouseButton.LeftButton,
+                     pos=side.visualItemRect(more).center())
+    assert _labels_under(side, "Kinds") == [f"Kind {n}" for n in range(5)]
+    side.set_entries(side.entries())                              # a redraw keeps them shown
+    assert _labels_under(side, "Kinds") == [f"Kind {n}" for n in range(5)]
+
+
+@pytest.mark.gui
+def test_more_from_the_keyboard_and_on_the_photos_years(qapp, qtbot):
+    from PySide6.QtCore import Qt
+
+    from app.ui.widgets.photo_sidebar import SHOWN, PhotoSidebar
+
+    side = PhotoSidebar()
+    qtbot.addWidget(side)
+    side.fill({"years": {year: 3 for year in range(1990, 1990 + SHOWN + 5)}}, 0)
+    years = _labels_under(side, "Years")
+    assert years[-1] == "More... (5)" and len(years) == SHOWN + 1
+    heading = next(side.topLevelItem(i) for i in range(side.topLevelItemCount())
+                   if side.topLevelItem(i).text(0) == "Years")
+    side.setCurrentItem(heading.child(heading.childCount() - 1))
+    qtbot.keyClick(side, Qt.Key.Key_Return)
+    assert len(_labels_under(side, "Years")) == SHOWN + 5 and "More..." not in " ".join(_labels_under(side, "Years"))
+
+
+@pytest.mark.gui
+def test_the_kinds_always_listed_are_shown_past_the_cap_with_their_count_even_none(qapp, tmp_path):
+    """**Before:** Visio and Project were added after the twelve commonest kinds, and the Files list shows
+    twelve to a section - so they were exactly the "More... (2)" the owner saw; `.vsd`, with no plain file
+    in the index, was dropped altogether. Now each type named in `FILE_KINDS_ALWAYS` is on the list, with
+    its count, 0 if none, and never behind More."""
+    from app.storage import side_counts
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.widgets.side_list import SideList
+
+    with SqliteStore(tmp_path / "k.db") as store:
+        kinds = [f"x{n:02d}" for n in range(12)]
+        n = 0
+        for rank, ext in enumerate(kinds):
+            for _ in range(30 - rank):
+                n += 1
+                store.upsert_file(path=f"/d/f{n}.{ext}", size_bytes=1, mtime_ns=1, status="INDEXED",
+                                  source_kind="file")
+        for ext in ("vsdx", "vsdx", "mpp"):
+            n += 1
+            store.upsert_file(path=f"/d/f{n}.{ext}", size_bytes=1, mtime_ns=1, status="INDEXED",
+                              source_kind="file")
+        always = ("vsdx", "vsd", "mpp")
+        counted = side_counts.kind_counts(store, limit=12, always=always)
+    assert dict(counted)["vsd"] == 0 and dict(counted)["vsdx"] == 2 and dict(counted)["mpp"] == 1
+    side = SideList("filesSide", accessible="Kinds", shown=12)
+    side.set_entries(files_entries([], [], [], counted, always=always))
+    shown = _labels_under(side, "Kinds")
+    assert not any(label.startswith("More...") for label in shown), shown
+    for label in ("VSDX - Visio", "VSD - Visio", "MPP - Microsoft Project"):
+        assert label in shown, shown
+    vsd = next(e for e in side.entries() if e.key == "kind:vsd")
+    assert vsd.count == 0

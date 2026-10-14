@@ -33,3 +33,5 @@ class SideEntry:
     checked: Optional[bool] = None
     #: The right-click menu: `((label, icon, action), ...)`; `menu_chosen` says which.
     menu: tuple = ()
+    #: Never put behind its section's "More...": a type the person listed in `FILE_KINDS_ALWAYS`.
+    pinned: bool = False

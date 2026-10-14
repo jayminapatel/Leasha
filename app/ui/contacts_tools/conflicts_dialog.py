@@ -56,6 +56,9 @@ class ConflictsDialog(ToolDialog):
                             ("Waiting for me", lambda r: r["winner"] == "held")):
             menu.addAction(words).triggered.connect(lambda _c=False, f=rule: self.tick(f))
         self.tick_button.setMenu(menu)
+        from app.ui.widgets.buttons import give_icon
+
+        give_icon(self.tick_button)                  # "Tick" was words alone (2026-10-14)
         self.ticked_label = QLabel("")
         named(self.ticked_label, "Clashes ticked", "How many clashes are ticked")
         bar = QHBoxLayout()

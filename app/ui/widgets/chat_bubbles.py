@@ -68,6 +68,12 @@ def _action(text: str, tip: str, name: str) -> QPushButton:
     button.setToolTip(tip)
     button.setAccessibleName(tip)
     button.setProperty("actionName", name)
+    # Out of the button system's kinds and widths, but not without an icon: Copy, Regenerate, Try again
+    # and Edit were words alone under every reply (2026-10-14).
+    from app.ui.widgets.buttons import control_glyph, give_icon
+
+    if control_glyph(text):
+        give_icon(button)
     return button
 
 
@@ -215,6 +221,9 @@ class AnswerBubble(QFrame):
         self.work_button.setObjectName("chatWork")
         self.work_button.setCheckable(True)
         self.work_button.setVisible(False)
+        from app.ui.widgets.buttons import give_icon
+
+        give_icon(self.work_button, "search")        # its words are counts made at run time (2026-10-14)
         self.work_button.toggled.connect(self._show_work)
         self.work_detail = QLabel("")
         self.work_detail.setObjectName("chatWorkDetail")

@@ -90,6 +90,9 @@ class AddFileTypeWizard(QDialog):
         self.tabs.addTab(self._route_tab(), "Use a reader we have")
         self.tabs.addTab(self._convert_tab(), "Convert it first")
         self.tabs.addTab(self._code_tab(), "Write a new reader")
+        from app.ui.widgets.buttons import give_tab_icons
+
+        give_tab_icons(self.tabs)                    # a tab carries its icon (2026-10-14)
         self.tabs.currentChanged.connect(lambda _i: self._refresh())
 
         self.summary = QLabel("")
