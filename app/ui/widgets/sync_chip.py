@@ -122,10 +122,11 @@ class SyncChip(QToolButton):
         else:
             self.words = self.tracker.words()
         colours = theme_colours()
-        self.setText(self.words.text)
-        # Its name is its words, as on every bar button (`test_ui_c_contacts`); none while it is hidden and says
-        # nothing.
-        self.setAccessibleName(self.words.text)
+        # Its name is its words, as on every bar button (`test_ui_c_contacts`). Hidden while idle, it still keeps
+        # a name - "Sync status" - so it is never a nameless control.
+        said = self.words.text or "Sync status"
+        self.setText(said)
+        self.setAccessibleName(said)
         self.setToolTip(self.words.tip or _TIP)
         self.setIcon(icon(self.words.glyph, colours.get(self.words.tone, colours.get("text_dim", "#888888"))))
         self.setVisible(bool(self.words.text))
