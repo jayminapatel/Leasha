@@ -56,18 +56,13 @@ class OutlookCleanupController(QObject):
 
     def ask(self, path: str, plan: Any) -> bool:
         """The question, with the count. Overridable so tests need no dialog."""
-        from PySide6.QtWidgets import QMessageBox
-
         from app.ui.presenter import copies_confirmation
+        from app.ui.widgets.confirm import confirm
 
         examples = [f"\"{(c.subject or '(no subject)')[:50]}\" in {c.folder or 'the top'}"
                     for c in plan.copies[:5]]
         title, body = copies_confirmation(path, plan.count, examples)
-        answer = QMessageBox.question(
-            self._w, title, body,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel)
-        return answer == QMessageBox.StandardButton.Yes
+        return confirm(self._w, title, body, "Move to Deleted Items", glyph="trash-2")
 
     def _moved(self, path: str, result: Any) -> None:
         from app.ui.presenter import copies_moved_message

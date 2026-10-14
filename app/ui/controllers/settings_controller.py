@@ -248,7 +248,7 @@ class SettingsController(QObject):
         fetches anything missing into the new folder on its own. Stated in the
         confirmation so nobody is surprised by the download.
         """
-        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from PySide6.QtWidgets import QFileDialog
 
         current = str(self._w._settings.model_cache)
         chosen = QFileDialog.getExistingDirectory(
@@ -259,17 +259,16 @@ class SettingsController(QObject):
             self._w.notify("The models are already kept in that folder.", 6_000)
             return
 
-        answer = QMessageBox.question(
-            self._w, "Models folder",
-            f"Leasha will keep its models in:\n{chosen}\n\n"
-            "The models already downloaded are not moved. From the next start, "
-            "Leasha downloads any model it needs into that folder. That needs an "
-            "internet connection and can take a few minutes.\n\n"
-            "The index is not affected.\n\nChange it now?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
+        from app.ui.widgets.confirm import confirm
+
+        if not confirm(
+                self._w, "Models folder",
+                f"Leasha will keep its models in:\n{chosen}\n\n"
+                "The models already downloaded are not moved. From the next start, "
+                "Leasha downloads any model it needs into that folder. That needs an "
+                "internet connection and can take a few minutes.\n\n"
+                "The index is not affected.\n\nChange it now?",
+                "Change folder", danger=False, glyph="folder-open"):
             return
 
         self._save_model_cache(
@@ -866,16 +865,11 @@ class SettingsController(QObject):
 
     def ask_remove(self, folders: list[str], count: int) -> bool:
         """The question, with the count. Overridable so tests need no dialog."""
-        from PySide6.QtWidgets import QMessageBox
-
         from app.ui.presenter import remove_folders_confirmation
+        from app.ui.widgets.confirm import confirm
 
         title, body = remove_folders_confirmation(folders, count)
-        answer = QMessageBox.question(
-            self._w, title, body,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel)
-        return answer == QMessageBox.StandardButton.Yes
+        return confirm(self._w, title, body, "Remove", glyph="folder-minus")
 
     def _folders_removed(self, result: Any) -> None:
         """UI thread: take the rows off, refresh the lists and say how much went."""
@@ -947,16 +941,11 @@ class SettingsController(QObject):
 
     def ask_remove_leftovers(self, count: int) -> bool:
         """The question, with the count. Overridable so tests need no dialog."""
-        from PySide6.QtWidgets import QMessageBox
-
         from app.ui.presenter import remove_leftovers_confirmation
+        from app.ui.widgets.confirm import confirm
 
         title, body = remove_leftovers_confirmation(count)
-        answer = QMessageBox.question(
-            self._w, title, body,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel)
-        return answer == QMessageBox.StandardButton.Yes
+        return confirm(self._w, title, body, "Remove them from the index", glyph="trash-2")
 
     def _save_roots(self, roots: list[str]) -> None:
         """Save the folder list on the ordered writer, under the key the CLI reads."""
@@ -1082,16 +1071,11 @@ class SettingsController(QObject):
 
     def ask_clear_archive(self, path: str, count: int) -> bool:
         """The question, with the count. Overridable so tests need no dialog."""
-        from PySide6.QtWidgets import QMessageBox
-
         from app.ui.presenter import clear_archive_confirmation
+        from app.ui.widgets.confirm import confirm
 
         title, body = clear_archive_confirmation(path, count)
-        answer = QMessageBox.question(
-            self._w, title, body,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel)
-        return answer == QMessageBox.StandardButton.Yes
+        return confirm(self._w, title, body, "Clear and read again")
 
     def _archive_cleared(self, path: str, removed: Any) -> None:
         """UI thread: refresh the lists, say how much went, and start the re-read."""

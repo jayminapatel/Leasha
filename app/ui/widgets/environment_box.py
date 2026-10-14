@@ -350,20 +350,16 @@ class EnvironmentBox(QGroupBox):
         records of what the application did.
         """
         folder = self.logs_folder()
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Question)
-        box.setWindowTitle("Clear the logs?")
-        box.setText(f"Delete the log files in {folder}?")
-        box.setInformativeText(
-            "Nothing indexed is touched and no setting changes - these are "
-            "records of what the application did.\n\n"
-            "What it costs is the history: if something has been going wrong, "
-            "the evidence goes with them. Today's files are kept, because this "
-            "session is still writing to them.")
-        box.setStandardButtons(
-            QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Yes)
-        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
-        if box.exec() != QMessageBox.StandardButton.Yes:
+        from app.ui.widgets.confirm import confirm
+
+        if not confirm(
+                self, "Clear the logs?", f"Delete the log files in {folder}?", "Clear logs",
+                informative=(
+                    "Nothing indexed is touched and no setting changes - these are "
+                    "records of what the application did.\n\n"
+                    "What it costs is the history: if something has been going wrong, "
+                    "the evidence goes with them. Today's files are kept, because this "
+                    "session is still writing to them.")):
             return
 
         self.clear_logs_button.setEnabled(False)
