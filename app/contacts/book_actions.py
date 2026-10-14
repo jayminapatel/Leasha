@@ -154,6 +154,20 @@ def _put_unit(hub: Any, card: Card, unit: str, value: Any) -> bool:
     return False
 
 
+def _agree_base(hub: Any, cid: int, account_id: int, unit: str, remote_value: Any) -> None:
+    """A held clash is settled: the account's value of `unit` becomes part of what Leasha and the account last
+    agreed (the link's merge base), so the next sync sees only Leasha's side as changed - and sends it, or finds
+    nothing to do - instead of finding both sides changed and holding the same clash again (review CS-6).
+    A held clash leaves the base alone (`ContactSyncEngine._inbound`), so without this it was asked again."""
+    link = hub.link(cid, account_id)
+    if link is None or link.snapshot is None:
+        return
+    base = link.snapshot.copy()
+    if _put_unit(hub, base, unit, remote_value):
+        hub.set_link(cid, account_id, remote_id=link.remote_id, version_tag=link.version_tag, snapshot=base,
+                     hub_rev=link.hub_rev, state=link.state)
+
+
 def open_conflict_rows(hub: Any) -> list[dict]:
     """Every clash still open, each with its contact's name: what the review window lists."""
     rows = hub.open_conflicts()
@@ -187,6 +201,9 @@ def accept_conflicts(hub: Any, picks: Sequence[tuple[int, str]]) -> MergeSummary
             if card is not None and _put_unit(hub, card, str(row["unit"]), value):
                 hub.update(cid, card, action="conflict-choice", batch_id=batch)
                 switched += 1
+        if row.get("winner") == "held" and row.get("account_id") is not None:
+            _agree_base(hub, int(row["contact_id"]), int(row["account_id"]), str(row["unit"]),
+                        _unit_value(row["remote_value"]))
         hub.resolve_conflict_row(int(conflict_id))
     forget_scan(hub)
     return MergeSummary(batch if switched else None, len(picks), switched)

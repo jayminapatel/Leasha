@@ -466,7 +466,8 @@ class CardDavProvider:
             except AppErrorException as exc:
                 # A server that lists the report but refuses it on a first pull
                 # is followed by etags instead; a refused saved token is not.
-                if state.get("t") or exc.error.code != "ERR_ACCOUNT_REJECTED":
+                # (Some servers answer a report they do not support with HTTP 500: that is followed by etags too.)
+                if state.get("t") or exc.error.code not in ("ERR_ACCOUNT_REJECTED", "ERR_ACCOUNT_TROUBLE"):
                     raise
                 state["m"] = "etag"
                 return self._plan(state)

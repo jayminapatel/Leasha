@@ -320,7 +320,7 @@ def test_a_sync_report_without_a_new_token_is_an_error_not_an_empty_change_list(
     cd._has_sync = True
     with pytest.raises(AppErrorException) as caught:
         list(cd.pull('{"v":1,"m":"sync","t":"tok-1","i":{},"g":{}}'))
-    assert caught.value.error.code == "ERR_ACCOUNT_REJECTED"
+    assert caught.value.error.code == "ERR_ACCOUNT_TROUBLE"           # the server's fault (review CS-7)
 
 
 def test_a_name_taken_three_times_running_is_an_error_not_a_silent_skip():

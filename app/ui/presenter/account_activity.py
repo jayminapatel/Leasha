@@ -173,6 +173,7 @@ def describe(snap: Mapping[str, Any], now: float) -> Activity:
         text = " ".join(str((run or {}).get("error_text") or "the account refused the request").split())
         what, _, fix = text.partition(" FIX:")
         again = f"; trying again {nxt}" if nxt and nxt != "due now" else ""
+        again += ", as the provider asked" if again and snap.get("retry_at") and snap["retry_at"] == next_at else ""
         return done("failed", f"Failed: {_short(what)}",
                     (f"What to do:{fix.rstrip('. ')}. " if fix.strip() else "") + f"{last_line}{again}")
     if kind == "contacts" and run and run.get("status") == "held":

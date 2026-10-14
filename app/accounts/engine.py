@@ -51,6 +51,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+from app.accounts.http import retry_at_of
 from app.accounts.provider import (ContactProvider, RemoteContact, TokenExpired, VersionConflict, WriteResult)
 from app.accounts.store import Account, AccountSettings, AccountStore
 from app.contacts.card import Card, merge, project, units
@@ -114,23 +115,27 @@ class Plan:
     held_conflicts: int = 0
     failed_out: int = 0           # contacts the account refused one by one (the sync went on without them)
     held_deletes: int = 0         # deletes past the brake, waiting for Allow (1t D2)
-    failures: list[list[str]] = field(default_factory=list)    # [name, why], the first few
+    held_delete_ids: list[int] = field(default_factory=list)  # the contacts those deletes are of (review CS-3: Undo)
+    failures: list[list] = field(default_factory=list)         # [name, why, contact id], the first few
     names: dict[str, list[str]] = field(default_factory=dict)
     timing: dict = field(default_factory=dict)                 # 1t 1a: seconds by phase, and the transport's meter
 
     def note(self, bucket: str, name: str) -> None:
         sample(self.names.setdefault(bucket, []), name)
 
-    def fail(self, name: str, why: str) -> None:
+    def fail(self, name: str, why: str, contact_id: Optional[int] = None) -> None:
+        """One contact the account refused. Its id rides along (review CS-12), so the Sync window's Open contact
+        works while the sync is still running, not only after a reload."""
         self.failed_out += 1
         if len(self.failures) < 50:
-            self.failures.append([name, why])
+            self.failures.append([name, why] + ([int(contact_id)] if contact_id is not None else []))
 
     def to_json(self) -> dict:
         return {k: getattr(self, k) for k in (
             "add_in", "merge_in", "possible_duplicates", "flagged_deleted", "deleted_in", "create_out",
             "update_out", "delete_out", "conflicts", "held_conflicts", "failed_out", "held_deletes")} | {
-                "names": self.names, "failures": self.failures, "timing": self.timing}
+                "names": self.names, "failures": self.failures, "timing": self.timing} | (
+                {"held_delete_ids": self.held_delete_ids} if self.held_delete_ids else {})
 
     @property
     def added(self) -> int:
@@ -485,7 +490,7 @@ class ContactSyncEngine:
             ctx.plan.flagged_deleted += len(alive)
             err = make_error("ERR_SYNC_DELETE_BRAKE", "accounts.engine", count=len(alive), account=acct.name)
             self.accounts.finish_run(ctx.run_id, "held", error_code=err.code, error_text=err.message,
-                                     plan=ctx.plan.to_json(), held=len(alive))
+                                     plan=self._held_plan(ctx.plan, ctx.run_id), held=len(alive))
             raise _Held(err)
         for cid in alive:
             ctx.plan.note("deleted_in", self._name(cid))
@@ -797,6 +802,7 @@ class ContactSyncEngine:
         if deletes and _too_many(len(deletes), max(1, self.hub.count(include_bin=True)), settings) \
                 and not allow_brake:
             ctx.plan.held_deletes = len(deletes)
+            ctx.plan.held_delete_ids = [int(cid) for _k, _l, cid in deletes]
             for _k, _l, cid in deletes:
                 ctx.plan.note("held_deletes", self._name(cid))
             work = [w for w in work if w[0] != "delete"]
@@ -990,13 +996,16 @@ class ContactSyncEngine:
             err = out.error or make_error("ERR_SYNC_DELETE_BRAKE", "accounts.engine", count=p.held_deletes,
                                           account=acct.name)
             self.accounts.finish_run(out.run_id, "held", added=p.added, changed=p.changed, deleted=p.deleted,
-                                     held=p.held, error_code=err.code, error_text=err.message, plan=p.to_json())
+                                     held=p.held, error_code=err.code, error_text=err.message,
+                                     plan=self._held_plan(p, out.run_id))
             if err.code == "ERR_SYNC_DELETE_BRAKE":
                 # Everything else was written: as far as the schedule goes, this account synced.
                 self.accounts.record_success(acct.id, "contacts")
             return
         if out.status == "failed" and out.error is not None:
-            self.accounts.record_failure(acct.id, "contacts", out.error.code, out.error.message)
+            # A provider that said how long to wait is waited for that long, not 1, 2, 4 minutes (review CS-5).
+            self.accounts.record_failure(acct.id, "contacts", out.error.code, out.error.message,
+                                         next_retry_at=retry_at_of(out.error, self._clock()))
             self.accounts.finish_run(out.run_id, "failed", added=p.added, changed=p.changed, deleted=p.deleted,
                                      held=p.held, error_code=out.error.code, error_text=_with_fix(out.error),
                                      plan=p.to_json())
@@ -1021,15 +1030,69 @@ class ContactSyncEngine:
         self.accounts.record_success(acct.id, "contacts")
         if not acct.first_sync_done:
             self.accounts.update(acct.id, first_sync_done=True)
+        # Review CS-11: clashes held for the person's choice ('ask me every time') are said on the run, with the
+        # fix, instead of a plain "Done". The rest of the sync went through, so the run is still ok or partial -
+        # never "held", whose Allow would lift the delete brake and the churn guard, and settles no clash.
+        waiting = self._held_clashes(acct.id)
+        clash = (make_error("ERR_SYNC_CONFLICT_HELD", "accounts.engine", count=waiting, account=acct.name)
+                 if waiting else None)
+        if clash is not None and out.error is None:
+            out.error = clash
         if out.status == "partial":
-            first = "; ".join(f"{n}: {w}" for n, w in p.failures[:3])
+            first = "; ".join(f"{f[0]}: {f[1]}" for f in p.failures[:3])
+            text = (f"{p.failed_out} contact(s) could not be written ({first}). They stay waiting; "
+                    "the next sync tries them again.")
             self.accounts.finish_run(
                 out.run_id, "partial", added=p.added, changed=p.changed, deleted=p.deleted, held=p.held,
-                error_text=f"{p.failed_out} contact(s) could not be written ({first}). They stay waiting; "
-                           "the next sync tries them again.", plan=p.to_json())
+                error_code=clash.code if clash else None,
+                error_text=f"{text} {_with_fix(clash)}" if clash else text, plan=p.to_json())
             return
         self.accounts.finish_run(out.run_id, "ok", added=p.added, changed=p.changed, deleted=p.deleted,
-                                 held=p.held, plan=p.to_json())
+                                 held=p.held, error_code=clash.code if clash else None,
+                                 error_text=_with_fix(clash) if clash else None, plan=p.to_json())
+
+    def _held_plan(self, plan: Plan, run_id: int) -> dict:
+        """A held run's plan, with how many of its changes to the contact book the journal can undo (review CS-3):
+        a held run wrote to Leasha what it read before it was held, and its Undo puts that back."""
+        try:
+            n = int(self.store.conn.execute(
+                "SELECT COUNT(*) FROM contact_journal WHERE sync_id = ? AND undone_at IS NULL "
+                "AND action NOT IN ('undo', 'conflict', 'deleted_elsewhere')", (run_id,)).fetchone()[0])
+        except Exception:                                     # noqa: BLE001 - a count; never fails a sync
+            n = 0
+        return plan.to_json() | {"journalled": n}
+
+    def release_held(self, run: Any, res: Any) -> None:
+        """The rest of Undo for a held run (review CS-3), after the journal has put its changes back (`res`, the
+        hub's `UndoResult`, gains what this does):
+
+        * held by the delete brake: the contacts whose deletes it held come back out of the Bin, so nothing is
+          deleted at the account and the next sync does not hold them again;
+        * held by the churn guard: the hold, when this account's changes are what it held, is lifted - the
+          changes are gone from Leasha, and the push after the undo puts the account back as it was."""
+        if run is None or run.status != "held":
+            return
+        plan = run.plan or {}
+        if run.error_code == "ERR_SYNC_DELETE_BRAKE":
+            for cid in plan.get("held_delete_ids") or []:
+                if self.hub.restore(int(cid), actor="undo"):
+                    res.undone += 1
+                    res.accounts |= set(self.hub.kept_in(int(cid)))
+        elif run.error_code == "ERR_SYNC_CHANGES_HELD":
+            hold = self._churn_hold()
+            if hold is not None and str(hold.context.get("account") or "") == run.account_name:
+                self._set_churn_hold(None)
+                _log.info("churn guard: the hold on {} is lifted by Undo of run {}", run.account_name, run.id)
+
+    def _held_clashes(self, account_id: int) -> int:
+        """How many contacts wait for the person's choice of a clash with this account (review CS-11)."""
+        try:
+            return int(self.store.conn.execute(
+                "SELECT COUNT(DISTINCT contact_id) FROM contact_conflicts WHERE account_id = ? "
+                "AND resolved_at IS NULL AND winner = 'held'", (account_id,)).fetchone()[0])
+        except Exception:                                     # noqa: BLE001 - a sentence; never fails a sync
+            _log.debug("held clashes of {} not counted", account_id, exc_info=True)
+            return 0
 
     # --------------------------------------------------------- conflict choice
     def resolve_conflict(self, contact_id: int, account_id: int, choose: str, *,
@@ -1093,7 +1156,7 @@ class _Pusher:
 
     def _record(self, kind: str, cid: int, err: AppError) -> None:
         name = self.e._name(cid)
-        self.ctx.plan.fail(name, err.message)
+        self.ctx.plan.fail(name, err.message, cid)
         self.refused.append({"contact_id": cid, "name": name, "kind": kind, "reason": err.message})
         _log.warning("{} could not be written to {}: {}", cid, self.acct.name, err.code)
 
@@ -1252,7 +1315,7 @@ class _Pusher:
 
 #: Failures that are the account's as a whole: the run ends and says so, instead of listing every contact.
 _ACCOUNT_WIDE = frozenset({"ERR_ACCOUNT_SIGNIN_EXPIRED", "ERR_PROVIDER_LIMIT", "ERR_ACCOUNT_UNREACHABLE",
-                           "ERR_ACCOUNT_ADMIN_CONSENT", "ERR_ACCOUNT_NOT_CONFIGURED"})
+                           "ERR_ACCOUNT_ADMIN_CONSENT", "ERR_ACCOUNT_NOT_CONFIGURED", "ERR_ACCOUNT_TROUBLE"})
 #: Fifteen contacts refused one after another means the account is not working, not that fifteen records are bad.
 _GIVE_UP_AFTER = 15
 

@@ -256,8 +256,9 @@ class SyncDialog(ToolDialog):
         phase = str(e.get("phase", ""))
         live = self._live.setdefault(aid, {"started": time.time()})
         live.update(e)
-        for name, why in e.get("failures", []) or []:
-            self._problem(str(e.get("account", "")), str(name), str(why))
+        for entry in e.get("failures", []) or []:
+            self._problem(str(e.get("account", "")), str(entry[0]), str(entry[1]),
+                          entry[2] if len(entry) > 2 else None, aid)
         self._running = phase != "done" or self._running
         if self._snaps:
             self._draw_activity()
@@ -268,8 +269,9 @@ class SyncDialog(ToolDialog):
         self._running = self._stopping = False
         self._live.clear()
         for out in outcomes or []:
-            for name, why in out.plan.failures:
-                self._problem(str(out.account_name), str(name), str(why))
+            for entry in out.plan.failures:
+                self._problem(str(out.account_name), str(entry[0]), str(entry[1]),
+                              entry[2] if len(entry) > 2 else None, int(out.account_id or 0))
         self._show_buttons()
         self._summarise()
         self.reload()

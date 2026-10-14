@@ -16,7 +16,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from app.accounts.provider import HttpResponse
+from app.accounts.provider import HttpResponse, is_server_trouble
 from app.core.errors import raise_error
 
 __all__ = ["fail_for_status", "bearer_headers", "b64url_decode", "dump_token",
@@ -98,6 +98,9 @@ def fail_for_status(resp: HttpResponse, *, account: str, component: str, what: s
                     reason=f"HTTP {status}", details=detail)
     if status in (429, 503):
         raise_error("ERR_PROVIDER_LIMIT", component, account=account,
+                    reason=f"HTTP {status}", details=detail)
+    if is_server_trouble(resp):                           # the provider's own trouble (review CS-7)
+        raise_error("ERR_ACCOUNT_TROUBLE", component, account=account,
                     reason=f"HTTP {status}", details=detail)
     raise_error("ERR_ACCOUNT_REJECTED", component, account=account,
                 reason=f"HTTP {status}", details=detail)
