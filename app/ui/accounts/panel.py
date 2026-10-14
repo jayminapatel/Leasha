@@ -61,6 +61,10 @@ def _verify(factory: Any, account_id: int) -> Any:
     return svc.verify_contacts(svc.accounts.get(account_id))
 
 
+def _fix_check(factory: Any, account_id: int) -> None:
+    factory().fix_check(account_id)
+
+
 def _set_password(factory: Any, account_id: int, password: str) -> None:
     factory().set_app_password(account_id, password)
 
@@ -184,6 +188,10 @@ class AccountPanel(QGroupBox):
     removed = Signal()
     #: Stop the sync that is running (the page's scheduler does it).
     stop_requested = Signal()
+    #: Allow, confirmed (CS-2): sync this account's contacts with the brake off. The page asks the scheduler.
+    allow_requested = Signal(int)
+    #: Find duplicates (CS-10): the mirror waits on them. The page passes it to the Contacts page.
+    duplicates_requested = Signal()
 
     def __init__(self, backend: Backend, parent: Optional[QWidget] = None) -> None:
         super().__init__("Account", parent)
@@ -202,6 +210,7 @@ class AccountPanel(QGroupBox):
         self._poll.setInterval(4000)
         self._poll.timeout.connect(self.refresh_activity)
         self._asking = False
+        self._snaps: list = []
         self._paused_now = False
         self.tabs = QTabWidget()
         self.tabs.setAccessibleName("Account settings")
@@ -513,20 +522,47 @@ class AccountPanel(QGroupBox):
                 f"{p.get('delete_out', 0)} deleted.")
 
     def _row_action(self, account_id: int, kind: str, action: str) -> None:
-        """A button on the activity rows above the settings."""
-        if action in ("sync", "retry"):
-            self.sync_requested.emit(account_id, kind)
-        elif action == "stop":
-            self.stop_requested.emit()
-        elif action in ("pause", "resume"):
-            self.backend.call(_pause_mail, self.backend.factory, account_id, action == "pause",
-                              done=lambda _r: self.refresh_activity(), fail=self._error)
-        elif action == "test":
+        """A button on the activity rows above the settings: the one handler the Sync window uses too (CS-1)."""
+        from app.ui.presenter.account_actions import handle  # noqa: PLC0415
+        handle(self, account_id, kind, action)
+
+    # -- the row's host methods (`presenter.account_actions.HOST_METHODS`)
+    def row_sync(self, account_id: int, kind: str) -> None:
+        self.sync_requested.emit(account_id, kind)
+
+    def row_stop(self) -> None:
+        self.stop_requested.emit()
+
+    def row_pause(self, account_id: int, paused: bool) -> None:
+        self.backend.call(_pause_mail, self.backend.factory, account_id, paused,
+                          done=lambda _r: self.refresh_activity(), fail=self._error)
+
+    def row_allow(self, account_id: int) -> None:
+        """Allow (CS-1, CS-2): asks first, naming what was held; then the page's scheduler syncs with the brake off."""
+        from app.ui.presenter.account_actions import allow_question  # noqa: PLC0415
+        snap = next((s for s in self._snaps if int(s.get("account_id") or 0) == account_id
+                     and s.get("kind") == "contacts"), {})
+        run = snap.get("run") or {}
+        name = str(snap.get("name") or (self._account.name if self._account is not None else ""))
+        if parts.ask_allow(self, allow_question(name, run.get("plan"), str(run.get("error_code") or ""),
+                                                str(run.get("error_text") or ""))):
+            self.allow_requested.emit(account_id)
+
+    def row_fix(self, account_id: int) -> None:
+        """Fix these (CS-1): forget where the account was last read, then sync it - it reads everything again."""
+        self.backend.call(_fix_check, self.backend.factory, account_id,
+                          done=lambda _r: self.sync_requested.emit(account_id, "contacts"), fail=self._error)
+
+    def row_account(self, account_id: int, action: str) -> None:
+        if action == "test":
             self._test()
         elif action == "reconnect":
             self._reconnect()
-        elif action == "settings":
+        else:
             self.focus_settings()
+
+    def row_duplicates(self) -> None:
+        self.duplicates_requested.emit()
 
     def refresh_activity(self) -> None:
         """Ask what this account's contacts and mail are doing (a worker), and show it."""
@@ -536,6 +572,7 @@ class AccountPanel(QGroupBox):
 
         def done(snaps: Any) -> None:
             self._asking = False
+            self._snaps = list(snaps or [])
             self.activity.set_snapshots(snaps, time.time(), only=self._id)
 
         self.backend.call(_activity, self.backend.factory, done=done,
