@@ -22,7 +22,9 @@ COLUMNS = ("Account", "What", "Status", "Progress", "What it is doing", "Details
 #: A state's icon colour, as a theme token (`app.ui.theme`): red for what needs you, amber for what stopped or waits,
 #: the accent for what is moving, the quiet text colour for the rest. Never a literal colour: a theme change repaints.
 _TONE = {"failed": "danger", "signin": "danger", "stopped": "warning", "paused": "warning", "queued": "warning",
-         "running": "accent_text"}
+         "running": "accent_text",
+         # Review 2026-10-14 CS-4/CS-10: what waits for you is amber, not the quiet grey of "up to date".
+         "held": "warning", "partial": "warning", "mirror": "warning"}
 
 
 class ActivityTable(QTableWidget):

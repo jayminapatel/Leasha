@@ -15,6 +15,8 @@ contacts and one for mail, and each says exactly one of:
     Sign in   it cannot work until you reconnect
     Stopped   the app closed in the middle; it carries on at the next run
     Idle      up to date: when it last ran, what it did, when it runs next
+    Partial   up to date, but the account refused some contacts one by one (CS-4): how many, and Retry these
+    Mirror    up to date here, but the accounts wait for safe duplicates to be merged first (CS-10)
     Manual / Off / Never   the schedule is manual; it is switched off; it has not run yet
 
 `describe` is a pure function of a snapshot (`AccountService.activity_snapshot`), so every sentence is tested
@@ -30,7 +32,7 @@ from typing import Any, Mapping, Optional
 
 from app.ui.presenter.sync_status import eta_words
 
-__all__ = ["Action", "actions_for", "Activity", "describe", "when_words", "ahead_words", "STATE_ICONS", "STATE_WORDS", "short_status",
+__all__ = ["Action", "ACTION_KEYS", "actions_for", "refused_count", "mirror_groups", "Activity", "describe", "when_words", "ahead_words", "STATE_ICONS", "STATE_WORDS", "short_status",
            "account_line", "overall_line"]
 
 STATE_WORDS = {
@@ -38,12 +40,16 @@ STATE_WORDS = {
     "held": "Waiting for you",
     "signin": "Sign in needed", "stopped": "Stopped", "idle": "Up to date", "manual": "Manual",
     "off": "Off", "never": "Not run yet",
+    # Review 2026-10-14 CS-4 / CS-10: an account that is up to date, but not all the way.
+    "partial": "Done, with problems", "mirror": "Waiting for duplicates",
+    "clash": "Waiting for you",
 }
 STATE_ICONS = {
     "running": "refresh-cw", "queued": "clock", "paused": "pause", "failed": "circle-alert",
     "held": "triangle-alert",
     "signin": "key-round", "stopped": "square", "idle": "circle-check", "manual": "play",
     "off": "ban", "never": "hourglass",
+    "partial": "triangle-alert", "mirror": "merge", "clash": "triangle-alert",
 }
 _KIND_WORDS = {"contacts": "Contacts", "mail": "Mail"}
 
@@ -194,11 +200,48 @@ def describe(snap: Mapping[str, Any], now: float) -> Activity:
     headline = "Up to date" + (f" ({counts} last time)" if counts else "")
     checked = check_words(snap.get("check"), now) if kind == "contacts" else ""
     check = snap.get("check") or {}
-    act = done("idle", headline, (f"{checked}. " if checked else "") + tail + (f". {searchable}" if searchable else ""))
+    detail = (f"{checked}. " if checked else "") + tail + (f". {searchable}" if searchable else "")
+    refused, waiting = (refused_count(snap), mirror_groups(snap)) if kind == "contacts" else (0, 0)
+    if kind == "contacts" and run and run.get("error_code") == "ERR_SYNC_CONFLICT_HELD":
+        # The last run wrote what it could; some contacts wait on your choice of value (`ERR_SYNC_CONFLICT_HELD`).
+        text = " ".join(str(run.get("error_text") or "Contacts changed in two places wait for your choice").split())
+        what, _, fix = text.partition(" FIX:")
+        act = done("clash", _short(what, 200), (fix.strip() + " " if fix.strip() else "") + detail)
+    elif refused:
+        # Review 2026-10-14 CS-4: a run that wrote all but a few said "Up to date" with a tick.
+        act = done("partial", f"Up to date - {refused:,} contact{'s' if refused != 1 else ''} could not be written",
+                   "The account refused them one by one; the rest was written. " + detail)
+    elif waiting:
+        # CS-10: the mirror waited on safe duplicates (`engine.py`, "mirror_waiting"); it was only in the log.
+        act = done("mirror", f"Up to date here - the accounts are not mirrored until {waiting:,} duplicate "
+                             f"group{'s are' if waiting != 1 else ' is'} merged",
+                   "Find duplicates, then Merge all safe matches; the next sync writes every account. " + detail)
+    else:
+        act = done("idle", headline, detail)
     if kind == "contacts" and check and not check.get("in_step") and not check.get("error"):
         from dataclasses import replace as _replace  # noqa: PLC0415
         act = _replace(act, out_of_step=True)
     return act
+
+
+def refused_count(snap: Mapping[str, Any]) -> int:
+    """How many contacts the account refused that still wait (`AccountStore.failures`, the snapshot's `refused`),
+    or - in a snapshot without that count - how many the last run could not write."""
+    if snap.get("refused") is not None:
+        return int(snap.get("refused") or 0)
+    run = snap.get("run") or {}
+    if run.get("status") == "partial":
+        return int((run.get("plan") or {}).get("failed_out") or 0)
+    return 0
+
+
+def mirror_groups(snap: Mapping[str, Any]) -> int:
+    """How many groups of safe duplicates the last contacts run waited on before mirroring; 0 when it did not."""
+    names = ((snap.get("run") or {}).get("plan") or {}).get("names") or {}
+    for note in names.get("mirror_waiting") or []:
+        head = str(note).split(" ", 1)[0].replace(",", "")
+        return int(head) if head.isdigit() else 1
+    return 0
 
 
 def check_words(check: Optional[Mapping[str, Any]], now: float) -> str:
@@ -251,7 +294,19 @@ _ACTIONS = {
                     "Carry out what was held - the deletes past your safety limit, or the changes held for you to "
                     "look at - and sync again"),
     "fix": Action("fix", "Fix these", "list-checks", "Read the account again and put Leasha back in step with it"),
+    # Review 2026-10-14: CS-4 (a run with refusals) and CS-10 (the mirror waiting on duplicates).
+    "retry_refused": Action("retry_refused", "Retry these", "rotate-cw",
+                            "Sync this account again now; each contact it refused is sent again"),
+    "duplicates": Action("duplicates", "Find duplicates", "merge",
+                         "Find people who are in your book twice, and merge them - the accounts are mirrored once "
+                         "they are"),
+    # A clash waiting on your choice (ERR_SYNC_CONFLICT_HELD): the review of both values, not Allow.
+    "conflicts": Action("conflicts", "Changed in two places", "triangle-alert",
+                        "Open Contacts > Changed in two places and choose which value to keep"),
 }
+
+#: Every key `actions_for` can return. Each host of the rows handles them all (`presenter.account_actions`).
+ACTION_KEYS = frozenset(_ACTIONS)
 
 
 def actions_for(a: Activity) -> "list[Action]":
@@ -266,6 +321,12 @@ def actions_for(a: Activity) -> "list[Action]":
         keys = ["retry", "test"]
     elif a.state == "held":
         keys = ["allow"]
+    elif a.state == "clash":
+        keys = ["conflicts"]
+    elif a.state == "partial":
+        keys = ["retry_refused"] + (["fix"] if a.out_of_step else [])
+    elif a.state == "mirror":
+        keys = ["duplicates"] + (["fix"] if a.out_of_step else ["sync"])
     elif a.out_of_step:
         keys = ["sync", "fix"]
     elif a.state == "signin":
@@ -297,7 +358,8 @@ def overall_line(acts: "list[Activity]", snaps: "list[Mapping[str, Any]]") -> st
     counts: dict[str, int] = {}
     for a in acts:
         counts[a.state] = counts.get(a.state, 0) + 1
-    order = ("running", "queued", "failed", "signin", "paused", "stopped", "never", "manual", "idle")
+    order = ("running", "queued", "failed", "held", "clash", "signin", "paused", "stopped", "partial", "mirror", "never",
+             "manual", "idle")
     bits = [f"{counts[s]} {STATE_WORDS[s].lower()}" for s in order if counts.get(s)]
     line = ", ".join(bits)
     waiting = next((s.get("meaning_waiting") for s in snaps if s.get("meaning_waiting")), None)

@@ -49,6 +49,7 @@ from app.ui.widgets.mail_card import attach_mail
 from app.ui.widgets.page_frame import PageFrame
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
+from app.ui.widgets.sync_chip import SyncChip
 from app.ui.widgets.status_column import STATUS_COLUMN, fill_rows
 from app.ui.workers import CallableWorker, open_row_async, run, stop_timers
 from app.ui.widgets.mail_folders import attach as attach_folders, in_folder
@@ -190,6 +191,8 @@ class MailView(QWidget):
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
         self.view_button.add_to(top)         # 2026-10-04: the Preview toggle, then View
+        self.sync_chip = SyncChip("mail")    # review 2026-10-14 IA-5: mail sync state; opens the Sync window
+        top.addWidget(self.sync_chip)
 
         layout = PageFrame(self)             # UI phase B: one frame for every page
         self.chips = list_chips(self, layout, top, self._run)

@@ -711,6 +711,13 @@ class AccountService:
                           "started_at": run.started_at, "error_code": run.error_code or ""} if run else None))
                 if kind == "contacts":
                     snap["check"] = self.accounts.check(a.id)     # order 1t 3c: the last check, or None
+                    # Review 2026-10-14 CS-2/4/10: what was held (by name), what is still refused, and whether
+                    # the mirror waited on duplicates - so the row and the Allow question can say so.
+                    snap["refused"] = len(self.accounts.failures(a.id))
+                    if snap["run"] is not None:
+                        plan = dict(run.plan or {})
+                        snap["run"]["plan"] = {k: plan.get(k) for k in (
+                            "held_deletes", "flagged_deleted", "failed_out", "delete_out", "names") if k in plan}
                 if kind == "mail":
                     others = [o for o in accounts if o.id != a.id and live[(o.id, "mail")]]
                     if others and not snap["live"]:

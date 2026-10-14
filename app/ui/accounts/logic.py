@@ -321,12 +321,15 @@ def plan_text(run: Any) -> str:
                       ("possible_duplicates", "{} look like contacts you already have"),
                       ("create_out", "create {} in the account"), ("update_out", "change {} in the account"),
                       ("delete_out", "delete {} from the account"),
+                      # Review 2026-10-14 CS-2: the deletes past the brake, which Allow lets through.
+                      ("held_deletes", "delete {} more, held for your Allow"),
                       ("flagged_deleted", "list {} as deleted elsewhere"), ("conflicts", "{} changed in two places")):
         if p.get(key):
             parts.append(text.format(p[key]))
     head = "It would " if run.dry_run or run.status in ("dry-run", "needs-approval") else "It was about to "
     body = head + (", ".join(parts) if parts else "change nothing") + "."
-    names = [n for bucket in ("delete_out", "add_in") for n in (p.get("names") or {}).get(bucket, [])][:8]
+    names = [n for bucket in ("held_deletes", "delete_out", "flagged_deleted", "add_in")
+             for n in (p.get("names") or {}).get(bucket, [])][:8]
     return body + (" For example: " + ", ".join(names) + "." if names else "")
 
 

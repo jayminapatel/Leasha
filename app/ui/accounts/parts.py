@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from app.ui.widgets.buttons import action_button
 
-__all__ = ["hint", "btn", "confirm", "notice", "ScheduleRow", "set_quiet", "restyle_hints", "open_guide"]
+__all__ = ["hint", "btn", "confirm", "ask_allow", "notice", "ScheduleRow", "set_quiet", "restyle_hints", "open_guide"]
 
 
 def _dim() -> str:
@@ -62,6 +62,16 @@ def confirm(parent: Optional[QWidget], title: str, text: str, ok: str, *, danger
     from app.ui.widgets.confirm import confirm as ask  # noqa: PLC0415
 
     return ask(parent, title, text, ok, danger=danger)
+
+
+def ask_allow(parent: Optional[QWidget], question: Any) -> bool:
+    """Review 2026-10-14 CS-2: Allow asks first, naming what was held (`presenter.account_actions.allow_question`).
+    Cancel is the default; the verb is the button. The Sync window, the account panel and the sync log all ask
+    through this one function, which tests replace."""
+    from app.ui.widgets.confirm import confirm as ask  # noqa: PLC0415
+
+    return ask(parent, question.title, question.text, question.verb, informative=question.informative,
+               danger=question.danger)
 
 
 def set_quiet(widget: Any, value: Any, setter: str) -> None:
