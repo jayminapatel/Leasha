@@ -20,7 +20,8 @@ tab is on screen - the pane's own timer runs only then.
 
 The widgets themselves are the view's (`view.run_log`, `view.skips`,
 `view.stats_box`, `view.notices`, `view.archives`, `view.timed_out`,
-`view.funnel`, `view.totals`); this file only gives each a tab.
+`view.totals`); this file only gives each a tab. The funnel's counts stay at
+the top of the page (the owner, 2026-10-14: "keep the counts on top").
 """
 
 from __future__ import annotations
@@ -172,9 +173,9 @@ class CockpitTabs(QTabWidget):
         self.held_lines.setWordWrap(True)
         self.addTab(_scrolled(self.held_sentence, self.held_lines), TABS[HELD][0])
 
-        # This index: the funnel and the summary, scrolled, so a long summary
-        # never asks the page for height.
-        self.addTab(_scrolled(view.funnel, view.totals, view.stats_box), TABS[THIS_INDEX][0])
+        # This index: the summary, scrolled, so a long summary never asks the
+        # page for height. (The funnel's counts are at the top of the page.)
+        self.addTab(_scrolled(view.totals, view.stats_box), TABS[THIS_INDEX][0])
 
         # Notices, archived folders, timed-out files: each still shows and
         # hides itself, now inside a tab that never changes size.

@@ -8,7 +8,8 @@ disturbing for the eye, re think that .. That should be the cockpit for
 indexing"*. Top to bottom, every part at a fixed place:
 
 1. **Header** - the state pill, the headline over the "now" line (one line
-   each, cut with "…"), and the five buttons on the right.
+   each, cut with "…"), and the five buttons on the right; under it the
+   funnel's counts in a fixed two-line slot ("keep the counts on top").
 2. **Phase stepper** - a chip per step of a run.
 3. **Six tiles** - Indexed, Files seen, Skipped, Passages, Speed, Time left.
 4. **The bar** and its one detail line.
@@ -83,6 +84,12 @@ def build_status_page(view: Any, controls: Any) -> QWidget:
     header.addWidget(controls)
     layout.addLayout(header)
 
+    # 1b. The counts, straight under the header (2026-10-14, the owner: "keep
+    # the counts on top, rest in tabs is fine"): the funnel (2026-09-29), in a
+    # fixed two-line slot that is never hidden - see `widgets/status_funnel.py`.
+    view.funnel = StatusFunnel()
+    layout.addWidget(view.funnel)
+
     # 2-3. The steps of a run, and the six tiles.
     view.stepper = PhaseStepper()
     layout.addWidget(view.stepper)
@@ -108,9 +115,8 @@ def build_status_page(view: Any, controls: Any) -> QWidget:
     view.resources = ResourceStrip()
     layout.addWidget(view.resources)
 
-    # 7. The tabs. The funnel (2026-09-29), the run log (0w §2b) and the
-    # timed-out panel (0z F3) are made here, as they were in the old layout.
-    view.funnel = StatusFunnel()
+    # 7. The tabs. The run log (0w §2b) and the timed-out panel (0z F3) are
+    # made here, as they were in the old layout.
     view.run_log = RunLog()
     view.timed_out = TimedOutPanel()
     view.cockpit_tabs = CockpitTabs(view)
