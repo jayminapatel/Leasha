@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.133 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 4.134 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,26 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The indexing cockpit, every thread visible, and the held photos read (2026-10-14, order 1v)
+
+- **Indexing > Status is a cockpit.** Fixed tiles, a phase stepper, the counts on top, one row per
+  thread (readers grow and shrink with the run, each with its skip button; then Finding files,
+  Pictures, Meaning, Writing and Run's end), a resource strip, and tabs: Run log, System log,
+  Skipped, Held for later, This index, Notices. Nothing on the page moves because of what it shows.
+- **The system log is on the Indexing page.** The System log tab also reads today's log file, so a
+  run in its own process is visible there.
+- **Nothing silent.** `IndexStats.lanes`: the pictures thread names each step on each photo (faces,
+  picture search, fingerprint), and the face backfill, face grouping and every end-of-run pass say
+  what they are doing.
+- **The held photos.** `INDEX_OCR_PASS=after-run` made every scheduled run the text pass, which
+  holds photos (`ERR_OCR_HELD`) with no face or picture step; 36,505 of the owner's waited. Switched
+  to `with-run` on the owner's word.
+- **Fixed:** "More... (N)" on the Files and Photos side lists did nothing; Project and Visio sat behind
+  it and a type with no plain file was dropped (now pinned, listed with 0); controls without an icon
+  (Browse's Thumbnails/Table, Whole year, Sort, the scope bar, chat reply actions, dialog tabs) have
+  theirs, and the guard checks every kind of button and every tab; People's "Seen once" menu raised
+  an error on right-click.
 
 ### People: faces seen once can be named, tiny faces are not kept, and a Sort button (2026-10-14)
 

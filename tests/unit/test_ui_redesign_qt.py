@@ -72,6 +72,10 @@ def test_the_central_widget_is_the_rail_and_there_is_no_status_bar(window):
     # the redesign replaced with Rail) should trip this check.
     # The Space Report's tables (order 0n 3a) are the same kind of exception:
     # one tab per question the report answers, inside the Reports page.
+    # So is the Indexing cockpit's bottom panel (order 1v §3c): Run log, System
+    # log, Skipped and the rest, inside the Status shelf - not page navigation.
+    from app.ui.widgets.cockpit_tabs import CockpitTabs
+
     def _inside_space_tables(widget) -> bool:
         parent = widget.parentWidget()
         while parent is not None:
@@ -81,7 +85,7 @@ def test_the_central_widget_is_the_rail_and_there_is_no_status_bar(window):
         return False
 
     nav_tab_widgets = [w for w in built.findChildren(QTabWidget)
-                       if not isinstance(w, SpreadsheetView)
+                       if not isinstance(w, (SpreadsheetView, CockpitTabs))
                        and not _inside_space_tables(w)]
     assert nav_tab_widgets == []
     assert built.findChild(QStatusBar) is None
