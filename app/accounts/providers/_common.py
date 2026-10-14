@@ -15,7 +15,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from app.accounts.provider import HttpResponse
+from app.accounts.provider import HttpResponse, is_server_trouble
 from app.core.errors import AppErrorException, make_error
 
 __all__ = ["fail", "check_ok", "parse_time", "encode_token", "decode_token", "parse_xml",
@@ -48,6 +48,8 @@ def fail(resp: HttpResponse, account: str, component: str, what: str) -> AppErro
         code = "ERR_ACCOUNT_SIGNIN_EXPIRED"
     elif resp.status in (429, 503):
         code = "ERR_PROVIDER_LIMIT"
+    elif is_server_trouble(resp):
+        code = "ERR_ACCOUNT_TROUBLE"                    # the provider's own trouble, not a refusal (review CS-7)
     else:
         code = "ERR_ACCOUNT_REJECTED"
     return AppErrorException(make_error(
@@ -126,4 +128,4 @@ def close_transport(transport: Any) -> None:
 #: An account's failure as a whole, not one contact's: a batch method raises these rather than listing every
 #: contact as refused (the engine's `_ACCOUNT_WIDE`, order 1t 5b).
 ACCOUNT_WIDE = frozenset({"ERR_ACCOUNT_SIGNIN_EXPIRED", "ERR_PROVIDER_LIMIT", "ERR_ACCOUNT_UNREACHABLE",
-                          "ERR_ACCOUNT_ADMIN_CONSENT", "ERR_ACCOUNT_NOT_CONFIGURED"})
+                          "ERR_ACCOUNT_ADMIN_CONSENT", "ERR_ACCOUNT_NOT_CONFIGURED", "ERR_ACCOUNT_TROUBLE"})

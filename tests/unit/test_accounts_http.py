@@ -253,10 +253,15 @@ def _retrying(inner, **kw):
 
 
 def test_success_and_other_statuses_pass_through_without_sleeping():
-    for status in (200, 204, 400, 401, 404, 500):
+    for status in (200, 204, 400, 401, 404):
         inner = _Scripted(_r(status))
         t, sleeps = _retrying(inner)
         assert t.request("GET", "https://graph.microsoft.com/x").status == status
+        assert inner.calls == 1 and sleeps == []
+    for status in (500, 502, 504):                  # a write is never repeated (review CS-7)
+        inner = _Scripted(_r(status))
+        t, sleeps = _retrying(inner)
+        assert t.request("POST", "https://graph.microsoft.com/x", body=b"{}").status == status
         assert inner.calls == 1 and sleeps == []
 
 

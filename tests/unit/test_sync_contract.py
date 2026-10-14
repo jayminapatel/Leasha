@@ -106,3 +106,85 @@ def test_a_field_clash_settled_in_the_dialog_is_not_asked_again(world, side):
     want = "work" if side == "local" else "home"
     assert [f.label for f in world.hub.get_card(cid).fields] == [want]
     assert [f.label for f in world.servers[g].live()[rid].fields] == [want]
+
+
+# ----------------------------------------------------------------------------------------------------- CS-7
+class _Scripted:
+    def __init__(self, *statuses):
+        self.statuses = list(statuses)
+        self.calls = 0
+
+    def request(self, method, url, *, headers=None, body=None, timeout=30.0):
+        from app.accounts.provider import HttpResponse
+        self.calls += 1
+        status = self.statuses.pop(0) if len(self.statuses) > 1 else self.statuses[0]
+        return HttpResponse(status, {}, b"oops")
+
+
+@pytest.mark.parametrize("status", [500, 502, 504])
+def test_a_read_the_server_fails_is_tried_again_like_a_503(status):
+    from app.accounts.http import RetryingTransport
+    inner, slept = _Scripted(status, status, 200), []
+    t = RetryingTransport(inner, sleep=slept.append, clock=lambda: 1_000_000.0)
+    assert t.request("GET", "https://people.googleapis.com/x").status == 200
+    assert inner.calls == 3 and slept == [1.0, 2.0]
+
+
+@pytest.mark.parametrize("status", [500, 502, 504])
+def test_a_read_still_failing_is_the_accounts_trouble_not_a_refusal(status):
+    from app.accounts.http import RetryingTransport
+    from app.accounts.providers import _common
+    from app.core.errors import AppErrorException
+    inner = _Scripted(status)
+    resp = RetryingTransport(inner, sleep=lambda s: None).request("GET", "https://people.googleapis.com/x")
+    assert inner.calls == 5
+    with pytest.raises(AppErrorException) as caught:
+        _common.check_ok(resp, "Home", "test", "read changes")
+    err = caught.value.error
+    assert err.code == "ERR_ACCOUNT_TROUBLE" and err.code in _common.ACCOUNT_WIDE
+    assert err.message == f"Home is having trouble at its end (read changes: HTTP {status})."
+    assert "tries again" in err.suggestion
+
+
+def test_a_write_is_never_repeated_and_only_a_500_on_it_stays_that_contacts_refusal():
+    from app.accounts.http import RetryingTransport
+    from app.accounts.providers import _common
+    from app.core.errors import AppErrorException
+    for status, code in ((500, "ERR_ACCOUNT_REJECTED"), (502, "ERR_ACCOUNT_TROUBLE"), (504, "ERR_ACCOUNT_TROUBLE")):
+        inner = _Scripted(status)
+        resp = RetryingTransport(inner, sleep=lambda s: None).request("PUT", "https://x/", body=b"{}")
+        assert inner.calls == 1
+        with pytest.raises(AppErrorException) as caught:
+            _common.check_ok(resp, "Home", "test", "change a contact")
+        assert caught.value.error.code == code
+
+
+def test_mail_says_the_server_is_having_trouble_too():
+    from app.accounts.http import RetryingTransport
+    from app.accounts.providers import _mailcommon
+    from app.core.errors import AppErrorException
+    resp = RetryingTransport(_Scripted(502), sleep=lambda s: None).request("GET", "https://graph.microsoft.com/x")
+    with pytest.raises(AppErrorException) as caught:
+        _mailcommon.fail_for_status(resp, account="Work", component="test", what="list folders")
+    assert caught.value.error.code == "ERR_ACCOUNT_TROUBLE"
+
+
+def test_a_server_in_trouble_ends_the_run_once_and_lists_no_contact_as_refused(world):
+    from app.core.errors import AppErrorException, make_error
+    g = world.account("Google")
+    world.servers[g].add(person("Ann", "Lee"))
+    world.engine.sync()
+    for given in ("Bob", "Cy", "Di"):
+        cid = world.hub.create(person(given))
+        world.hub.set_kept_in(cid, [g])
+    calls = []
+
+    def trouble(card):
+        calls.append(card)
+        raise AppErrorException(make_error("ERR_ACCOUNT_TROUBLE", "fake", account="Google",
+                                           reason="create a contact: HTTP 502"))
+    world.providers[g].create = trouble
+    out = only(world.engine.sync(), g)
+    assert out.status == "failed" and out.error.code == "ERR_ACCOUNT_TROUBLE"
+    assert len(calls) == 1 and out.plan.failed_out == 0
+    assert world.accounts.failures(g) == []

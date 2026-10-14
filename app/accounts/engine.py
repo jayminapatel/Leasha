@@ -1252,7 +1252,7 @@ class _Pusher:
 
 #: Failures that are the account's as a whole: the run ends and says so, instead of listing every contact.
 _ACCOUNT_WIDE = frozenset({"ERR_ACCOUNT_SIGNIN_EXPIRED", "ERR_PROVIDER_LIMIT", "ERR_ACCOUNT_UNREACHABLE",
-                           "ERR_ACCOUNT_ADMIN_CONSENT", "ERR_ACCOUNT_NOT_CONFIGURED"})
+                           "ERR_ACCOUNT_ADMIN_CONSENT", "ERR_ACCOUNT_NOT_CONFIGURED", "ERR_ACCOUNT_TROUBLE"})
 #: Fifteen contacts refused one after another means the account is not working, not that fifteen records are bad.
 _GIVE_UP_AFTER = 15
 

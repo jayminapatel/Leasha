@@ -46,10 +46,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 from urllib.parse import urlsplit
 
-from app.accounts.provider import HttpResponse, Transport
+from app.accounts.provider import SERVER_TROUBLE, TROUBLE_HEADER, HttpResponse, Transport
 from app.accounts.secrets import redact
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
@@ -485,14 +485,30 @@ def parse_retry_after(value: str, *, now_epoch: float) -> Optional[float]:
     return max(0.0, when.timestamp() - now_epoch)
 
 
-def retry_after_of(exc: AppErrorException) -> Optional[float]:
-    """The `Retry-After` seconds carried by an `ERR_PROVIDER_LIMIT`, if the server gave one."""
-    value = exc.error.context.get("retry_after_s")
-    return float(value) if isinstance(value, (int, float)) else None
+def retry_after_of(exc: Any) -> Optional[float]:
+    """The `Retry-After` seconds carried by an `ERR_PROVIDER_LIMIT`, if the server gave one.
+
+    Takes the exception or the `AppError` inside it (an outcome keeps only the error)."""
+    err = getattr(exc, "error", exc)
+    value = (getattr(err, "context", None) or {}).get("retry_after_s")
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def retry_at_of(err: Any, now_epoch: float) -> Optional[int]:
+    """When the schedule may try again after a failure (review CS-5): `now` plus the provider's own `Retry-After`,
+    for a rate limit that carried one; None otherwise, and the schedule's backoff (1, 2, 4 ... minutes) applies."""
+    if getattr(err, "code", None) != "ERR_PROVIDER_LIMIT":
+        return None
+    wait = retry_after_of(err)
+    return int(now_epoch + wait + 0.999) if wait is not None and wait > 0 else None
+
+
 
 
 class RetryingTransport:
-    """Waits and retries on 429 and 503; honest `ERR_PROVIDER_LIMIT` when it gives up.
+    """Waits and retries on 429 and 503; honest `ERR_PROVIDER_LIMIT` when it gives up. A read is also tried again on
+    500, 502 and 504 (`SERVER_TROUBLE`); the last such answer is returned, marked with `TROUBLE_HEADER`, for the
+    connector to name.
 
     `sleep` and `clock` (epoch seconds, for HTTP-date `Retry-After`) are
     injected so tests run instantly.
@@ -529,10 +545,15 @@ class RetryingTransport:
         last: Optional[HttpResponse] = None
         for attempt in range(self._max_attempts):
             resp = self._send_once(method, url, headers, body, timeout)
-            if resp.status not in self.RETRY_STATUSES:
+            trouble = resp.status in SERVER_TROUBLE and method.upper() in self.SAFE_METHODS
+            if not trouble and resp.status not in self.RETRY_STATUSES:
                 return resp
             last = resp
             told = parse_retry_after(resp.header("retry-after"), now_epoch=self._clock())
+            if trouble and (attempt == self._max_attempts - 1 or (told is not None and told > self._max_wait)):
+                _log.info("{}: HTTP {} on {} after {} tries - the provider is having trouble", self._account,
+                          resp.status, method.upper(), attempt + 1)
+                return HttpResponse(resp.status, {**resp.headers, TROUBLE_HEADER: "1"}, resp.body)
             if told is not None and told > self._max_wait:
                 self._give_up(resp, told)
             if attempt == self._max_attempts - 1:
