@@ -33,7 +33,7 @@ from app.ui.presenter.photos import SORTS, facets
 from app.ui.widgets.photo_browser import MODES
 
 __all__ = ["ViewButton", "fill_view_menu", "photo_menu", "STATE_KEYS", "same_day_box", "tree_toggle",
-           "TREE_TIP", "open_viewer",
+           "TREE_TIP", "open_viewer", "naming_page",
            "library", "read_box", "read_library", "read_the_box", "arrange_rows"]
 
 #: `index_state` keys, namespaced `ui:` like every remembered choice.
@@ -48,9 +48,13 @@ def library(store: Any) -> tuple[list, int, dict]:
     2026-10-09, over 46,000 pictures, on every read of the tab."""
     from app.extract.ocr import OcrExtractor
 
+    from app.ui.widgets.photo_contacts import read_links
+
     rows = store.photo_library(OcrExtractor.extensions)
     waiting = sum(count for _p, _n, count in store.suggestion_counts())
-    return rows, waiting, facets(rows)
+    counts = facets(rows)
+    counts["links"] = read_links(store)          # IA-6: who is linked to a contact
+    return rows, waiting, counts
 
 
 def read_box(store: Any, text: str, reading: dict) -> tuple:
@@ -227,6 +231,32 @@ def open_viewer(view: Any, row: Any) -> Any:
     view._viewer = viewer
     viewer.show()
     return viewer
+
+
+def naming_page(view: Any) -> Any:
+    """The naming page, with "Back to photos" above it, added to `view.centre` - built the
+    first time it is asked for. Moved here from `photos_view.show_naming` (2026-10-14, to
+    keep the view under its 250 lines when IA-6 wired "Open contact" through)."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QPushButton, QVBoxLayout
+
+    from app.ui.widgets.buttons import style_all
+    from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
+
+    holder = QWidget()
+    back = QPushButton("Back to photos")
+    back.setToolTip("Return to your photos, with what you named included")
+    back.clicked.connect(view.show_photos)
+    page = PhotoTaggerPage(view._store)
+    page.opened.connect(view.open_requested.emit)
+    page.contact_requested.connect(view.contact_requested.emit)
+    column = QVBoxLayout(holder)
+    column.setContentsMargins(0, 0, 0, 0)
+    column.addWidget(back, 0, Qt.AlignmentFlag.AlignLeft)
+    column.addWidget(page, 1)
+    view.centre.addWidget(holder)
+    style_all(holder)
+    return page
 
 
 def same_day_box(row: Any) -> str:

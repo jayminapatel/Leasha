@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPushButton, QSplitter,
-                             QStackedWidget, QVBoxLayout, QWidget)
+                             QStackedWidget, QWidget)
 
 from app.ui.presenter.photos import PHOTOS_COMMANDS, summary, toggle_in_box
 from app.ui.widgets.chips import list_chips, show_page
@@ -37,7 +37,7 @@ from app.ui.widgets.photo_info import PhotoInfo
 # the pure sorting step in `presenter.photos.arrange`, to keep this view under the 250
 # lines test_presenter allows a view.
 from app.ui.widgets.photo_page_parts import (STATE_KEYS, ViewButton, follow_index, arrange_rows, page_menu,
-                                             open_viewer, read_library, read_the_box,
+                                             naming_page, open_viewer, read_library, read_the_box,
                                              tree_toggle)
 from app.ui.widgets.photo_sidebar import PhotoSidebar
 from app.ui.widgets.photo_thumbs import ThumbLoader
@@ -55,6 +55,8 @@ class PhotosView(QWidget):
     open_requested = Signal(str)
     reveal_requested = Signal(str)
     error = Signal(object)
+    #: IA-6: "Open contact" on a person - the window shows that contact.
+    contact_requested = Signal(int)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         """Build the sidebar, browser and info panel; `refresh` reads the library on a worker."""
@@ -95,6 +97,9 @@ class PhotosView(QWidget):
         self.sidebar = PhotoSidebar()
         self.sidebar.toggled.connect(self._toggle)
         self.sidebar.action.connect(self._sidebar_action)
+        from app.ui.widgets import photo_contacts
+
+        photo_contacts.wire(self)                  # IA-6: a person's Open / Link to contact
         self.browser = PhotoBrowser(self.thumbs)
         self.browser.current_changed.connect(self._current)
         self.browser.selection_changed.connect(self._selection)
@@ -266,23 +271,7 @@ class PhotosView(QWidget):
         """Swap the photos for the naming page - Accept all, the "Is this ...?"
         questions, Manage faces - with a way back."""
         if self._naming is None:
-            from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
-
-            holder = QWidget()
-            back = QPushButton("Back to photos")
-            back.setToolTip("Return to your photos, with what you named included")
-            back.clicked.connect(self.show_photos)
-            page = PhotoTaggerPage(self._store)
-            page.opened.connect(self.open_requested.emit)
-            column = QVBoxLayout(holder)
-            column.setContentsMargins(0, 0, 0, 0)
-            column.addWidget(back, 0, Qt.AlignmentFlag.AlignLeft)
-            column.addWidget(page, 1)
-            self._naming = page
-            self.centre.addWidget(holder)
-            from app.ui.widgets.buttons import style_all
-
-            style_all(holder)
+            self._naming = naming_page(self)    # built once, Back to photos above it
         else:
             self._naming.reload()
         self.centre.setCurrentIndex(1)

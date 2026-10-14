@@ -257,6 +257,9 @@ BUTTONS: dict[str, tuple[str, str]] = {
     # -- Enrichment (order 1s 7c, 7e, 8a; 2026-10-12) ------------------------------
     "Never suggest these": ("ban", "secondary"),
     "Enrich this contact": ("wand-sparkles", "secondary"),
+    # IA-6 (2026-10-14): a contact's "From your index", onward to Photos and Mail.
+    "See all photos": ("image", "secondary"),
+    "See mail from them": ("mail", "secondary"),
     # "Suggestions you turned down": Undo on a contact's page, Clear in Settings (it asks first).
     "Undo": ("undo-2", "secondary"),
     "Clear": ("eraser", "danger"),

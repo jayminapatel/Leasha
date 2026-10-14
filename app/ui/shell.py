@@ -751,6 +751,7 @@ class MainWindow(QMainWindow):
         self.photos_view.error.connect(self._show_error)
         self.photos_view.open_requested.connect(self._open_path)
         self.photos_view.reveal_requested.connect(self._reveal_path)
+        self.photos_view.contact_requested.connect(self._open_contact)     # IA-6
         photos_wrapped = wrap_if_needed(self.photos_view, scroll=False)
         mail_wrapped = wrap_if_needed(self.mail_view, scroll=False)
         self.rail.insertTab(at(self.files_view), mail_wrapped, "Mail", icon="mail")
@@ -2491,6 +2492,21 @@ class MainWindow(QMainWindow):
         self._show(view)
         if naming:
             view.show_naming()
+
+    def show_photos_for(self, box: str) -> None:
+        """IA-6: a contact's "See all photos" - Photos, its box set to `box` (`who:Name`)."""
+        view = getattr(self, "photos_view", None)
+        if view is not None and box:
+            self._show_photos()
+            view.show_photos()
+            view.input.setText(box)
+
+    def show_mail_for(self, box: str) -> None:
+        """IA-6: a contact's "See mail from them" - Mail, its box set to `box` (`from:address`)."""
+        view = getattr(self, "mail_view", None)
+        if view is not None and box:
+            self._focus_mail()
+            view.input.setText(box)
 
     def _open_path(self, path: str, *, reveal: bool = False) -> None:
         """The same, for a caller with a path and no row - the log, a chip.
