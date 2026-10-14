@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.171 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 7.172 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-14, morning - #94 merged; two fixes straight to `main`; one branch left.** **#94** (People: faces seen once, tiny faces dropped, a Sort button) squash-merged as `e078ca8`, green on CI alone; the entry below that names its branch is now untrue on that point - it is on `main`. **Committed to `main` on the owner's word:** `2b35e01` fix(accounts) - a binned contact whose link has no snapshot (joined by a merge-in) is judged against the contact as Leasha holds it, so the delete reaches the account (six stayed in Gmail); a write given up on repeated version conflicts is recorded, so the run says partial; verify counts a binned contact still at the account as waiting to write. `8a68c46` fix(contacts) - the Enrich window's notes line held one "<domain> could not be reached." a contact, repeats included (seen in the owner's window); a run now says it once (`run.unreached_notes`: three named, the rest counted), says Gravatar and Wikidata once, and does not ask a failed domain again in the same run. CI on `main` passed with both and #93 (run 38453343328). **Branches:** every other local and GitHub branch and every worktree removed after checking each commit is in `main`'s history; `main` is the only branch on both sides. **UNVERIFIED in the real window:** the shortened Enrich notes line.
 
 **2026-10-14 - People: faces seen once, tiny faces dropped, a Sort button (branch `fix/people-seen-once-and-sorting`).** The owner: faces found but not on the list for naming. Measured read-only on `D:\LeashaIndex\Data`: 377 faces, 149 in 26 groups (5 named), 228 in none; re-clustering those 228 now would group 2 - clustering was current, they are faces seen once, median shortest side 21 px, all from 48 mail pictures. **Built (owner's choice of options 1 and 2, plus sorting):** `app/core/face_size.SMALLEST_FACE_PX` = 40 (`face_detect.detect_faces` drops smaller; `faces_seen_once` and `picture_counts['unsorted']` leave older small ones out; a small face already grouped stays); a last tile "Faces seen once" opening `_ManageFacesDialog(store, None)` with **Name them…** (`SqliteStore.name_faces`); a Sort button (house `sortButton` pattern) - Most faces, Name (A to Z), Unnamed first, Recently found - remembered as `people.sort`; "Person N" is now the size rank, independent of the order (`size_ranks`). `PileRecord.last_found` is new. **Fixed in passing:** `picture_counts['people']` counted emptied groups (53 against 26 on the owner's index). **Traps:** 159 small unsorted faces stay in the owner's `faces` table (not deleted - nothing destructive done to their data); they are only hidden. Clustering still considers small faces already in the table. **UNVERIFIED in the real window:** the tile, the dialog and the Sort button at Windows DPI (the owner's Leasha window was masked to screenshots this session).
 
