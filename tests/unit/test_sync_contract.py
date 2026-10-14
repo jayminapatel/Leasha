@@ -190,6 +190,39 @@ def test_a_server_in_trouble_ends_the_run_once_and_lists_no_contact_as_refused(w
     assert world.accounts.failures(g) == []
 
 
+# ---------------------------------------------------------------------------------------------------- CS-11
+def test_a_run_that_holds_a_clash_says_so_with_the_fix(world):
+    from app.ui.accounts import logic
+    g, _rid, cid = _held_clash(world)
+    run = world.accounts.runs(account_id=g, kind="contacts", limit=1)[0]
+    assert run.status == "ok"                                 # the rest was written: not a safety hold
+    assert run.error_code == "ERR_SYNC_CONFLICT_HELD"
+    row = logic.run_row(run)
+    assert row["error"] == "1 contact(s) changed in two places and are waiting for your choice."
+    assert row["fix"] == "Open Contacts > Changed in two places and choose which value to keep."
+    assert not logic.can_allow(run)
+    (conflict,) = world.hub.open_conflicts(cid)
+    book_actions.accept_conflicts(world.hub, [(int(conflict["id"]), "local")])
+    out = only(world.engine.sync(), g)
+    after = world.accounts.run(out.run_id)
+    assert out.error is None and after.error_code is None and after.error_text is None
+
+
+def test_a_partial_run_that_holds_a_clash_says_both(world):
+    from tests.unit.accounts_fakes import BatchFakeProvider
+    g, _rid, _cid = _held_clash(world)
+    world.providers[g] = BatchFakeProvider(world.servers[g])
+    bob = world.hub.create(person("Bob", "Bell"))
+    world.hub.set_kept_in(bob, [g])
+    world.providers[g].refuse.add("new:Bob")
+    out = only(world.engine.sync(), g)
+    run = world.accounts.run(out.run_id)
+    assert run.status == "partial" and run.error_code == "ERR_SYNC_CONFLICT_HELD"
+    assert run.error_text.startswith("1 contact(s) could not be written (Bob Bell: ")
+    assert "1 contact(s) changed in two places" in run.error_text
+    assert run.error_text.endswith(" FIX: Open Contacts > Changed in two places and choose which value to keep.")
+
+
 # ---------------------------------------------------------------------------------------------------- CS-12
 def test_a_live_refusal_names_the_contact_it_is_about(world):
     from tests.unit.accounts_fakes import BatchFakeProvider

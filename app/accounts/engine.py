@@ -1026,15 +1026,36 @@ class ContactSyncEngine:
         self.accounts.record_success(acct.id, "contacts")
         if not acct.first_sync_done:
             self.accounts.update(acct.id, first_sync_done=True)
+        # Review CS-11: clashes held for the person's choice ('ask me every time') are said on the run, with the
+        # fix, instead of a plain "Done". The rest of the sync went through, so the run is still ok or partial -
+        # never "held", whose Allow would lift the delete brake and the churn guard, and settles no clash.
+        waiting = self._held_clashes(acct.id)
+        clash = (make_error("ERR_SYNC_CONFLICT_HELD", "accounts.engine", count=waiting, account=acct.name)
+                 if waiting else None)
+        if clash is not None and out.error is None:
+            out.error = clash
         if out.status == "partial":
             first = "; ".join(f"{f[0]}: {f[1]}" for f in p.failures[:3])
+            text = (f"{p.failed_out} contact(s) could not be written ({first}). They stay waiting; "
+                    "the next sync tries them again.")
             self.accounts.finish_run(
                 out.run_id, "partial", added=p.added, changed=p.changed, deleted=p.deleted, held=p.held,
-                error_text=f"{p.failed_out} contact(s) could not be written ({first}). They stay waiting; "
-                           "the next sync tries them again.", plan=p.to_json())
+                error_code=clash.code if clash else None,
+                error_text=f"{text} {_with_fix(clash)}" if clash else text, plan=p.to_json())
             return
         self.accounts.finish_run(out.run_id, "ok", added=p.added, changed=p.changed, deleted=p.deleted,
-                                 held=p.held, plan=p.to_json())
+                                 held=p.held, error_code=clash.code if clash else None,
+                                 error_text=_with_fix(clash) if clash else None, plan=p.to_json())
+
+    def _held_clashes(self, account_id: int) -> int:
+        """How many contacts wait for the person's choice of a clash with this account (review CS-11)."""
+        try:
+            return int(self.store.conn.execute(
+                "SELECT COUNT(DISTINCT contact_id) FROM contact_conflicts WHERE account_id = ? "
+                "AND resolved_at IS NULL AND winner = 'held'", (account_id,)).fetchone()[0])
+        except Exception:                                     # noqa: BLE001 - a sentence; never fails a sync
+            _log.debug("held clashes of {} not counted", account_id, exc_info=True)
+            return 0
 
     # --------------------------------------------------------- conflict choice
     def resolve_conflict(self, contact_id: int, account_id: int, choose: str, *,
