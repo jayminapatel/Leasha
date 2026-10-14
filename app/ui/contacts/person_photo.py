@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QListWidget, Q
 
 from app.contacts.card import Photo
 from app.ui.contacts import loader
-from app.ui.widgets.dialog_frame import frame
+from app.ui.widgets.dialog_frame import buttons as dialog_buttons, frame
 
 __all__ = ["pick_photo_from_person", "candidate_faces"]
 
@@ -60,10 +60,9 @@ def pick_photo_from_person(parent: Any, hub: Any, contact_id: Optional[int]) -> 
     faces.setAccessibleName("Faces to choose from")
     faces.setToolTip("Choose the face to use as this contact's picture, then press OK.")
     layout.addWidget(faces, 1)
-    buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+    # Review DS-13: the frame's button row. OK keeps its word - the list's tooltip says "press OK".
+    buttons = dialog_buttons(dialog)
     buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
-    buttons.accepted.connect(dialog.accept)
-    buttons.rejected.connect(dialog.reject)
     layout.addWidget(buttons)
     chosen: dict[str, Photo] = {}
 
