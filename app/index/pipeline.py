@@ -97,12 +97,21 @@ from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder, length_order
 from app.index.interrupted import ARCHIVE_RESUME_PREFIX
 from app.index import live_progress
+from app.index.conductor import (
+    NULL_CONDUCTOR,
+    Conductor,
+    budget_for,
+)
 from app.index.live_progress import (
     DEVICE_CPU,
     DEVICE_GPU,
     LANE_BESIDE,
+    LANE_CARDS,
+    LANE_DESCRIBE,
     LANE_DONE,
+    LANE_FACES,
     LANE_MEANING,
+    LANE_PICTURE_TEXT,
     LANE_PASS,
     LANE_PAUSED,
     LANE_PICTURES,
@@ -597,6 +606,12 @@ class IndexStats:
     #: exactly as `workers` is; the readers stay in `workers`. For "pass" and
     #: "beside", `done`/`total` are the current pass's, reset at each phase.
     lanes: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: 2026-10-14, the cockpit's resource strip (order 5a): `{"cpu_percent",
+    #: "memory_mb", "memory_total_mb", "disk_free_gb", "gpu_lane"}`, plain
+    #: values, any of them None when it could not be measured. Drawn from the
+    #: resource governor's own readings (never a probe per tick - see
+    #: `Pipeline._resources_reading`) and the conductor's graphics-card holder.
+    resources: dict[str, Any] = field(default_factory=dict)
     #: Work order 0x section 3d. **When anything last moved**, as wall-clock
     #: `time.time()`; 0.0 before the first snapshot. Moved forward at snapshot
     #: time when the run's signature changed - see `live_progress` for why it
@@ -636,6 +651,12 @@ class IndexStats:
             self.workers = workers
             lanes = board.lane_board.lanes()
             self.lanes = lanes
+            source = getattr(board, "resources", None)
+            if source is not None:
+                try:
+                    self.resources = dict(source() or {})
+                except Exception:                # noqa: BLE001 - reporting only
+                    pass
             counters = (
                 self.seen, self.indexed, self.skipped, self.unchanged,
                 self.unchanged_documents, self.chunks, self.vectors,
@@ -963,7 +984,17 @@ class PipelineConfig:
     #: raising *toward*, never a replacement for it. Resolving this from the
     #: envelope is `resolve.py`'s job, the same as every other tunable here -
     #: `Pipeline` only ever spends what it is given.
+    #: *2026-10-14:* `resolve.py` now resolves it (`conductor.reader_ceiling`),
+    #: and `run_setup.build_pipeline_config` passes it on.
     worker_ceiling: int = 0
+    #: 2026-10-14, order section 5. The conductor (`app/index/conductor.py`):
+    #: one processor budget and one graphics-card slot for the run's models,
+    #: the face pool on the processor, and the run's end passes side by side.
+    #: **Not a setting** (non-negotiable 11 - nobody would tune it): False is
+    #: the run as it was before, every model unmetered and the passes one
+    #: after another, kept only so the measurement (`app.cli bench conductor`)
+    #: can compare the two on the same corpus.
+    conductor: bool = True
     #: Work order 0i section 3b. OFF by default - see `app.core.
     #: settings_registry.CAPTION_TRICKLE_ENABLED` for the reasoning. Read by
     #: `_drain_caption_trickle`, which the pipeline has no `Settings` object
@@ -1508,10 +1539,14 @@ class _BesideMeaning:
     whether they run beside the model or after it.
     """
 
-    def __init__(self, pipeline: "Pipeline") -> None:
+    #: The lane this view's passes report on.
+    LANE = LANE_BESIDE
+
+    def __init__(self, pipeline: "Pipeline", lane: Optional[str] = None) -> None:
         object.__setattr__(self, "_pipeline", pipeline)
         object.__setattr__(self, "phase", "")
         object.__setattr__(self, "wrote", False)
+        object.__setattr__(self, "_lane_id", lane or self.LANE)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._pipeline, name)
@@ -1522,7 +1557,7 @@ class _BesideMeaning:
     def _pass_lane(self) -> Any:
         # 2026-10-14: the same passes, reported on this thread's own lane, so
         # the run's thread and this one never write over each other's line.
-        return self._pipeline._lane(LANE_BESIDE)
+        return self._pipeline._lane(self._lane_id)
 
     def _announce_phase(self, stats: Any, on_progress: Any, phase: str) -> None:
         object.__setattr__(self, "phase", phase)
@@ -1531,6 +1566,59 @@ class _BesideMeaning:
 
     def _drain_unembedded(self, stats: Any, **_kwargs: Any) -> None:
         object.__setattr__(self, "wrote", True)
+
+    def take_wrote(self) -> bool:
+        """Did a pass write passages since the last ask? Clears the note."""
+        wrote = bool(self.wrote)
+        object.__setattr__(self, "wrote", False)
+        return wrote
+
+
+#: How long the text-in-pictures pass waits for more photos to be described
+#: when it has read every described one and the describing pass is still going
+#: (order 5b). Short: it is woken at once when describing ends, and a photo
+#: takes Florence-2 4-10 s, so half a second never leaves it idle for long.
+TAIL_ROUND_WAIT_S = 0.5
+
+
+class _Tally:
+    """Pictures that gave something, counted from more than one thread at the
+    run's end (order 5b): the pass's own count and `stats.chunks`."""
+
+    def __init__(self, lock: Any) -> None:
+        self.found = 0
+        self._lock = lock
+
+    def add(self, stats: Any) -> None:
+        with self._lock:
+            self.found += 1
+            stats.chunks = int(getattr(stats, "chunks", 0) or 0) + 1
+
+
+class _SlottedClient:
+    """A card model whose every `generate` holds the conductor's "cards" slot
+    (order 5a, 2026-10-14). Everything else is the client's own."""
+
+    def __init__(self, client: Any, pipeline: "Pipeline") -> None:
+        self._client = client
+        self._pipeline = pipeline
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    def generate(self, *args: Any, **kwargs: Any) -> Any:
+        with self._pipeline._model_slot(LANE_CARDS):
+            return self._client.generate(*args, **kwargs)
+
+
+class _TailView(_BesideMeaning):
+    r"""One of the run's end passes on a thread of its own, under the
+    conductor (order 5b, 2026-10-14). `_BesideMeaning`'s proven pattern:
+    the pipeline as the pass sees it, except that the pass says its phase on
+    its own lane (`faces`, `describe`, `picture_text`) rather than writing
+    `stats.phase` from a second thread, and notes what it wrote rather than
+    embedding it - one thread embeds for all of them (`_tail_meaning`), since
+    `_embed_pending` is not safe from two at once."""
 
 
 class Pipeline:
@@ -1793,6 +1881,187 @@ class Pipeline:
         #: plus one more for every dynamically-started worker since each of
         #: those enqueues its own matching marker. Set in `run()`.
         self._expected_stops = 0
+        # 2026-10-14, order 5: per-instance copies of the class defaults below.
+        self._pending_lock = threading.RLock()
+        self._cluster_lock = threading.Lock()
+        self._tally_lock = threading.Lock()
+        self._conductor = NULL_CONDUCTOR
+        self._budget = None
+
+    # -- 2026-10-14, order 5: the conductor ---------------------------------
+    #
+    # Class-level defaults so a pipeline a test built with `__new__` (no
+    # `__init__`) still has them; `__init__` gives each pipeline its own.
+    #
+    #: Guards the picture lists (`_pending_pictures`, `_pending_images`,
+    #: `_pending_frames`, `_pending_phashes`) once more than one picture thread
+    #: runs (the face pool, order 5d). Re-entrant: `_maybe_embed_image` holds
+    #: it while it decides to embed the batch.
+    _pending_lock: Any = threading.RLock()
+    #: One face grouping at a time, whichever picture thread reached the count.
+    _cluster_lock: Any = threading.Lock()
+    #: Counts more than one thread adds to (`stats.chunks`, `warned_by_code`).
+    _tally_lock: Any = threading.Lock()
+    #: The run's conductor; `NULL_CONDUCTOR` outside `run()` or when off.
+    _conductor: Any = NULL_CONDUCTOR
+    #: The run's `conductor.Budget`, or None (no conductor).
+    _budget: Any = None
+    #: The most recent resource reading the cockpit was given, and when.
+    _resources_at = 0.0
+    _resources_last: Any = None
+    #: How often the cockpit's resource strip may cause a probe of its own,
+    #: when the governor has not read the machine for that long. The order's
+    #: "at most every 2 s": one probe costs 26-30 ms on Windows.
+    RESOURCES_EVERY_S = 2.0
+
+    def _start_conductor(self) -> None:
+        """Build this run's conductor and size the picture models from it.
+
+        After the meaning model has loaded (its thread count and device are
+        the budget's first term). Off (`config.conductor` False) or a light
+        folder-watch run: no budget, every model unmetered, as before.
+        Never raises: a run without a conductor is the run as it was.
+        """
+        self._conductor = NULL_CONDUCTOR
+        self._budget = None
+        if not getattr(self.config, "conductor", True):
+            return
+        try:
+            from app.core.compute_profile import cores_only
+
+            meaning = None
+            if not self._meaning_on_gpu():
+                meaning = int(getattr(self.embedder, "threads", 0) or 0) or None
+            budget = budget_for(cores_only(), readers=self.config.worker_count(),
+                                meaning_threads=meaning)
+            self._budget = budget
+            self._conductor = Conductor(
+                budget.cpu_slots,
+                should_stop=lambda: bool(self._interrupted),
+                paused=self._conductor_held,
+                write_lock_held=self._holds_write_lock)
+            pool = budget.face_pool(faces_on_gpu=False)
+            per_caller = budget.threads_for(pool)
+            if self.config.people_recognition_enabled:
+                from app.extract import face_detect
+
+                face_detect.configure_threads(per_caller)
+            if self.image_embedder is not None and hasattr(self.image_embedder, "size_threads"):
+                self.image_embedder.size_threads(per_caller)
+            from app.extract import florence_tagger
+
+            florence_tagger.configure_threads(budget.picture_threads)
+            self._log.info(
+                "conductor: {} processor slot(s) and one graphics-card slot for the "
+                "run's models ({}); faces {} at a time on the processor, {} thread(s) "
+                "each", budget.cpu_slots, budget.why, pool, per_caller)
+        except Exception as exc:                  # noqa: BLE001 - the run as it was
+            self._log.warning("the run goes on without its conductor: {}", exc)
+            self._conductor = NULL_CONDUCTOR
+            self._budget = None
+
+    def _conductor_held(self) -> bool:
+        """The governor's brake, as the conductor reads it: the person's pause,
+        or the machine's - except a memory pause (see the conductor's note)."""
+        if self._person_paused():
+            return True
+        governor = self.governor
+        return bool(getattr(governor, "paused", False)
+                    and getattr(governor, "pause_cause", "") not in ("memory", ""))
+
+    def _holds_write_lock(self) -> bool:
+        """Does this thread hold the store's write lock (an open transaction)?
+        The conductor admits such a thread at once - its rule 2."""
+        local = getattr(self.store, "_local", None)
+        if getattr(local, "batch_depth", 0):
+            return True
+        lock = getattr(self.store, "_write_lock", None)
+        owned = getattr(lock, "_is_owned", None)
+        try:
+            return bool(owned()) if owned is not None else False
+        except Exception:                         # noqa: BLE001 - "no" keeps the budget
+            return False
+
+    def _model_slot(self, lane: str, *, on_gpu: bool = False, weight: int = 0) -> Any:
+        """The conductor's slot for one model call on `lane` - a context
+        manager. `weight` 0 is the picture share. Nothing but the model call
+        goes inside it (the conductor's rule 1: never wait for the write lock
+        holding a slot)."""
+        conductor = getattr(self, "_conductor", NULL_CONDUCTOR) or NULL_CONDUCTOR
+        budget = getattr(self, "_budget", None)
+        if not weight:
+            weight = budget.picture_threads if budget is not None else 1
+        return conductor.model(lane, on_gpu=bool(on_gpu), weight=weight)
+
+    def _picture_weight(self) -> int:
+        """Slots one picture-thread model call is charged: the picture share
+        split between the face pool's callers."""
+        budget = getattr(self, "_budget", None)
+        if budget is None:
+            return 1
+        return budget.weight_for(self._face_pool_size())
+
+    def _face_pool_size(self) -> int:
+        """Photos the picture worker looks at side by side (order 5d).
+
+        One unless the conductor is on, faces are switched on, and the face
+        model has loaded on the processor - where it sits is known only once
+        it has loaded, and asking before would cost a hardware probe. On the
+        graphics card, one: the card is one slot. Measured gain on the
+        processor: `conductor.FACE_POOL_MAX`."""
+        budget = getattr(self, "_budget", None)
+        if budget is None or not getattr(self.config, "people_recognition_enabled", False):
+            return 1
+        face_detect = sys.modules.get("app.extract.face_detect")
+        if face_detect is None or getattr(face_detect, "_engine", None) is None:
+            return 1
+        return budget.face_pool(faces_on_gpu=bool(getattr(face_detect, "_engine_is_gpu", False)))
+
+    def _count_warning(self, code: str, stats: Any = None) -> None:
+        """One more document carrying `code`, from any thread."""
+        stats = stats if stats is not None else self._stats_ref
+        with self._tally_lock:
+            stats.warned_by_code[code] = stats.warned_by_code.get(code, 0) + 1
+
+    def _resources_reading(self) -> dict[str, Any]:
+        """The cockpit's resource strip, as plain values. Never raises.
+
+        From the governor's own latest reading (`last_snapshot`); only when it
+        has not read the machine for `RESOURCES_EVERY_S` is it asked for one
+        (`probe_now`) - so at most one extra probe every two seconds, and none
+        while the run's own pacing is reading the machine anyway.
+        """
+        now = time.monotonic()
+        governor = self.governor
+        snapshot = getattr(governor, "last_snapshot", None)
+        taken = float(getattr(governor, "last_snapshot_at", 0.0) or 0.0)
+        if (now - taken >= self.RESOURCES_EVERY_S
+                and now - self._resources_at >= self.RESOURCES_EVERY_S):
+            self._resources_at = now
+            probe = getattr(governor, "probe_now", None)
+            if probe is not None:
+                snapshot = probe()
+        total = getattr(self, "_memory_total_mb", None)
+        if total is None:
+            try:
+                import psutil
+
+                total = round(psutil.virtual_memory().total / 1_048_576)
+            except Exception:                     # noqa: BLE001 - unknown is None
+                total = 0
+            self._memory_total_mb = total
+
+        def rounded(value: Any, places: int = 0) -> Any:
+            return None if value is None else round(float(value), places)
+
+        conductor = getattr(self, "_conductor", NULL_CONDUCTOR) or NULL_CONDUCTOR
+        return {
+            "cpu_percent": rounded(getattr(snapshot, "system_cpu_percent", None), 1),
+            "memory_mb": rounded(getattr(snapshot, "rss_mb", None)),
+            "memory_total_mb": total or None,
+            "disk_free_gb": rounded(getattr(snapshot, "free_disk_gb", None), 1),
+            "gpu_lane": conductor.gpu_holder or "",
+        }
 
     def _media_pace(self) -> bool:
         r"""The resource governor's pause, for a long recording. True = stop.
@@ -2271,6 +2540,11 @@ class Pipeline:
         # meaning-based indexing to do, and finding that out before anything is
         # written is the whole point.
         self._warm_embedder()
+        # 2026-10-14, order 5a: the conductor, once the meaning model has said
+        # where it runs and with how many threads - the budget's first term.
+        self._start_conductor()
+        if stats.board is not None:
+            stats.board.resources = self._resources_reading
         # Check if FTS was marked dirty by an interrupted bulk run and rebuild
         # if needed. This must happen before extraction starts.
         self._announce_phase(stats, on_progress, PHASE_WORD_INDEX_CHECK)
@@ -2481,7 +2755,15 @@ class Pipeline:
         # 2026-10-04: faces found this run are grouped now, not at the start of
         # the next one - see `FACE_CLUSTER_EVERY`. 2026-10-10: not by the media
         # tail's run, which hands its count to the outer run instead.
-        if getattr(self, "_faces_since_cluster", 0) and not self.outer_run_finishes:
+        cluster = bool(getattr(self, "_faces_since_cluster", 0)) and not self.outer_run_finishes
+        beside = getattr(self, "_pictures_beside", None)
+        beside_alive = beside is not None and beside.is_alive()
+        # 2026-10-14, order 5b: with the conductor, the grouping, the
+        # descriptions and the text in pictures run side by side
+        # (`_passes_side_by_side`); without it, one after another, as before.
+        side_by_side = (finishing and not beside_alive
+                        and getattr(self, "_budget", None) is not None)
+        if cluster and not side_by_side:
             self._drain_face_cluster(stats)
             self._faces_since_cluster = 0
         # 2026-10-10: the photo passes may already have run beside the meaning
@@ -2493,14 +2775,18 @@ class Pipeline:
         # Their counts are kept: each pass *sets* its count, so the second,
         # near-empty run of it would otherwise report the photos described
         # beside the model as none at all.
-        beside = getattr(self, "_pictures_beside", None)
-        if finishing and not (beside is not None and beside.is_alive()):
+        if finishing and not beside_alive:
             # Taken out first, so a pass that returns before counting (no
             # Florence-2 here) does not have the earlier count added twice.
             done_beside = {kind: stats.enrichment_counts.pop(kind, None)
                            for kind in ("photo_tags", "picture_text")}
-            self._drain_photo_tags(stats, on_progress)
-            self._drain_picture_text(stats, on_progress)
+            if side_by_side:
+                self._passes_side_by_side(stats, on_progress, cluster=cluster)
+                if cluster:
+                    self._faces_since_cluster = 0
+            else:
+                self._drain_photo_tags(stats, on_progress)
+                self._drain_picture_text(stats, on_progress)
             for kind, count in done_beside.items():
                 if count is not None:
                     stats.enrichment_counts[kind] = (
@@ -2557,6 +2843,16 @@ class Pipeline:
             "threads": getattr(self.embedder, "threads", 0),
             "dedup": bool(self.config.dedup_chunks),
         }
+        # 2026-10-14, order 5: the conductor's budget and how long each lane's
+        # models held a slot - the numbers 5e's measurement compares.
+        budget = getattr(self, "_budget", None)
+        if budget is not None:
+            stats.resolved["conductor"] = budget.as_dict()
+            busy = self._conductor.busy_seconds()
+            if busy:
+                stats.resolved["model_busy_s"] = {k: round(v, 2) for k, v in busy.items()}
+            if self._conductor.bypassed:
+                stats.resolved["conductor_bypassed"] = dict(self._conductor.bypassed)
         # §6g: only worth a line when it actually happened - a run where the
         # ceiling was never set, or was never reached, says nothing extra.
         if self._dynamic_workers:
@@ -5980,6 +6276,160 @@ class Pipeline:
         thread.start()
         return thread
 
+    # -- 2026-10-14, order 5b: the run's end passes side by side ---------------
+
+    def _passes_side_by_side(
+        self, stats: IndexStats,
+        on_progress: Optional[Callable[[IndexStats], None]], *, cluster: bool,
+    ) -> None:
+        r"""Face grouping, photo descriptions and text in pictures at once,
+        with one thread giving their new passages meaning as they go.
+
+        Before this they ran one after another on the run's thread, each
+        waiting for the last although they use different models - and on the
+        owner's laptop different processors (Florence-2 and OCR on the card,
+        the meaning model on the processor). Each runs on a thread of its own
+        through a `_TailView`, on its own lane, and every model call holds the
+        conductor's slot for its lane, so the processor and the card are
+        shared by priority rather than by who asked first.
+
+        **What stays as it was:**
+
+        * *Each photo's own order* (the owner, 2026-10-04: "faces then
+          description then ocr"). Faces were found as the photo was read; the
+          text pass takes only photos already described
+          (`iter_pictures_waiting(described=True)`), in rounds while the
+          describing goes on (`_read_waiting_text`). Pages are not described
+          and are read first, as before.
+        * *Stop, pause, pacing.* Each pass keeps its own checks of
+          `_interrupted` and the governor, per batch and per photo, exactly as
+          on the run's thread; this thread reports progress and the pause.
+        * *Errors per photo, and never fatal.* Each pass is already never
+          fatal; a pass that raises anyway is logged and the others go on.
+        * *Counts.* `photo_tags` is the describing pass's own; `picture_text`
+          adds both halves (`_Tally`); `face_cluster` is the grouping's own; the
+          passages given meaning here are summed into `unembedded_chunk` and
+          `vectors_repaired`, where each pass's own call set them.
+        * *One embedder.* `_embed_pending` is not safe from two threads, so the
+          passes only note what they wrote and the meaning thread embeds.
+
+        The document cards are not here: they read what these passes write,
+        so they stay after them (`run`).
+        """
+        florence_lane = _TailView(self, LANE_DESCRIBE)
+        text_lane = _TailView(self, LANE_PICTURE_TEXT)
+        faces_lane = _TailView(self, LANE_FACES)
+        meaning_lane = _TailView(self, LANE_MEANING)
+        writers = (florence_lane, text_lane, faces_lane)
+        described = threading.Event()
+        tally = _Tally(self._tally_lock)
+        passes_of = type(self)
+        # The reads this run recorded must be visible to the passes' queries.
+        self._commit_write_group()
+        from app.extract import florence_tagger
+
+        florence_tagger.defer(False)
+
+        def guarded(name: str, view: _BesideMeaning, body: Callable[[], None],
+                    after: Optional[Callable[[], None]] = None) -> Callable[[], None]:
+            def run_it() -> None:
+                view._pass_lane().idle(LANE_WAITING)
+                try:
+                    body()
+                except Exception as exc:          # noqa: BLE001 - one pass, not the run
+                    self._log.warning("the {} pass at the run's end stopped: {}", name, exc)
+                finally:
+                    if after is not None:
+                        after()
+                    self._drop_lane(view._lane_id)
+            return run_it
+
+        def describe() -> None:
+            passes_of._drain_photo_tags(florence_lane, stats, None)
+            if not self._interrupted:
+                passes_of._describe_waiting_photos(florence_lane, stats, None, tally)
+
+        def read_text() -> None:
+            passes_of._read_waiting_text(text_lane, stats, None, tally, describing=described)
+
+        def group_faces() -> None:
+            passes_of._drain_face_cluster(faces_lane, stats)
+
+        bodies = [("describing", florence_lane, describe, described.set),
+                  ("text in pictures", text_lane, read_text, None)]
+        if cluster:
+            bodies.append(("face grouping", faces_lane, group_faces, None))
+        threads = [threading.Thread(target=self._background(guarded(*body)),
+                                    name=f"run-end-{body[1]._lane_id}", daemon=True)
+                   for body in bodies]
+        started = time.monotonic()
+        for thread in threads:
+            thread.start()
+
+        filled = [0]
+
+        def give_meaning() -> None:
+            """Embed what the passes wrote. Only this thread embeds."""
+            if not self._drain_takes_run_end() or self._interrupted:
+                return
+            passes_of._drain_unembedded(meaning_lane, stats, at_run_end=True)
+            filled[0] += int(stats.enrichment_counts.get("unembedded_chunk", 0) or 0)
+
+        last = 0.0
+        try:
+            while any(thread.is_alive() for thread in threads):
+                if any([view.take_wrote() for view in writers]):
+                    give_meaning()
+                if self._person_paused():
+                    self._report_pause(stats, on_progress)
+                now = time.monotonic()
+                if now - last >= HEARTBEAT_SECONDS:
+                    last = now
+                    self._follow_tail(stats, on_progress, writers)
+                time.sleep(_PARKED_POLL_S)
+        finally:
+            for thread in threads:
+                thread.join(timeout=None if not self._interrupted else PICTURES_BESIDE_JOIN_S)
+        if any([view.take_wrote() for view in writers]) or tally.found:
+            give_meaning()
+        self._drop_lane(LANE_MEANING)
+        stats.enrichment_counts["picture_text"] = tally.found
+        if tally.found:
+            self._log.info("described or read {} picture(s) at the end of the run", tally.found)
+        if filled[0]:
+            # Summed over this thread's calls; each pass's own call used to set
+            # these to what it filled.
+            stats.enrichment_counts["unembedded_chunk"] = filled[0]
+            stats.vectors_repaired = filled[0]
+        self._log.info("the run's end passes ran side by side for {:.1f} s",
+                       time.monotonic() - started)
+
+    def _follow_tail(self, stats: IndexStats,
+                     on_progress: Optional[Callable[[IndexStats], None]],
+                     views: tuple) -> None:
+        """The run's phase follows the most important pass still saying one,
+        so the progress line names real work; the lanes say the rest."""
+        for view in views:
+            phase = getattr(view, "phase", "")
+            if phase and self._pictures_lane_open(view._lane_id):
+                if stats.phase != phase:
+                    self._announce_phase(stats, on_progress, phase)
+                    # This thread only waits; the pass's own lane does the work.
+                    self._pass_lane().set(state=LANE_WAITING)
+                break
+        if on_progress is not None:
+            try:
+                stats.sample()
+                on_progress(stats)
+            except Exception as exc:              # noqa: BLE001 - reporting, not work
+                self._log.warning("progress reporting failed: {}", exc)
+
+    def _pictures_lane_open(self, lane_id: str) -> bool:
+        board = getattr(getattr(self, "_stats_ref", None), "board", None)
+        if board is None:
+            return True
+        return lane_id in board.lane_board.lanes()
+
     def _pictures_beside_allowed(self) -> bool:
         """Are the photo models on a different processor from the meaning model?
 
@@ -6711,7 +7161,8 @@ class Pipeline:
                         scanned += 1
                         continue
                     try:
-                        detections = detect_faces(Path(path), data=data)
+                        with self._model_slot(LANE_FACES, on_gpu=self._face_device() == DEVICE_GPU):
+                            detections = detect_faces(Path(path), data=data)
                     except Exception as exc:      # noqa: BLE001 - H4: one photo, not the run
                         self._log.debug("face backfill skipped {}: {}", path, exc)
                         continue
@@ -7020,7 +7471,8 @@ class Pipeline:
                     with self._picture_file(path) as real:
                         if real is None:
                             continue             # its archive would not open: next run
-                        result = florence_tagger.tag_image(real)
+                        with self._model_slot(LANE_DESCRIBE, on_gpu=florence_tagger.on_gpu()):
+                            result = florence_tagger.tag_image(real)
                     if result is None or not (result.caption or result.tags):
                         self.store.note_photo_untaggable(file_id)
                         continue
@@ -7069,6 +7521,13 @@ class Pipeline:
             return verdict.action != "stop"
 
         lane = self._pass_lane()
+        # 2026-10-14, order 5a: each card's model call holds the conductor's
+        # "cards" slot - the least important of a run's models.
+        plain_factory = factory
+
+        def factory() -> Any:
+            client = plain_factory()
+            return None if client is None else _SlottedClient(client, self)
 
         def on_card(name: str) -> None:
             stats.current = name
@@ -7146,117 +7605,191 @@ class Pipeline:
         end. New passages are embedded before the run ends.
         """
         from app.extract import florence_tagger
-        from app.extract.ocr import OcrExtractor, ocr_image
 
         florence_tagger.defer(False)
         # The reads this run recorded may still be in the open write group; the
         # queries below must see them.
         self._commit_write_group()
-        found = 0
+        # 2026-10-14, order 5b: the two halves are methods of their own, so the
+        # conductor can run them on two threads (`_passes_side_by_side`); here
+        # they run one after the other exactly as they always did.
+        tally = _Tally(self._tally_lock)
+        try:
+            if self._describe_waiting_photos(stats, on_progress, tally):
+                self._read_waiting_text(stats, on_progress, tally)
+        except Exception as exc:                  # noqa: BLE001 - a repair, not the job
+            self._log.warning("could not finish reading pictures: {}. Indexing continues.", exc)
+        finally:
+            stats.enrichment_counts["picture_text"] = tally.found
+            if tally.found:
+                self._log.info("described or read {} picture(s) at the end of the run",
+                               tally.found)
+                self._drain_unembedded(stats, at_run_end=True)
+
+    def _pictures_paced(self) -> bool:
+        """The governor's pace for the picture passes; False to stop."""
+        if self._interrupted:
+            return False
+        verdict = self.governor.wait_while_throttled(should_stop=lambda: self._interrupted)
+        return verdict.action != "stop"
+
+    def _describe_waiting_photos(
+        self, stats: IndexStats, on_progress: Optional[Callable[[IndexStats], None]],
+        tally: "_Tally",
+    ) -> bool:
+        """The first half of `_drain_picture_text`: every waiting photo described
+        (Florence-2), pages not. False when the run is stopping."""
+        from app.extract import florence_tagger
+        from app.extract.ocr import OcrExtractor
+
+        lane = self._pass_lane()
         # 2026-10-14: the pictures this pass has taken up, for its lane.
         handled = 0
-        lane = self._pass_lane()
-
-        def paced() -> bool:
-            if self._interrupted:
+        tagging = florence_tagger.available()
+        reuse = self._description_reuse()    # 2026-10-10, item 4c - as `_drain_photo_tags`
+        announced = False
+        for batch in self.store.iter_pictures_waiting(
+                OcrExtractor.extensions, code="ERR_PICTURE_TEXT_LATER",
+                described=False):
+            if not self._pictures_paced():
                 return False
-            verdict = self.governor.wait_while_throttled(should_stop=lambda: self._interrupted)
-            return verdict.action != "stop"
-
-        try:
-            tagging = florence_tagger.available()
-            reuse = self._description_reuse()    # 2026-10-10, item 4c - as `_drain_photo_tags`
-            announced = False
-            for batch in self.store.iter_pictures_waiting(
-                    OcrExtractor.extensions, code="ERR_PICTURE_TEXT_LATER",
-                    described=False):
-                if not paced():
-                    return
-                if not announced:
-                    self._announce_phase(stats, on_progress, PHASE_PHOTO_TAGS)
-                    announced = True
-                reuse.prepare([file_id for file_id, _path in batch])
-                for file_id, path in batch:
-                    if self._interrupted:
-                        return
-                    lane.set(task=PHASE_WORDS.get(PHASE_PHOTO_TAGS, ""),
-                             item=Path(str(path)).name, path=str(path), done=handled)
-                    handled += 1
-                    if tagging and self._copy_sibling_description(reuse, file_id):
-                        found += 1
-                        stats.chunks = int(getattr(stats, "chunks", 0) or 0) + 1
-                        self.store.note_picture_described(file_id)
-                        stats.current = Path(path).name
-                        if on_progress is not None:
-                            on_progress(stats)
-                        continue
-                    with self._picture_file(path) as real:
-                        if real is None:
-                            continue             # its archive would not open: next run
-                        result = florence_tagger.tag_image(real) if tagging else None
-                    if result is not None and (result.caption or result.tags):
-                        body = result.caption
-                        if result.tags:
-                            tag_line = "Tags: " + ", ".join(result.tags)
-                            body = body + chr(10) + tag_line if body else tag_line
-                        self.store.add_caption_chunk(file_id, body, label="AI description")
-                        reuse.remember(file_id, body)
-                        found += 1
-                        stats.chunks = int(getattr(stats, "chunks", 0) or 0) + 1
+            if not announced:
+                self._announce_phase(stats, on_progress, PHASE_PHOTO_TAGS)
+                announced = True
+            reuse.prepare([file_id for file_id, _path in batch])
+            for file_id, path in batch:
+                if self._interrupted:
+                    return False
+                lane.set(task=PHASE_WORDS.get(PHASE_PHOTO_TAGS, ""),
+                         item=Path(str(path)).name, path=str(path), done=handled)
+                handled += 1
+                if tagging and self._copy_sibling_description(reuse, file_id):
+                    tally.add(stats)
                     self.store.note_picture_described(file_id)
                     stats.current = Path(path).name
                     if on_progress is not None:
                         on_progress(stats)
+                    continue
+                result = None
+                with self._picture_file(path) as real:
+                    if real is None:
+                        continue             # its archive would not open: next run
+                    if tagging:
+                        with self._model_slot(LANE_DESCRIBE, on_gpu=florence_tagger.on_gpu()):
+                            result = florence_tagger.tag_image(real)
+                if result is not None and (result.caption or result.tags):
+                    body = result.caption
+                    if result.tags:
+                        tag_line = "Tags: " + ", ".join(result.tags)
+                        body = body + chr(10) + tag_line if body else tag_line
+                    self.store.add_caption_chunk(file_id, body, label="AI description")
+                    reuse.remember(file_id, body)
+                    tally.add(stats)
+                self.store.note_picture_described(file_id)
+                stats.current = Path(path).name
+                if on_progress is not None:
+                    on_progress(stats)
+        return True
 
-            announced = False
-            handled = 0
-            waiting = (("ERR_PAGE_TEXT_LATER", None), ("ERR_PICTURE_TEXT_LATER", True))
-            for code, described in waiting:
-                for batch in self.store.iter_pictures_waiting(
-                        OcrExtractor.extensions, code=code, described=described):
-                    if not paced():
-                        return
-                    if not announced:
-                        self._announce_phase(stats, on_progress, PHASE_PICTURE_TEXT)
-                        announced = True
-                    for file_id, path in batch:
-                        if self._interrupted:
-                            return
-                        lane.set(task=PHASE_WORDS.get(PHASE_PICTURE_TEXT, ""),
-                                 item=Path(str(path)).name, path=str(path), done=handled)
-                        handled += 1
-                        with self._picture_file(path) as real:
-                            if real is None:
-                                continue         # its archive would not open: next run
-                            text = ocr_image(real)
-                        if getattr(text, "error", None) is not None:
-                            # Order `pictures-process-isolation`: the helper died
-                            # on this picture. Not settled as "no text": it waits
-                            # for the next run's end, and the run says so.
-                            self._log.warning("{}", text.error.render())
-                            stats.warned_by_code[text.error.code] = (
-                                stats.warned_by_code.get(text.error.code, 0) + 1)
-                            continue
-                        if not text.empty and not text.engine_missing:
-                            self.store.add_caption_chunk(
-                                file_id, text.text, label="Text read from the image")
-                            found += 1
-                            stats.chunks = int(getattr(stats, "chunks", 0) or 0) + 1
-                        has_any = self.store.conn.execute(
-                            "SELECT 1 FROM chunks WHERE file_id = ? LIMIT 1",
-                            (file_id,)).fetchone() is not None
-                        self.store.note_picture_text_read(file_id, found_any=has_any)
-                        _settle(stats, code, indexed=has_any)
-                        stats.current = Path(path).name
-                        if on_progress is not None:
-                            on_progress(stats)
-        except Exception as exc:                  # noqa: BLE001 - a repair, not the job
-            self._log.warning("could not finish reading pictures: {}. Indexing continues.", exc)
-        finally:
-            stats.enrichment_counts["picture_text"] = found
-            if found:
-                self._log.info("described or read {} picture(s) at the end of the run", found)
-                self._drain_unembedded(stats, at_run_end=True)
+    def _read_waiting_text(
+        self, stats: IndexStats, on_progress: Optional[Callable[[IndexStats], None]],
+        tally: "_Tally", *, describing: Optional[threading.Event] = None,
+    ) -> bool:
+        """The second half of `_drain_picture_text`: text read last, pages first
+        and then the photos already described. False when the run is stopping.
+
+        `describing` (order 5b, 2026-10-14) is set once the describing half,
+        running on another thread, has finished. Until then the photos are
+        taken in rounds - each round the ones described since the last - and
+        a photo is never taken twice in one run (one whose read failed waits
+        for the next run, as it always did). Each photo's own order holds:
+        only a described photo is offered here.
+        """
+        from app.extract import ocr as ocr_module
+        from app.extract.ocr import OcrExtractor, ocr_image
+
+        lane = self._pass_lane()
+        announced = False
+        handled = 0
+        tried: set[int] = set()
+        weight = 1
+        budget = getattr(self, "_budget", None)
+        if budget is not None:
+            from app.index.ocr_process import HELPER_THREADS
+
+            # The helper reads one picture on one of its threads, each sized
+            # for `HELPER_THREADS` callers (`ocr_process`).
+            weight = budget.threads_for(HELPER_THREADS)
+
+        def one(file_id: int, path: str, code: str) -> None:
+            nonlocal handled
+            lane.set(task=PHASE_WORDS.get(PHASE_PICTURE_TEXT, ""),
+                     item=Path(str(path)).name, path=str(path), done=handled)
+            handled += 1
+            with self._picture_file(path) as real:
+                if real is None:
+                    return               # its archive would not open: next run
+                with self._model_slot(LANE_PICTURE_TEXT, weight=weight,
+                                      on_gpu=bool(getattr(ocr_module, "_engine_is_gpu", False))):
+                    text = ocr_image(real)
+            if getattr(text, "error", None) is not None:
+                # Order `pictures-process-isolation`: the helper died
+                # on this picture. Not settled as "no text": it waits
+                # for the next run's end, and the run says so.
+                self._log.warning("{}", text.error.render())
+                self._count_warning(text.error.code, stats)
+                return
+            if not text.empty and not text.engine_missing:
+                self.store.add_caption_chunk(
+                    file_id, text.text, label="Text read from the image")
+                tally.add(stats)
+            has_any = self.store.conn.execute(
+                "SELECT 1 FROM chunks WHERE file_id = ? LIMIT 1",
+                (file_id,)).fetchone() is not None
+            self.store.note_picture_text_read(file_id, found_any=has_any)
+            with self._tally_lock:
+                _settle(stats, code, indexed=has_any)
+            stats.current = Path(path).name
+            if on_progress is not None:
+                on_progress(stats)
+
+        def round_of(code: str, described: Optional[bool]) -> Optional[int]:
+            """One pass over what waits; the count taken, or None to stop."""
+            nonlocal announced
+            taken = 0
+            for batch in self.store.iter_pictures_waiting(
+                    OcrExtractor.extensions, code=code, described=described):
+                fresh = [(fid, path) for fid, path in batch if fid not in tried]
+                if not fresh:
+                    continue
+                if not self._pictures_paced():
+                    return None
+                if not announced:
+                    self._announce_phase(stats, on_progress, PHASE_PICTURE_TEXT)
+                    announced = True
+                for file_id, path in fresh:
+                    if self._interrupted:
+                        return None
+                    tried.add(file_id)
+                    taken += 1
+                    one(file_id, path, code)
+            return taken
+
+        if round_of("ERR_PAGE_TEXT_LATER", None) is None:
+            return False
+        while True:
+            # Read before the round: a round that starts after the describing
+            # half finished, and finds nothing, is the last.
+            finished = describing is None or describing.is_set()
+            taken = round_of("ERR_PICTURE_TEXT_LATER", True)
+            if taken is None:
+                return False
+            if finished:
+                return True
+            if not taken:
+                lane.set(task=PHASE_WORDS.get(PHASE_PICTURE_TEXT, ""), item="", path="",
+                         state=LANE_WAITING)
+                describing.wait(TAIL_ROUND_WAIT_S)
 
     def _maybe_detect_faces(self, candidate: Candidate, file_id: int) -> None:
         r"""Section 1a's own images-pass face step. Switch-gated, always.
@@ -7291,7 +7824,11 @@ class Pipeline:
             return
 
         try:
-            detections = detect_faces(path)
+            # 2026-10-14, order 5a/5d: the model call alone holds the slot; the
+            # rows below are written after it is given back (conductor rule 1).
+            with self._model_slot(LANE_FACES, on_gpu=self._face_device() == DEVICE_GPU,
+                                  weight=self._picture_weight()):
+                detections = detect_faces(path)
         except Exception as exc:                # noqa: BLE001 - H4: never costs the file
             self._log.warning(
                 "no face scan for {}: {}. It stays searchable as usual - "
@@ -7308,12 +7845,18 @@ class Pipeline:
         # face it found ungrouped and the naming page empty (40 faces, 0
         # piles). Grouping a batch is vector arithmetic against the existing
         # piles, so doing it every `FACE_CLUSTER_EVERY` faces costs little.
-        self._faces_since_cluster = getattr(self, "_faces_since_cluster", 0) + len(detections)
+        # 2026-10-14, order 5d: several picture threads may count at once, so
+        # the count moves under a lock and one of them groups at a time.
         stats = getattr(self, "_face_stats", None)
-        if stats is not None and self._faces_since_cluster >= FACE_CLUSTER_EVERY:
-            self._faces_since_cluster = 0
+        with self._pending_lock:
+            self._faces_since_cluster = getattr(self, "_faces_since_cluster", 0) + len(detections)
+            due = stats is not None and self._faces_since_cluster >= FACE_CLUSTER_EVERY
+            if due:
+                self._faces_since_cluster = 0
+        if due:
             # On the consumer thread: never wait on the governor here.
-            self._drain_face_cluster(stats, paced=False)
+            with self._cluster_lock:
+                self._drain_face_cluster(stats, paced=False)
 
     def _write_marker(self, item: _Extracted) -> None:
         """Record a container as indexed without giving it any chunks."""
@@ -8084,6 +8627,17 @@ class Pipeline:
     # thread would mostly queue on it. A measured gain is what would justify a
     # pool.
     #
+    # *2026-10-14, order 5d - the measured gain arrived.* Faces on the processor:
+    # 1 photo at a time 0.16 photos/s, 2 -> 0.37, 4 -> 0.66 (the owner's laptop,
+    # below-normal priority). So when the face model has loaded on the
+    # processor and the conductor is on, this thread hands photos to a small
+    # pool (`_face_pool_size`, at most `conductor.FACE_POOL_MAX`); on the
+    # graphics card it stays one at a time. One photo's steps still run back
+    # to back on one pool thread (the shared decode keeps pool + 1 pictures,
+    # `picture.keep_at_least`); the pending lists take `_pending_lock`; and a
+    # flush or the finish **waits for every photo handed to the pool first** -
+    # the barrier that keeps M6 below true.
+    #
     # **What is kept, guarantee by guarantee:**
     #
     # * *None of it holds the write lock.* The consumer still commits its write
@@ -8208,44 +8762,104 @@ class Pipeline:
         """The worker: take jobs until told to finish. Never raises."""
         work = self._picture_queue
         lane = self._lane(LANE_PICTURES)
-        while True:
-            if work.empty():
-                # 2026-10-14: nothing handed over - the lane says so rather
-                # than going on naming the last photo's step.
-                lane.idle()
-            job = work.get()
-            try:
-                kind = job[0]
-                if kind == "finish":
-                    lane.set(task=TASK_SAVING_PICTURES, item="", path="")
-                    self._flush_pending_images()
-                    lane.idle(LANE_DONE)
-                    return
-                if kind == "flush":
-                    try:
+        pool: Optional[Any] = None
+        busy: set = set()
+        try:
+            while True:
+                if work.empty() and not busy:
+                    # 2026-10-14: nothing handed over - the lane says so rather
+                    # than going on naming the last photo's step.
+                    lane.idle()
+                job = work.get()
+                try:
+                    kind = job[0]
+                    if kind == "finish":
+                        self._pool_barrier(busy)
                         lane.set(task=TASK_SAVING_PICTURES, item="", path="")
                         self._flush_pending_images()
-                    finally:
+                        lane.idle(LANE_DONE)
+                        return
+                    if kind == "flush":
+                        try:
+                            # Every photo handed over before this flush is done
+                            # first - M6, with a pool as without one.
+                            self._pool_barrier(busy)
+                            lane.set(task=TASK_SAVING_PICTURES, item="", path="")
+                            self._flush_pending_images()
+                        finally:
+                            job[1].set()
+                        continue
+                    # A held run holds this thread too, between photos; a stop does
+                    # not drop what was handed over - see the notes above.
+                    if self._person_paused() and not self._stop.is_set():
+                        lane.set(state=LANE_PAUSED)
+                    while self._person_paused() and not self._stop.is_set():
+                        time.sleep(HOLD_POLL_S)
+                    _kind, candidate, file_id, meta = job
+                    size = self._face_pool_size()
+                    if size <= 1:
+                        self._pool_barrier(busy)
+                        self._picture_steps(candidate, file_id, meta,
+                                            video=kind == "steps")
+                    else:
+                        pool = pool or self._start_picture_pool()
+                        self._pool_room(busy, size)
+                        busy.add(pool.submit(self._picture_steps, candidate, file_id,
+                                             meta, video=kind == "steps"))
+                    if len(self._pending_images) >= self.config.embed_batch:
+                        lane.set(task=TASK_SAVING_PICTURES, item="", path="")
+                        self._flush_pending_images()
+                except Exception as exc:            # noqa: BLE001 - the worker never dies
+                    self._log.error("the picture worker could not finish a job: {}", exc)
+                    if job[0] == "flush":
                         job[1].set()
-                    continue
-                # A held run holds this thread too, between photos; a stop does
-                # not drop what was handed over - see the notes above.
-                if self._person_paused() and not self._stop.is_set():
-                    lane.set(state=LANE_PAUSED)
-                while self._person_paused() and not self._stop.is_set():
-                    time.sleep(HOLD_POLL_S)
-                _kind, candidate, file_id, meta = job
-                self._picture_steps(candidate, file_id, meta,
-                                    video=kind == "steps")
-                if len(self._pending_images) >= self.config.embed_batch:
-                    lane.set(task=TASK_SAVING_PICTURES, item="", path="")
-                    self._flush_pending_images()
-            except Exception as exc:            # noqa: BLE001 - the worker never dies
-                self._log.error("the picture worker could not finish a job: {}", exc)
-                if job[0] == "flush":
-                    job[1].set()
-            finally:
-                work.task_done()
+                finally:
+                    work.task_done()
+        finally:
+            if pool is not None:
+                pool.shutdown(wait=True)
+                from app.extract import picture as _picture
+
+                _picture.keep_default()
+
+    def _start_picture_pool(self) -> Any:
+        """The face pool's threads (order 5d): `FACE_POOL_MAX` at most, each
+        lowering its own priority as every thread of the run does; the shared
+        decode is told to keep one picture per thread, plus one."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        from app.extract import picture as _picture
+        from app.index.conductor import FACE_POOL_MAX
+
+        _picture.keep_at_least(FACE_POOL_MAX + 1)
+        initializer = lower_this_thread if self.thread_priority_only else None
+        return ThreadPoolExecutor(max_workers=FACE_POOL_MAX, thread_name_prefix="pictures-pool",
+                                  initializer=initializer)
+
+    def _pool_room(self, busy: set, size: int) -> None:
+        """Wait until fewer than `size` photos are with the pool. Each photo's
+        steps guard themselves; anything that still escapes is logged here."""
+        from concurrent.futures import FIRST_COMPLETED, wait
+
+        self._reap(busy)
+        while len(busy) >= size:
+            wait(busy, return_when=FIRST_COMPLETED)
+            self._reap(busy)
+
+    def _pool_barrier(self, busy: set) -> None:
+        """Every photo handed to the pool finished."""
+        from concurrent.futures import wait
+
+        if busy:
+            wait(busy)
+        self._reap(busy)
+
+    def _reap(self, busy: set) -> None:
+        for future in [f for f in busy if f.done()]:
+            busy.discard(future)
+            failed = future.exception()
+            if failed is not None:
+                self._log.error("the picture worker could not finish a job: {}", failed)
 
     def _flush_pictures_on_worker(self) -> bool:
         """Consumer side of `_flush_pending_images` while the worker runs: queue
@@ -8684,9 +9298,12 @@ class Pipeline:
         # A picture Pillow cannot open goes to the model as its path, as every
         # photo did before: the model decides, and a failure costs only it.
         picture = small_copy(picture) if picture is not None else str(path)
-        self._pending_pictures.append(
-            (file_id, picture, indexed_ext(path) or "", int(candidate.mtime_ns)))
-        if len(self._pending_pictures) >= PICTURE_BATCH:
+        # 2026-10-14, order 5d: more than one picture thread may add here.
+        with self._pending_lock:
+            self._pending_pictures.append(
+                (file_id, picture, indexed_ext(path) or "", int(candidate.mtime_ns)))
+            full = len(self._pending_pictures) >= PICTURE_BATCH
+        if full:
             self._embed_pending_pictures()
 
     def _clip_failed(self, path: Any, exc: Optional[Exception]) -> None:
@@ -8697,29 +9314,43 @@ class Pipeline:
             "folder, type and any OCR text - only image-similarity "
             "search misses it.", path, exc or "it could not be decoded")
         code = str(getattr(getattr(exc, "error", None), "code", "") or "ERR_CLIP_EMBED")
-        self._stats_ref.warned_by_code[code] = (
-            self._stats_ref.warned_by_code.get(code, 0) + 1)
+        self._count_warning(code)
+
+    def _clip_slot(self) -> Any:
+        """The conductor's slot for one picture-search (CLIP) call."""
+        choice = getattr(self.image_embedder, "choice", None)
+        return self._model_slot(LANE_PICTURES, on_gpu=bool(getattr(choice, "is_gpu", False)),
+                                weight=self._picture_weight())
 
     def _embed_pending_pictures(self) -> None:
         """CLIP over the waiting pictures in one call; their vectors join
         `_pending_images` for the next flush. A batch that fails is tried one
-        picture at a time, so one bad picture costs only itself (H4)."""
-        waiting, self._pending_pictures = self._pending_pictures, []
+        picture at a time, so one bad picture costs only itself (H4).
+
+        2026-10-14, order 5d: the batch is taken under `_pending_lock` and
+        embedded outside it, so another picture thread keeps adding meanwhile;
+        a flush waits for every picture thread to finish its photo first
+        (`_picture_loop`'s barrier), so no vector is missing from it."""
+        with self._pending_lock:
+            waiting, self._pending_pictures = self._pending_pictures, []
         if not waiting or self.image_embedder is None:
             return
         with self._clock.stage("clip"):
             try:
-                vectors = self.image_embedder.embed([item[1] for item in waiting])
+                with self._clip_slot():
+                    vectors = self.image_embedder.embed([item[1] for item in waiting])
                 pairs = list(zip(waiting, vectors))
             except Exception:                   # noqa: BLE001 - find the one that broke it
                 pairs = []
                 for item in waiting:
                     try:
-                        pairs.append((item, self.image_embedder.embed([item[1]])[0]))
+                        with self._clip_slot():
+                            pairs.append((item, self.image_embedder.embed([item[1]])[0]))
                     except Exception as exc:    # noqa: BLE001 - H4: never costs the file
                         self._clip_failed(item[0], exc)
-        for (file_id, _picture, ext, mtime_ns), vector in pairs:
-            self._pending_images.append((file_id, vector, ext, mtime_ns))
+        with self._pending_lock:
+            for (file_id, _picture, ext, mtime_ns), vector in pairs:
+                self._pending_images.append((file_id, vector, ext, mtime_ns))
 
     def _maybe_embed_video(
         self, candidate: Candidate, file_id: int, meta: Optional[dict[str, Any]],
@@ -8764,7 +9395,7 @@ class Pipeline:
             self._maybe_detect_faces_in_frames(file_id, paths)
             if self.image_embedder is None or self.image_vectors is None:
                 return
-            with self._clock.stage("clip"):
+            with self._clock.stage("clip"), self._clip_slot():
                 vectors = self.image_embedder.embed(paths)
             if not len(vectors):
                 return
@@ -8775,24 +9406,27 @@ class Pipeline:
                     total[i] += float(vector[i])
             norm = sum(v * v for v in total) ** 0.5 or 1.0
             mean = [v / norm for v in total]
-            self._pending_images.append(
-                (file_id, mean, indexed_ext(candidate.path) or "", int(candidate.mtime_ns)))
-            # Each picture's own vector, keyed by second, so a search can say which
-            # minute and not only which film. **Queued, not written here**: the mean
-            # is written by `_flush_pending_images`, which deletes a file's old
-            # vectors first, and the frames must go in after that - written now,
-            # they would be deleted by the very flush that writes their mean.
-            self._pending_frames[file_id] = (
-                [(s, v) for (s, _p), v in zip(kept, vectors)],
-                indexed_ext(candidate.path) or "", int(candidate.mtime_ns))
+            # 2026-10-14, order 5d: the mean and its frames go in together, under
+            # one hold of the lock - a flush between them would write the mean
+            # and leave the frames waiting for a batch that never names them.
+            with self._pending_lock:
+                self._pending_images.append(
+                    (file_id, mean, indexed_ext(candidate.path) or "", int(candidate.mtime_ns)))
+                # Each picture's own vector, keyed by second, so a search can say which
+                # minute and not only which film. **Queued, not written here**: the mean
+                # is written by `_flush_pending_images`, which deletes a file's old
+                # vectors first, and the frames must go in after that - written now,
+                # they would be deleted by the very flush that writes their mean.
+                self._pending_frames[file_id] = (
+                    [(s, v) for (s, _p), v in zip(kept, vectors)],
+                    indexed_ext(candidate.path) or "", int(candidate.mtime_ns))
         except Exception as exc:                # noqa: BLE001 - H4: never costs the file
             self._log.warning(
                 "no CLIP vector for the video {}: {}. It stays searchable by "
                 "its details, the words on screen and what was said - only "
                 "look-alike search misses it.", candidate.path, exc)
             code = str(getattr(getattr(exc, "error", None), "code", "") or "ERR_CLIP_EMBED")
-            self._stats_ref.warned_by_code[code] = (
-                self._stats_ref.warned_by_code.get(code, 0) + 1)
+            self._count_warning(code)
         finally:
             _media.release_keyframes(meta)
 
@@ -8983,11 +9617,11 @@ class Pipeline:
                 "CLIP-findable as usual - only duplicate/near-duplicate "
                 "detection misses this photo.", path, exc)
             code = str(getattr(getattr(exc, "error", None), "code", "") or "ERR_PHASH")
-            self._stats_ref.warned_by_code[code] = (
-                self._stats_ref.warned_by_code.get(code, 0) + 1)
+            self._count_warning(code)
             return
 
-        self._pending_phashes[file_id] = value
+        with self._pending_lock:
+            self._pending_phashes[file_id] = value
 
     def _flush_pending_phashes(self) -> None:
         r"""Write accumulated pHashes in one batch - the H7 shape, over SQLite.
@@ -9004,10 +9638,11 @@ class Pipeline:
         and counted, never raised - those photos stay searchable and CLIP-
         findable exactly as before, only duplicate detection is missing.
         """
-        if not self._pending_phashes:
-            return
-        batch = self._pending_phashes
-        self._pending_phashes = {}
+        with self._pending_lock:
+            if not self._pending_phashes:
+                return
+            batch = self._pending_phashes
+            self._pending_phashes = {}
         try:
             self.store.set_phashes(batch)
         except Exception as exc:                # noqa: BLE001 - H4: never costs the run
@@ -9028,7 +9663,8 @@ class Pipeline:
         from app.index import video_frames
 
         for file_id in dict.fromkeys(file_ids):
-            entry = self._pending_frames.pop(file_id, None)
+            with self._pending_lock:
+                entry = self._pending_frames.pop(file_id, None)
             if entry is None:
                 continue
             moments, ext, mtime_ns = entry
@@ -9096,11 +9732,11 @@ class Pipeline:
         self._embed_pending_pictures()
         self._flush_pending_phashes()
 
-        if self.image_vectors is None or not self._pending_images:
-            return
-
-        batch = self._pending_images
-        self._pending_images = []
+        with self._pending_lock:
+            if self.image_vectors is None or not self._pending_images:
+                return
+            batch = self._pending_images
+            self._pending_images = []
         file_ids = [row[0] for row in batch]
         try:
             # Delete-before-add, same reasoning as `_embed_pending`: a
@@ -9324,9 +9960,18 @@ class Pipeline:
             elif self._stop_cuts_embedding(began, done_chars, total_chars):
                 break
             part = texts[start:start + size]
-            out.extend(self.embedder.embed_all(part))
+            with self._meaning_slot():
+                out.extend(self.embedder.embed_all(part))
             done_chars += _chars(part)
         return out
+
+    def _meaning_slot(self) -> Any:
+        """The conductor's slot for one meaning-model call: the card, or the
+        model's own threads on the processor. One call (one slice), so a stop
+        or a more important waiter is never more than a call away."""
+        budget = getattr(self, "_budget", None)
+        weight = budget.meaning_threads if budget is not None else 1
+        return self._model_slot(LANE_MEANING, on_gpu=self._meaning_on_gpu(), weight=weight)
 
     def _embed_grouped(self, texts: list[str], order: list[int],
                        size: int) -> Optional[list]:
@@ -9357,7 +10002,8 @@ class Pipeline:
                 break
             part = order[start:start + size]
             chosen = [texts[index] for index in part]
-            vectors = list(self.embedder.embed_all(chosen))
+            with self._meaning_slot():
+                vectors = list(self.embedder.embed_all(chosen))
             done_chars += _chars(chosen)
             if len(vectors) != len(part):
                 self._log.warning(

@@ -78,7 +78,8 @@ __all__ = [
     "STAGE_SAVING_RESUME",
     "STAGES", "WorkerSlot", "WorkerBoard",
     "LANE_WALKER", "LANE_PICTURES", "LANE_MEANING", "LANE_WRITER", "LANE_PASS",
-    "LANE_BESIDE", "LANES", "LANE_LABELS", "Lane", "LaneBoard", "NULL_LANE",
+    "LANE_BESIDE", "LANE_FACES", "LANE_DESCRIBE", "LANE_PICTURE_TEXT", "LANE_CARDS",
+    "LANES", "LANE_LABELS", "Lane", "LaneBoard", "NULL_LANE",
     "PHASE_WORDS",
 ]
 
@@ -196,6 +197,10 @@ class WorkerBoard:
         self._signature: Any = None
         #: 2026-10-14: the run's other threads, beside the readers' slots.
         self.lane_board = LaneBoard()
+        #: 2026-10-14: a callable giving the cockpit's resource readings as
+        #: plain values, set by the run (`Pipeline._resources_reading`); None
+        #: leaves `IndexStats.resources` as it is.
+        self.resources: Any = None
 
     def lane(self, lane_id: str) -> "Lane":
         """The run's lane `lane_id` (a `LANE_*`), opened on first use."""
@@ -336,9 +341,17 @@ LANE_PASS = "pass"
 #: The photo passes beside the meaning model - present only while that
 #: thread lives (`Pipeline._start_pictures_beside_meaning`).
 LANE_BESIDE = "beside"
+#: 2026-10-14, order section 5b: the run's end passes side by side under the
+#: conductor (`app/index/conductor.py`), each on its own line. Present only
+#: while that pass's thread lives; "pass" keeps the sequential tail (tidying,
+#: the vector and word indexes) and every pass when the conductor is off.
+LANE_FACES = "faces"
+LANE_DESCRIBE = "describe"
+LANE_PICTURE_TEXT = "picture_text"
+LANE_CARDS = "cards"
 
 LANES = (LANE_WALKER, LANE_PICTURES, LANE_MEANING, LANE_WRITER, LANE_PASS,
-         LANE_BESIDE)
+         LANE_BESIDE, LANE_FACES, LANE_DESCRIBE, LANE_PICTURE_TEXT, LANE_CARDS)
 LANE_LABELS: dict[str, str] = {
     LANE_WALKER: "Finding files",
     LANE_PICTURES: "Pictures",
@@ -346,6 +359,10 @@ LANE_LABELS: dict[str, str] = {
     LANE_WRITER: "Writing",
     LANE_PASS: "Run's end",
     LANE_BESIDE: "Pictures beside meaning",
+    LANE_FACES: "Faces",
+    LANE_DESCRIBE: "Describing photos",
+    LANE_PICTURE_TEXT: "Text in pictures",
+    LANE_CARDS: "Document cards",
 }
 
 #: A lane's `state`. "waiting" is blocked on something outside the lane (an

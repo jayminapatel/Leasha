@@ -126,7 +126,7 @@ class OnnxFlorence:
     `lock` is held around a whole image."""
 
     def __init__(self, folder: Path, *, model: hub.OnnxModel = hub.FLORENCE,
-                 device: str = "auto") -> None:
+                 device: str = "auto", threads: Optional[int] = None) -> None:
         from tokenizers import Tokenizer
 
         self.folder = Path(folder)
@@ -136,7 +136,7 @@ class OnnxFlorence:
 
         def open_graph(name: str) -> Any:
             return load_session(self.folder / model.graph_file(name), what="photo tags",
-                                device=device)
+                                device=device, threads=threads)
 
         self.vision = open_graph("vision_encoder")
         self.embed = open_graph("embed_tokens")
@@ -149,15 +149,18 @@ class OnnxFlorence:
         self.on_gpu = self.vision.on_gpu
 
     @classmethod
-    def from_cache(cls, cache_dir: Optional[Path], *, device: str = "auto") -> Optional["OnnxFlorence"]:
-        """The catalogue's best photo copy on disk (full precision first)."""
+    def from_cache(cls, cache_dir: Optional[Path], *, device: str = "auto",
+                   threads: Optional[int] = None) -> Optional["OnnxFlorence"]:
+        """The catalogue's best photo copy on disk (full precision first).
+        `threads` (2026-10-14): the index run's conductor's share for its
+        sessions; None keeps `session.default_threads`, as before."""
         from app.ort import catalogue
 
         found = catalogue.best("photo", cache_dir)
         if found is None:
             return None
         entry, folder = found
-        return cls(folder, model=entry.model(), device=device)
+        return cls(folder, model=entry.model(), device=device, threads=threads)
 
     # 2026-10-09: every graph that may be on the graphics card runs inside the
     # process-wide gate (`gpu_serialize.gpu_exclusive`), as OCR, the embedder

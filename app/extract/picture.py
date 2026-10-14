@@ -15,6 +15,11 @@ lying on its side.
 
 Two pictures are kept, keyed by path, size and modified time, so a changed
 file is never answered from the cache. Thread-safe; never raises.
+
+*2026-10-14, the conductor's face pool (order 5d):* with several photos looked
+at side by side, each thread's photo must still be here when its next model
+asks, so the run raises the count to the pool's size plus one
+(`keep_at_least`) and puts it back at its end (`keep_default`).
 """
 
 from __future__ import annotations
@@ -26,7 +31,8 @@ from typing import Any, Optional
 
 from app.core.logging import logger
 
-__all__ = ["decoded", "clear", "KEEP", "small_copy"]
+__all__ = ["decoded", "clear", "KEEP", "small_copy", "keep_at_least", "keep_default",
+           "kept_limit"]
 
 log = logger.bind(component="extract.picture")
 
@@ -36,6 +42,32 @@ KEEP = 2
 
 _lock = threading.Lock()
 _kept: "OrderedDict[tuple, Any]" = OrderedDict()
+#: How many are kept right now: `KEEP`, or more while photos are looked at
+#: side by side (`keep_at_least`).
+_limit = KEEP
+
+
+def keep_at_least(count: int) -> int:
+    """Keep at least `count` decoded pictures - one per thread reading photos
+    side by side, plus one. Never fewer than `KEEP`. Returns the limit now."""
+    global _limit
+    with _lock:
+        _limit = max(KEEP, int(count or KEEP))
+        return _limit
+
+
+def keep_default() -> None:
+    """Back to `KEEP`, dropping the oldest beyond it."""
+    global _limit
+    with _lock:
+        _limit = KEEP
+        while len(_kept) > _limit:
+            _kept.popitem(last=False)
+
+
+def kept_limit() -> int:
+    """How many decoded pictures are kept now."""
+    return _limit
 
 
 def _key(path: Path) -> Optional[tuple]:
@@ -75,7 +107,7 @@ def decoded(path: Any) -> Optional[Any]:
     if key is not None:
         with _lock:
             _kept[key] = picture
-            while len(_kept) > KEEP:
+            while len(_kept) > _limit:
                 _kept.popitem(last=False)
     return picture
 

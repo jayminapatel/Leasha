@@ -39,7 +39,7 @@ from app.core.logging import logger
 
 log = logger.bind(component="extract.face_detect")
 
-__all__ = ["FaceDetection", "available", "detect_faces", "MODEL_PACK"]
+__all__ = ["FaceDetection", "available", "detect_faces", "MODEL_PACK", "configure_threads"]
 
 #: `buffalo_l` - insightface's own general-purpose detection+recognition
 #: pack, the one every quick-start example in the project's own docs uses.
@@ -101,6 +101,24 @@ def _choice() -> Any:
         return backends.choose(None, backends.CPU)
 
 
+#: Threads per session the index run's conductor decided (order 5c,
+#: 2026-10-14), or None for the envelope's own answer. Set before the pack
+#: loads; a pack already loaded keeps what it was built with, as OCR's
+#: `configure_callers` does - rebuilding three sessions mid-run would cost
+#: more than it saves.
+_threads_wanted: Optional[int] = None
+
+
+def configure_threads(count: Optional[int]) -> None:
+    """The intra-op threads the next pack load asks for: the conductor's share
+    for one of the face pool's callers (`conductor.Budget.threads_for`)."""
+    global _threads_wanted
+    try:
+        _threads_wanted = max(1, int(count)) if count else None
+    except (TypeError, ValueError):
+        _threads_wanted = None
+
+
 def _threads() -> Optional[int]:
     """Intra-op threads for each of the pack's ONNX sessions, or None to leave
     onnxruntime's default (one per physical core).
@@ -110,7 +128,12 @@ def _threads() -> Optional[int]:
     the count comes from the same envelope as the meaning model's
     (`envelope.picture_model_threads`). A machine the envelope cannot describe
     answers None and the pack is built exactly as before. Never raises.
+
+    2026-10-14: what the run's conductor configured, when it did - several
+    photos then call the pack at once, and N callers x threads must fit.
     """
+    if _threads_wanted:
+        return _threads_wanted
     try:
         from app.core.compute_profile import detect
         from app.core.envelope import picture_model_threads

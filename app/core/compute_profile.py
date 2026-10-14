@@ -45,6 +45,7 @@ __all__ = [
     "ComputeProfile",
     "GpuAdapter",
     "detect",
+    "cores_only",
     "cached_profile",
     "stored_profile",
     "reset_detection_cache",
@@ -213,6 +214,25 @@ def detect(index_path: Any = None, *, refresh: bool = False) -> ComputeProfile:
         unknowns=tuple(unknowns),
         gpu_probe_failed=gpu_probe_failed,
     )
+
+
+def cores_only() -> ComputeProfile:
+    """The core counts alone - no graphics, disk or memory probe. Never raises.
+
+    2026-10-14, the index run's conductor (`app/index/conductor.py`): its
+    budget needs only the cores, and `detect` can spawn PowerShell for the
+    rest. The override applies here too, so a hand-written profile is the
+    same machine for every caller.
+    """
+    override = _from_override()
+    if override is not None:
+        return override
+    unknowns: list[str] = []
+    logical = os.cpu_count() or 0
+    physical, performance, efficiency = _cores(unknowns)
+    return ComputeProfile(logical_processors=logical, physical_cores=physical or logical,
+                          performance_cores=performance, efficiency_cores=efficiency,
+                          unknowns=tuple(unknowns))
 
 
 def _from_override() -> Optional[ComputeProfile]:

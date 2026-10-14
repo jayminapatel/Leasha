@@ -141,8 +141,10 @@ def _spied_run(tmp_path: Path, monkeypatch, *, cls=Pipeline, light: bool = False
             calls[name] = calls.get(name, 0) + 1
         return spy
 
+    # 2026-10-14, order 5b: with the conductor the text-in-pictures pass runs as
+    # its two halves on two threads, so the halves are spied too.
     for name in ("_drain_photo_tags", "_drain_picture_text", "_write_completions",
-                 "_drain_face_cluster"):
+                 "_drain_face_cluster", "_describe_waiting_photos", "_read_waiting_text"):
         monkeypatch.setattr(cls, name, lambda self, *a, _n=name, **k: count(_n)())
     vectors = Vectors()
     with SqliteStore(tmp_path / "index.db") as store:
@@ -168,10 +170,14 @@ def _spied_run(tmp_path: Path, monkeypatch, *, cls=Pipeline, light: bool = False
 
 def test_an_ordinary_run_does_its_end_once_each(tmp_path, monkeypatch):
     calls, _p = _spied_run(tmp_path, monkeypatch)
-    for name in ("_drain_photo_tags", "_drain_picture_text", "_write_completions",
+    for name in ("_drain_photo_tags", "_write_completions",
                  "checkpoint_wal", "optimize_fts", "last_run", "last_run_stats",
                  "create_index", "compact_forced"):
         assert calls.get(name) == 1, (name, calls)
+    # The text-in-pictures pass once: whole, or as its two halves side by side.
+    halves = (calls.get("_describe_waiting_photos"), calls.get("_read_waiting_text"))
+    assert (calls.get("_drain_picture_text") == 1 and halves == (None, None)) or (
+        "_drain_picture_text" not in calls and halves == (1, 1)), calls
 
 
 @pytest.mark.slow

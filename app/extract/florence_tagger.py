@@ -58,7 +58,8 @@ from app.core.logging import logger
 
 log = logger.bind(component="extract.florence_tagger")
 
-__all__ = ["FlorenceResult", "tag_image", "describe", "available", "MODEL_ID"]
+__all__ = ["FlorenceResult", "tag_image", "describe", "available", "MODEL_ID",
+           "configure_threads", "on_gpu"]
 
 MODEL_ID = "microsoft/Florence-2-base"
 ENGINE_LOAD_ATTEMPTS = 3
@@ -67,6 +68,25 @@ _engine: Any = None
 _engine_lock = threading.Lock()
 _engine_failed = False
 _engine_attempts = 0
+#: Intra-op threads per session the index run's conductor decided (order 5c,
+#: 2026-10-14), or None for `session.default_threads`. Read at the next load;
+#: a model already loaded keeps its sessions.
+_threads: Optional[int] = None
+
+
+def configure_threads(count: Optional[int]) -> None:
+    """The threads the next load asks each of Florence-2's sessions for."""
+    global _threads
+    try:
+        _threads = max(1, int(count)) if count else None
+    except (TypeError, ValueError):
+        _threads = None
+
+
+def on_gpu() -> bool:
+    """Whether the loaded model's vision graph is on the graphics card. False
+    before it loads - the conductor then counts it on the processor, once."""
+    return bool(getattr(_engine, "on_gpu", False))
 
 
 @dataclass(slots=True)
@@ -131,7 +151,8 @@ def _load() -> Any:
 
             started = time.monotonic()
             cache, device = _settings()
-            engine = OnnxFlorence.from_cache(cache, device=device)
+            engine = (OnnxFlorence.from_cache(cache, device=device, threads=_threads)
+                      if _threads else OnnxFlorence.from_cache(cache, device=device))
             if engine is None:
                 raise FileNotFoundError(
                     "the Florence-2 ONNX model is not downloaded - Settings, Models, "
