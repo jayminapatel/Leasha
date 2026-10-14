@@ -19,7 +19,6 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -28,12 +27,13 @@ from PySide6.QtWidgets import (
 )
 
 from app.ui.tuning import machine_line
+from app.ui.widgets.card import CARD_MARGINS, Card, card_title
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["MachineCard"]
 
 
-class MachineCard(QGroupBox):
+class MachineCard(Card):
     """The ComputeProfile in one line, with Re-detect and Benchmark now."""
 
     #: A freshly detected profile. The screen re-resolves its controls against
@@ -45,7 +45,12 @@ class MachineCard(QGroupBox):
 
     def __init__(self, profile: Any = None,
                  parent: Optional[QWidget] = None) -> None:
-        super().__init__("This machine", parent)
+        # A card (DS-7), titled as a group box is, so it still reads as one of the
+        # Settings groups around it. The title's words are the group box's.
+        super().__init__(parent)
+        self.setObjectName("machineCard")
+        self.title_label = card_title("This machine")
+        self.setAccessibleName("This machine")
         # Its own single-threaded pool, for the same reason the indexing view
         # has one: detection must never take a slot from a search somebody is
         # waiting on, and two detections at once are two PowerShell processes
@@ -88,6 +93,8 @@ class MachineCard(QGroupBox):
         buttons.addStretch(1)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(*CARD_MARGINS)
+        layout.addWidget(self.title_label)
         layout.addWidget(self.line)
         layout.addWidget(self.detected_note)
         layout.addLayout(buttons)

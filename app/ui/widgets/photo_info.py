@@ -127,7 +127,10 @@ class PhotoInfo(QWidget):
         self.picture.setToolTip("Double-click to see it full size")
         self.picture.mouseDoubleClickEvent = self._double_clicked  # type: ignore[method-assign]
         self.title = _value()
-        self.title.setStyleSheet("font-weight: 600; font-size: 11pt;")
+        # The type scale's `title` step, semibold (it was a literal 11pt; review 2026-10-14, DS-8).
+        from app.ui.theme import font_sizes, weight
+
+        self.title.setStyleSheet(f"font-weight: {weight('semibold')}; font-size: {font_sizes()['title']};")
 
         self.form = QFormLayout()
         self.form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)

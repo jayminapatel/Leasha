@@ -28,13 +28,15 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QRectF, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPixmap
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.core.logging import logger
 from app.ui.later import when_done
 from app.ui.theme import theme_colours
 from app.ui.widgets.buttons import action_button
+from app.ui.widgets.card import CARD_MARGINS, Card
 from app.ui.widgets.icons import icon
+from app.ui.widgets.paint_kit import points_for_pixels, set_weight
 
 __all__ = ["PersonInfo", "PersonCard", "PersonStrip", "lookup_people", "attach",
            "LOOKUP_DEBOUNCE_MS", "PHOTO_SIDE"]
@@ -114,7 +116,7 @@ def lookup_people(store: Any, query: str, limit: int = MAX_CARDS) -> list[Person
         return []
 
 
-class PersonCard(QFrame):
+class PersonCard(Card):
     """One contact: who they are at a glance, and a way into their page."""
 
     open_requested = Signal(int)
@@ -125,9 +127,7 @@ class PersonCard(QFrame):
         self.setObjectName("personCard")
         self.setAccessibleName(f"Contact card: {info.name}")
         colours = theme_colours()
-        self.setStyleSheet(
-            f"#personCard {{ background: {colours.get('surface', '#ffffff')}; "
-            f"border: 1px solid {colours.get('border', '#cccccc')}; border-radius: 8px; }}")
+        # The theme's card (`Card`, DS-7), not a sheet of its own with a literal 8px.
         self.photo = QLabel()
         self.photo.setFixedSize(PHOTO_SIDE, PHOTO_SIDE)
         self.photo.setAccessibleName("Photo")
@@ -160,7 +160,7 @@ class PersonCard(QFrame):
         self.open_button.setAccessibleName(f"Open contact {info.name}")
         self.open_button.clicked.connect(lambda: self.open_requested.emit(self.info.id))
         row = QHBoxLayout(self)
-        row.setContentsMargins(10, 8, 10, 8)
+        row.setContentsMargins(*CARD_MARGINS)
         row.setSpacing(10)
         row.addWidget(self.photo, 0, Qt.AlignmentFlag.AlignTop)
         row.addLayout(text, 1)
@@ -213,9 +213,9 @@ class PersonCard(QFrame):
             from app.ui.contacts.logic import initials
 
             painter.fillPath(path, QColor(colours.get("accent_soft", "#dddddd")))
-            font = QFont(painter.font())
-            font.setBold(True)
-            font.setPixelSize(int(side * 0.38))
+            # Sized to the circle (0.38 of it), in points (DS-8).
+            font = set_weight(QFont(painter.font()), "bold")
+            font.setPointSizeF(points_for_pixels(int(side * 0.38)))
             painter.setFont(font)
             painter.setPen(QColor(colours.get("accent_text", "#444444")))
             painter.drawText(QRectF(0, 0, side, side), Qt.AlignmentFlag.AlignCenter, initials(self.info.name))

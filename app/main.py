@@ -518,6 +518,10 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     if not install_window_icon(application):
         pass  # cosmetic only; the app is fully usable without it
     _make_ctrl_c_work(application)
+    # A button clicked does not wear the keyboard's focus ring (review 2026-10-14, DS-4).
+    from app.ui.widgets.focus_visible import install as install_focus_visible
+
+    install_focus_visible(application)
 
     # **The splash is shown immediately** (<300ms), hiding the wait for
     # single-instance handover and model loading. It reports progress through

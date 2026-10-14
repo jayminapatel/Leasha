@@ -34,8 +34,11 @@ from app.ui.presenter import (
     offline_volume_note, why,
 )
 from app.ui.presenter.snippets import term_spans
-from app.ui.theme import theme_colours
+from app.ui.theme import radius_px, theme_colours
 from app.ui.view_options import Density, Metrics, ViewPreferences
+from app.ui.widgets.paint_kit import (
+    paint_badge, paint_row_state, points_for_pixels, rounded, set_weight,
+)
 
 __all__ = ["ResultDelegate", "ROLE_PAYLOAD", "ROLE_EXPANDED", "ROLE_MISSING", "Skeleton",
            "BADGE_SIZE", "ROW_RADIUS"]
@@ -54,8 +57,9 @@ class Skeleton:
 #: UI Redesign §4a: the kind badge's side. Clamped to the name+meta block so
 #: the row's geometry - the size hint - is unchanged by it.
 BADGE_SIZE = 36
-#: §4b: hover and selection are tinted fills with this radius, no border.
-ROW_RADIUS = 8
+#: §4b: hover and selection are tinted fills with this radius, no border. The
+#: sheet's `radius_control`, read rather than restated (review 2026-10-14, DS-10).
+ROW_RADIUS = int(radius_px("radius_control"))
 
 #: The row's `ResultGroup` or `ResultRow`.
 ROLE_PAYLOAD = int(Qt.ItemDataRole.UserRole)
@@ -102,23 +106,23 @@ class ResultDelegate(QStyledItemDelegate):
         and the hierarchy survives at every size.
         """
         metrics = Metrics.for_density(self.prefs.density)
-        # A widget styled with `font-size: 13px` reports `pointSize() == -1`,
-        # so the pixel size has to be honoured when there is no point size -
-        # this is the same trap that produced a `setPointSize(-1)` warning.
+        # A font sized in pixels reports `pointSize() == -1`, and adding to that
+        # was the `setPointSize(-1)` warning. The sheet sizes text in points now
+        # (`theme.font_sizes`), but a pixel-sized base is still turned into points
+        # here rather than copied as pixels (review 2026-10-14, DS-8).
         point = base.pointSize()
-        pixel = base.pixelSize()
+        if point <= 0:
+            point = round(points_for_pixels(base.pixelSize())) if base.pixelSize() > 0 else 9
 
-        def sized(delta: int, bold: bool = False) -> QFont:
-            """`base` shifted by `delta` points (or pixels, when the sheet sized it in px)."""
+        def sized(delta: int, weight: str = "regular") -> QFont:
+            """`base` shifted by `delta` points, at a `theme.WEIGHT` step."""
             font = QFont(base)
-            if point > 0:
-                font.setPointSize(max(6, point + delta))
-            elif pixel > 0:
-                font.setPixelSize(max(8, pixel + delta))
-            font.setBold(bold)
-            return font
+            font.setPointSize(max(6, point + delta))
+            return set_weight(font, weight)
 
-        return sized(metrics.name_bump, True), sized(-metrics.meta_drop), sized(0)
+        # The name is semibold: `#resultName`'s 600, which is what this painted
+        # name stands in for (DS-9); the selected one goes to bold (`_paint_group`).
+        return sized(metrics.name_bump, "semibold"), sized(-metrics.meta_drop), sized(0)
 
     def sizeHint(self, option: Any, index: Any) -> QSize:   # noqa: N802 - Qt's naming
         """Qt's measure, UI thread: the row height from the same fonts and `Metrics`
@@ -225,17 +229,12 @@ class ResultDelegate(QStyledItemDelegate):
         # Reading the same tokens the sheet is built from means the two cannot
         # drift apart again.
         colours = theme_colours()
-        selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        # UI Redesign §4b: tinted, rounded, borderless - the same two tokens
-        # as before, drawn as a pill inset from the row's edge.
-        if selected:
-            _fill_row(painter, option.rect, QColor(colours["accent_soft"]))
-        elif option.state & QStyle.StateFlag.State_MouseOver:
-            # **Item 5a.** `surface_hover` already exists for the stylesheet's
-            # own `QListView::item:hover` rule, and that rule can never reach
-            # a row this delegate paints itself - the same reason selection
-            # is filled here rather than left to the palette, a few lines up.
-            _fill_row(painter, option.rect, QColor(colours["surface_hover"]))
+        # UI Redesign §4b: tinted, rounded, borderless, inset from the row's
+        # edge; item 5a: hover too, which the sheet's `QListView::item:hover`
+        # can never reach on a row painted here. Review 2026-10-14 (DS-2): and
+        # the keyboard's ring on the current row, which no painted list drew.
+        # One helper for every painted list, so they cannot drift apart.
+        selected = paint_row_state(painter, option.rect, option, colours)
         text_colour = QColor(colours["text"])
         faint = QColor(colours["text_faint"])
 
@@ -291,9 +290,9 @@ class ResultDelegate(QStyledItemDelegate):
         colours = colours or theme_colours()
         if selected:
             # §4b: the selection also thickens the name, so it survives
-            # greyscale - colour is never the only signal.
-            name_font = QFont(name_font)
-            name_font.setWeight(QFont.Weight.ExtraBold)
+            # greyscale - colour is never the only signal. Semibold to bold,
+            # the two emphasis steps of `theme.WEIGHT` (it was bold to 800).
+            name_font = set_weight(QFont(name_font), "bold")
         painter.setFont(name_font)
         name_metrics = QFontMetrics(name_font)
         painter.setFont(meta_font)
@@ -343,8 +342,7 @@ class ResultDelegate(QStyledItemDelegate):
         # read first. Found in the elided name, so the offsets are the drawn ones.
         marks = term_spans(name, getattr(group.best, "terms", ()) or ())
         if marks:
-            bold = QFont(name_font)
-            bold.setBold(True)
+            bold = set_weight(QFont(name_font), "bold")
             baseline = y + (name_metrics.height() + name_metrics.ascent()
                             - name_metrics.descent()) // 2
             _draw_run(painter, name, 0, len(name), marks, left, baseline,
@@ -371,8 +369,7 @@ class ResultDelegate(QStyledItemDelegate):
         # in this result set - takes the exact path painted here before.
         start, end = getattr(group, "folder_emphasis", (0, 0))
         if end > start:
-            bold_meta = QFont(meta_font)
-            bold_meta.setBold(True)
+            bold_meta = set_weight(QFont(meta_font), "bold")
             plain_pen = QPen(faint)
             _draw_run(painter, subtitle, 0, len(subtitle), [(start, end)],
                      left, y + meta_metrics.ascent(), left + width,
@@ -422,12 +419,12 @@ class ResultDelegate(QStyledItemDelegate):
         y = option.rect.top() + metrics.pad_y
         side = min(BADGE_SIZE, QFontMetrics(name_font).height() + metrics.gap
                    + QFontMetrics(meta_font).height())
-        painter.fillPath(_rounded(QRectF(left, y, side, side), ROW_RADIUS), QBrush(bar))
+        painter.fillPath(rounded(QRectF(left, y, side, side), ROW_RADIUS), QBrush(bar))
         x = left + side + 10
         bars = [(name_font, 0.55), (meta_font, 0.35), (body_font, 0.8)]
         for font, fraction in (bars if self.prefs.density != Density.COMPACT else bars[:2]):
             h = QFontMetrics(font).height()
-            painter.fillPath(_rounded(QRectF(x, y + 2, (width - side - 10) * fraction, h - 4), 4),
+            painter.fillPath(rounded(QRectF(x, y + 2, (width - side - 10) * fraction, h - 4), 4),
                              QBrush(bar))
             y += h + metrics.gap
         painter.restore()
@@ -479,21 +476,8 @@ class ResultDelegate(QStyledItemDelegate):
 # they can be checked without a display - see `group_subtitle` and `kind_tag`.
 # ---------------------------------------------------------------------------
 
-def _rounded(rect: QRectF, radius: float) -> Any:
-    """A rounded-rectangle path, the shape every fill here uses."""
-    from PySide6.QtGui import QPainterPath
-    path = QPainterPath()
-    path.addRoundedRect(rect, radius, radius)
-    return path
-
-
-def _fill_row(painter: QPainter, rect: QRect, colour: QColor) -> None:
-    """§4b: a tinted pill inset 2px from the row's edges, no border."""
-    painter.save()
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    painter.fillPath(_rounded(QRectF(rect).adjusted(2, 1, -2, -1), ROW_RADIUS),
-                     QBrush(colour))
-    painter.restore()
+#: A rounded-rectangle path (`paint_kit.rounded`), the shape every fill here uses.
+_rounded = rounded
 
 
 #: The word on a kind badge. White in both themes: the fills are the brand's
@@ -505,18 +489,8 @@ def _paint_badge(painter: QPainter, rect: QRect, kind: str, colours: dict) -> No
     """§4a: the kind badge - stripe colour, white word. The colours are the same
     in both themes by design. No corner icon since UI phase B: the word or the
     icon, not both."""
-    painter.save()
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     fill = QColor(colours.get(badge_token(kind), colours.get("kind_other", "#6c6685")))
-    painter.fillPath(_rounded(QRectF(rect), ROW_RADIUS), QBrush(fill))
-    word = badge_word(kind)
-    font = QFont(painter.font())
-    font.setBold(True)
-    font.setPointSizeF(max(6.0, min(9.0, rect.height() / 4.0)))
-    painter.setFont(font)
-    painter.setPen(QPen(QColor(BADGE_INK)))
-    painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), word)
-    painter.restore()
+    paint_badge(painter, rect, fill, word=badge_word(kind), ink=QColor(BADGE_INK))
 
 def _snippet_payload(payload: Any) -> Any:
     """The `Snippet` a payload paints: a group's best row's, or the row's own."""
@@ -542,7 +516,7 @@ def _snippet_font(base: QFont, kind: str) -> QFont:
     if base.pointSize() > 0:
         mono.setPointSize(base.pointSize())
     elif base.pixelSize() > 0:
-        mono.setPixelSize(base.pixelSize())
+        mono.setPointSizeF(points_for_pixels(base.pixelSize()))
     return mono
 
 
@@ -692,8 +666,7 @@ def _draw_snippet(painter: QPainter, snippet: Any, rect: QRect, colour: QColor,
     painter.setPen(plain)
 
     base = QFont(painter.font())
-    bold = QFont(base)
-    bold.setBold(True)
+    bold = set_weight(QFont(base), "bold")
     metrics = QFontMetrics(base)
 
     ranges = _wrap_ranges(metrics, text, rect.width(), max_lines)

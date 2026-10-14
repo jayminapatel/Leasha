@@ -25,6 +25,7 @@ from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QTreeWidget, QTreeWidgetItem
 
 from app.ui.presenter.side_entry import SideEntry   # Qt-free, so presenters build entries
+from app.ui.widgets.paint_kit import paint_focus_ring, set_weight
 
 __all__ = ["SideEntry", "SideList"]
 
@@ -270,9 +271,7 @@ class SideList(QTreeWidget):
         heading = QTreeWidgetItem([text, ""])
         heading.setData(0, _SECTION, text)
         heading.setFlags(Qt.ItemFlag.ItemIsEnabled)
-        font = QFont(self.font())
-        font.setBold(True)
-        heading.setFont(0, font)
+        heading.setFont(0, set_weight(QFont(self.font()), "bold"))
         heading.setForeground(0, QBrush(QColor(self._ink("text_faint", "#888888"))))
         self.addTopLevelItem(heading)
         return heading
@@ -294,15 +293,27 @@ class SideList(QTreeWidget):
 
         count = item.text(1)
         item.setData(0, _ENTRY, entry)
-        font = QFont(self.font())
-        font.setBold(bool(entry.checked))
-        item.setFont(0, font)
+        item.setFont(0, set_weight(QFont(self.font()), "bold" if entry.checked else "regular"))
         if entry.icon:
             item.setIcon(0, icon(entry.icon, self._ink("accent") if entry.checked
                                  else (entry.colour or self._ink("text_dim", "#888888"))))
         label = entry.label if not count else f"{entry.label}, {count}"
         item.setData(0, Qt.ItemDataRole.AccessibleTextRole,
                      f"{entry.label}, chosen" + (f", {count}" if count else "") if entry.checked else label)
+
+    def drawRow(self, painter: Any, option: Any, index: Any) -> None:  # noqa: N802 - Qt's name
+        """The row as Qt draws it, then the keyboard's ring round the whole current line.
+
+        The sheet's `outline: 0` took away the native dotted box and nothing replaced it, so
+        moving down a side list with the arrow keys showed no place at all (review 2026-10-14,
+        DS-2). A sheet rule would ring each of the two columns separately; this is one ring
+        round the row, in the width and colour every painted list uses (`paint_kit`).
+        """
+        super().drawRow(painter, option, index)
+        current = self.currentIndex()
+        if (self.hasFocus() and current.isValid() and current.row() == index.row()
+                and current.parent() == index.parent()):
+            paint_focus_ring(painter, option.rect.adjusted(1, 0, -1, 0), self._colours or None)
 
     def _find(self, key: str) -> Optional[QTreeWidgetItem]:
         stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]

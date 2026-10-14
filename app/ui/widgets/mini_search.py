@@ -446,7 +446,7 @@ class MiniSearch(CardWindow):
             base = ""
         sizes = theme.font_sizes()
         sizes["field"] = f"{round(float(sizes['body'][:-2]) * 1.6, 1)}pt"
-        self.setStyleSheet(base + _SHEET.format(**colours, **sizes))
+        self.setStyleSheet(base + _SHEET.format(**colours, **sizes, **theme.RADIUS))
         self.set_shadow_strength(scheme == "dark")
         self._delegate.retint(colours)
         retint_all(colours, roots=[self])
@@ -1435,7 +1435,7 @@ def _words() -> Any:
 _SHEET = """
 #miniSearch {{ background: transparent; border: none; }}
 #miniCard {{
-    background: {surface}; border: 1px solid {border_strong}; border-radius: 14px;
+    background: {surface}; border: 1px solid {border_strong}; border-radius: {radius_window};
 }}
 #miniCard QWidget#miniHeader, #miniCard QWidget#miniChipBar, #miniCard QWidget#miniFooter,
 #miniCard QSplitter, #miniCard QStackedWidget, #miniCard QListWidget#miniList,
@@ -1450,7 +1450,7 @@ QLineEdit#miniBox {{
     selection-background-color: {accent}; selection-color: {selection_text};
 }}
 QPushButton#miniHeaderButton {{
-    background: transparent; border: 1px solid transparent; border-radius: 8px;
+    background: transparent; border: 1px solid transparent; border-radius: {radius_control};
     padding: 5px 4px 5px 7px; min-height: 18px;
 }}
 QPushButton#miniHeaderButton:hover {{ background: {surface_hover}; border-color: {border}; }}
@@ -1478,7 +1478,7 @@ QLabel#miniMessage {{ color: {text_dim}; font-size: {body}; padding: 24px; }}
 QLabel#miniStatus {{ color: {text_faint}; font-size: {small}; }}
 QLabel#miniKey {{
     color: {text_dim}; background: {surface_alt}; border: 1px solid {border};
-    border-bottom-width: 2px; border-radius: 4px; padding: 0px 5px; font-size: {small};
+    border-bottom-width: 2px; border-radius: {radius_small}; padding: 0px 5px; font-size: {small};
 }}
 QLabel#miniKeyWords {{ color: {text_faint}; font-size: {small}; padding-right: 6px; }}
 QSplitter#miniSplit::handle {{ background: {divider}; }}

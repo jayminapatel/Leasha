@@ -492,9 +492,10 @@ class ContactEditor(QWidget):
             from PySide6.QtGui import QColor, QFont
 
             painter.fillPath(path, QColor(c.get("accent_soft", "#dddddd")))
-            font = QFont(painter.font())
-            font.setBold(True)
-            font.setPixelSize(int(side * 0.38))
+            from app.ui.widgets.paint_kit import points_for_pixels, set_weight
+
+            font = set_weight(QFont(painter.font()), "bold")
+            font.setPointSizeF(points_for_pixels(int(side * 0.38)))     # sized to the circle, in points
             painter.setFont(font)
             painter.setPen(QColor(c.get("accent_text", "#444444")))
             name = self.heading.text() if self.heading.text() != "New contact" else ""

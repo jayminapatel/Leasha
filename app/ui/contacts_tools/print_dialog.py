@@ -37,6 +37,7 @@ from app.contacts.card import display_name
 from app.ui.widgets import number_field
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, named, plural
 from app.ui.widgets.icons import icon
+from app.ui.widgets.paint_kit import points_for_pixels, set_weight
 
 __all__ = ["PrintDialog", "PrintPreview", "make_pdf", "draw_page", "ADDRESS_CHOICES"]
 
@@ -118,8 +119,9 @@ def draw_page(preview: PrintPreview, page: int, px_per_mm: float = _PX_PER_MM) -
             painter.setPen(pen_edge)
             painter.drawRoundedRect(rect, 2, 2)
         font = QFont()
-        font.setPixelSize(max(7, int(3.2 * px_per_mm)))
-        font.setBold(p.kind == "heading")
+        # 3.2mm of the page, in points at the page's own scale (DS-8: no pixel sizes).
+        font.setPointSizeF(points_for_pixels(max(7, int(3.2 * px_per_mm))))
+        set_weight(font, "bold" if p.kind == "heading" else "regular")
         painter.setFont(font)
         painter.setPen(pen_text)
         text = "\n".join(lines)

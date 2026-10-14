@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 from app.ui.later import when_done
 from app.ui.presenter.answer import answer_wanted, card_kinds_shown
 from app.ui.widgets.buttons import action_button, icon_button
+from app.ui.widgets.card import CARD_MARGINS, Card
 
 __all__ = ["AnswerCard", "attach", "ANSWER_DEBOUNCE_MS", "HEADING", "WORKING", "CHECKED_NOTE",
            "NO_ANSWER", "BODY_LINES"]
@@ -62,7 +63,7 @@ NO_ANSWER = "No short answer from your files for that. The results are below."
 BODY_LINES = 4
 
 
-class AnswerCard(QFrame):
+class AnswerCard(Card):
     """One answer above the results, or nothing."""
 
     #: A source number pressed: the `SearchResult` to open, as a results row would.
@@ -73,7 +74,6 @@ class AnswerCard(QFrame):
     def __init__(self, text_of: Callable[[], str], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("answerCard")
-        self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setAccessibleName("Answer from your files")
         self._text_of = text_of
         self._chat: Any = None
@@ -148,7 +148,7 @@ class AnswerCard(QFrame):
         foot.addWidget(self.note, 1)
         foot.addWidget(self.more)
         column = QVBoxLayout(self)
-        column.setContentsMargins(12, 10, 12, 10)
+        column.setContentsMargins(*CARD_MARGINS)
         column.setSpacing(6)
         column.addLayout(top)
         column.addWidget(self.scroll, 1)
