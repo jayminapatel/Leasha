@@ -62,6 +62,7 @@ class SideList(QTreeWidget):
         self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.setMinimumWidth(180)
         self.itemClicked.connect(self._clicked)
+        self.itemExpanded.connect(self._grow_under)
         self.customContextMenuRequested.connect(self._menu)
         self._shown = shown
         self._colours: dict[str, str] = {}
@@ -72,6 +73,12 @@ class SideList(QTreeWidget):
         self._shape: tuple = ()
         self._structure: tuple = ()
         self._by_key: dict[str, QTreeWidgetItem] = {}
+        #: 2026-10-15, rows made only when they can be seen. A nested entry waits here, under its
+        #: parent's key, until that parent can be seen (see `_rebuild`); `_index` is every entry by key,
+        #: kept current by every path of `set_entries`, so a row made late is made from today's entry.
+        self._kids: dict[str, list[str]] = {}
+        self._parent_of: dict[str, str] = {}
+        self._index: dict[str, SideEntry] = {}
         self._current = ""
         self._more: set[str] = set()
         #: The sections that open by default; any other starts folded. None: all open.
@@ -85,6 +92,7 @@ class SideList(QTreeWidget):
     def set_entries(self, entries: Iterable[SideEntry]) -> None:
         """Draw these entries, keeping the current one and which sections and folders are open."""
         entries = list(entries)
+        self._index = {e.key: e for e in entries}
         shape = tuple((e.key, e.label, e.count, e.parent, e.section, e.icon, e.colour, e.kind, e.tip)
                       for e in entries)
         if self._by_key and shape == self._shape:
@@ -145,11 +153,25 @@ class SideList(QTreeWidget):
             items: dict[str, QTreeWidgetItem] = {}
             counted: dict[str, int] = {}
             hidden: dict[str, int] = {}
+            # 2026-10-15: **a nested entry is not made into a row here.** The lag monitor caught this
+            # loop holding the window 5 s at start-up on 2026-10-14 (`_item`, Files' Places): every
+            # folder three levels down became a row - 19,533 for 18,750 folders, 0.66 s on an idle
+            # machine, seconds with an index run competing for the interpreter - though only the
+            # roots and their children can be seen until somebody opens one. A nested entry is noted
+            # under its parent (`_kids`) and made when its parent can be seen: the rows below a row
+            # exist (so it shows its arrow and its children read at once), the rows below those wait
+            # for it to be opened (`_grow_under`). Where each one goes is decided exactly as before.
+            self._kids, self._parent_of = {}, {}
+            placed: set[str] = set()
+            made: list[str] = []
             for entry in self._entries:
                 holder: Any = self
-                if entry.parent and entry.parent in items:
-                    holder = items[entry.parent]
-                elif entry.section:
+                if entry.parent and entry.parent in placed:
+                    self._kids.setdefault(entry.parent, []).append(entry.key)
+                    self._parent_of[entry.key] = entry.parent
+                    placed.add(entry.key)
+                    continue
+                if entry.section:
                     if entry.section not in sections:
                         sections[entry.section] = self._heading(entry.section)
                     holder = sections[entry.section]
@@ -162,10 +184,15 @@ class SideList(QTreeWidget):
                         continue
                 item = self._item(entry)
                 items[entry.key] = item
+                placed.add(entry.key)
+                made.append(entry.key)
                 if holder is self:
                     self.addTopLevelItem(item)
                 else:
                     holder.addChild(item)
+            self._by_key = items
+            for key in made:                                   # these can be seen: their rows below exist
+                self._make_kids(key)
             for section, count in hidden.items():
                 more = QTreeWidgetItem([f"More... ({count:,})", ""])
                 more.setData(0, _MORE, section)
@@ -175,11 +202,12 @@ class SideList(QTreeWidget):
             for name, heading in sections.items():
                 default = self._default_open is None or name in self._default_open
                 heading.setExpanded(self._folded.get(name, default))
-            for key in opened:
-                if key in items:
-                    items[key].setExpanded(True)
-            self._by_key, self._shape, self._structure = items, shape, structure
-            current = items.get(self._current)
+            for entry in self._entries:                        # parents first, so each is made by now
+                if entry.key in opened and entry.key in items:
+                    items[entry.key].setExpanded(True)
+                    self._grow_under(items[entry.key])     # signals are held: grown by hand
+            self._shape, self._structure = shape, structure
+            current = self._find(self._current) if self._current else None
             if current is not None:
                 self.setCurrentItem(current)
         finally:
@@ -324,7 +352,43 @@ class SideList(QTreeWidget):
 
         item.setIcon(0, icon("ellipsis", self._ink("text_dim", "#888888")))
 
+    def _make_kids(self, key: str) -> None:
+        """Make the rows for the entries waiting under `key`, once. Not theirs: those wait for them."""
+        waiting = self._kids.pop(key, None)
+        holder = self._by_key.get(key)
+        if not waiting or holder is None:
+            return
+        for kid in waiting:
+            entry = self._index.get(kid)
+            if entry is None:
+                continue
+            item = self._item(entry)
+            self._by_key[kid] = item
+            holder.addChild(item)
+
+    def _grow_under(self, item: QTreeWidgetItem) -> None:
+        """A row was opened: its children can be seen now, so the rows below them are made."""
+        for i in range(item.childCount()):
+            entry = item.child(i).data(0, _ENTRY)
+            if entry is not None and entry.key in self._kids:
+                self._make_kids(entry.key)
+
+    def _made(self, key: str) -> Optional[QTreeWidgetItem]:
+        """The row for `key`, making it and the rows above it if they are still waiting."""
+        if key in self._by_key:
+            return self._by_key[key]
+        chain = []
+        at = key
+        while at in self._parent_of and at not in self._by_key:
+            at = self._parent_of[at]
+            chain.append(at)
+        for parent in reversed(chain):
+            self._make_kids(parent)
+        return self._by_key.get(key)
+
     def _find(self, key: str) -> Optional[QTreeWidgetItem]:
+        if key in self._by_key or key in self._parent_of:
+            return self._made(key)
         stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
         while stack:
             item = stack.pop()

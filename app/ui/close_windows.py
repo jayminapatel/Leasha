@@ -28,11 +28,12 @@ names itself.
 
 from __future__ import annotations
 
-from typing import Any
+import threading
+from typing import Any, Callable
 
 from app.core.logging import logger
 
-__all__ = ["close_other_windows"]
+__all__ = ["close_other_windows", "wait_off_window"]
 
 _log = logger.bind(component="ui.close_windows")
 
@@ -61,3 +62,44 @@ def close_other_windows(main: Any) -> int:
     if closed:
         _log.info("closed {} other window(s) so the application can quit", closed)
     return closed
+
+
+def wait_off_window(action: Callable[[], Any], *, name: str = "closing-wait",
+                    slice_ms: int = 50) -> Any:
+    r"""Run `action` on a thread of its own and wait for it with the window's events still served.
+
+    2026-10-15, the owner's rule that the window never freezes or goes "Not responding". The lag
+    monitor logged the window's thread 5 s inside `subprocess.wait` at close on 2026-10-14
+    (`closeEvent` -> `end_all_children` -> `ChildIndexRun.shutdown` -> `_force_end`): an indexing
+    child given its grace, then terminated, with the window's thread blocked in
+    `WaitForSingleObject` for all of it. **The wait is kept, only moved.** `closeEvent` must not
+    close the stores while a child process can still write to them (work order 0x section 2c),
+    so this returns only once `action` has - however long that takes - and anything it raised
+    is raised here. What changes is whose thread sits in the wait: the action's own, while this
+    one serves paint and timer events in `slice_ms` slices, the same trade `MainWindow.
+    _drain_workers` makes for the thread pools. User input is excluded for the reason given
+    there: a click into a closing window must not start new work against stores about to shut.
+    Without a `QApplication` (a script, a test) it simply waits.
+    """
+    from PySide6.QtCore import QEventLoop
+    from PySide6.QtWidgets import QApplication
+
+    done = threading.Event()
+    box: dict[str, Any] = {}
+
+    def body() -> None:
+        try:
+            box["value"] = action()
+        except BaseException as exc:                     # noqa: BLE001 - handed back below
+            box["error"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=body, name=name, daemon=True).start()
+    application = QApplication.instance()
+    while not done.wait(max(1, int(slice_ms)) / 1000.0):
+        if application is not None:
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents, 10)
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")

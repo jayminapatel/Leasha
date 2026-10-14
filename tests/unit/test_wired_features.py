@@ -84,6 +84,44 @@ def test_opening_a_photo_from_the_tagger_goes_through_the_window(gui_mainwindow,
     window._photo_tagger.close()
 
 
+def test_opening_the_tagger_or_the_log_does_not_restyle_the_whole_window(gui_mainwindow, qtbot, monkeypatch):
+    """2026-10-14 15:59, the lag monitor: `_open_photo_tagger` -> `_apply_theme` -> `setStyleSheet`
+    held the window 2 s, every widget in the tree re-polished through the list event filters. The
+    tagger is a child window and takes the sheet from its parent; the log window has no parent and
+    never got it. Each needs the palette pushed, not the main window's sheet set again."""
+    from PySide6.QtWidgets import QLineEdit
+
+    app, window, store, engine = gui_mainwindow
+    sheets, palettes = [], []
+    monkeypatch.setattr(window, "setStyleSheet", lambda sheet: sheets.append(sheet))
+    real_push = window._push_palette
+    monkeypatch.setattr(window, "_push_palette", lambda: (palettes.append(1), real_push()))
+    if window._photo_tagger is not None:
+        window._photo_tagger.close()
+        window._photo_tagger = None
+    window._open_photo_tagger()
+    gui_pump(app)
+    tagger = window._photo_tagger
+    assert sheets == [], "opening the tagger set the main window's stylesheet again"
+    assert palettes == [1], "the tagger's pictures were not given the palette"
+    # Still themed: a line edit inside it is painted from the main window's sheet, like one on a page.
+    inside = tagger.findChild(QLineEdit) or QLineEdit(tagger.page)
+    outside = window.findChild(QLineEdit)
+    inside.ensurePolished()
+    assert inside.style().metaObject().className() == "QStyleSheetStyle"
+    assert inside.palette().color(inside.backgroundRole()) == outside.palette().color(outside.backgroundRole())
+    tagger.close()
+
+    if window._log_window is not None:
+        window._log_window.close()
+        window._log_window = None
+    window._pop_out_log()
+    gui_pump(app)
+    assert sheets == [], "opening the log window set the main window's stylesheet again"
+    assert palettes == [1, 1]
+    window._log_window.close()
+
+
 def test_the_tagger_reloads_each_time_it_is_shown(gui_mainwindow, qtbot, monkeypatch):
     app, window, store, engine = gui_mainwindow
     window._open_photo_tagger()
