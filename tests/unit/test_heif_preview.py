@@ -109,3 +109,25 @@ def test_a_broken_heic_after_the_package_is_present_still_returns_none(
     photo.write_bytes(b"not really a heic file")
 
     assert decode_image(str(photo)) is None
+
+
+@pytest.mark.parametrize("suffix, fmt", [(".png", "PNG"), (".jpg", "JPEG")])
+def test_a_picture_too_big_for_qt_is_read_smaller_not_left_blank(tmp_path, monkeypatch, suffix, fmt):
+    """2026-10-15: pictures over Qt's 256 MB image limit showed as blank tiles.
+    The limit is lowered to 1 MB here, so a 1000-pixel picture stands in for one."""
+    from PIL import Image
+    from PySide6.QtGui import QImage, QImageReader
+
+    import app.ui.preview_loader as loader
+
+    photo = tmp_path / f"huge{suffix}"
+    Image.new("RGB", (1000, 600), "orange").save(photo, fmt)
+    monkeypatch.setattr(loader, "TOO_BIG_EDGE", 400)
+    before = QImageReader.allocationLimit()
+    QImageReader.setAllocationLimit(1)
+    try:
+        assert QImage(str(photo)).isNull()            # the refusal the owner saw
+        image = loader.decode_image(str(photo))
+    finally:
+        QImageReader.setAllocationLimit(before)
+    assert image is not None and (image.width(), image.height()) == (400, 240)

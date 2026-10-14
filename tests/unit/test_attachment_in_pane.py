@@ -205,6 +205,34 @@ def test_a_picture_attachment_decodes_from_memory(qapp):
 
 
 @pytest.mark.gui
+def test_a_picture_from_memory_never_reads_through_a_python_qbuffer(qapp, monkeypatch):
+    """2026-10-15: the window froze on the Photos page. A Python-made `QBuffer`
+    under `QImageReader` takes the GIL inside Qt's lock, while the window's
+    thread holds the GIL waiting for that lock. The decode must not build one,
+    and must still turn a camera's sideways photo upright."""
+    import io
+
+    from PIL import Image
+    from PySide6 import QtCore
+
+    from app.ui.preview_loader import decode_image_data
+
+    def refused(*_a, **_k):
+        raise AssertionError("decode_image_data built a Python QBuffer")
+
+    monkeypatch.setattr(QtCore, "QBuffer", refused)
+    exif = Image.Exif()
+    exif[0x0112] = 6                                 # rotated 90 CW: needs a quarter turn
+    out = io.BytesIO()
+    Image.new("RGB", (8, 4), "red").save(out, "JPEG", exif=exif.tobytes())
+    image = decode_image_data(out.getvalue())
+    assert image is not None and (image.width(), image.height()) == (4, 8)
+    png = io.BytesIO()
+    Image.new("RGB", (4, 3), "blue").save(png, "PNG")
+    assert decode_image_data(png.getvalue()).width() == 4
+
+
+@pytest.mark.gui
 def test_the_pane_draws_pdf_pages_and_a_picture_from_memory(qapp):
     from app.ui.preview_loader import KIND_IMAGE, KIND_PDF, Preview, decode_image_data
     from app.ui.widgets.preview import PreviewPane
