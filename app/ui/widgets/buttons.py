@@ -343,6 +343,7 @@ CONTROLS: dict[str, str] = {
     "Documents only": "file-text",
     "Mail only": "mail",
     "Code only": "code",
+    "Photos only": "image",
     # Chat: a reply's own actions, and a document's chip on the shelf.
     "Regenerate": "refresh-cw",
     "Try again": "rotate-cw",
