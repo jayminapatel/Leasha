@@ -333,6 +333,14 @@ class PreviewWindow(QWidget):
         exits.addStretch(1)
 
         self.find = attach_find(self, self.text)
+        # MS-10 (2026-10-14): Esc closes the window, as the photo viewer's does - but
+        # an open find bar first (its own Esc, armed only while it shows), so the two
+        # shortcuts are never enabled together and never ambiguous.
+        from PySide6.QtGui import QKeySequence, QShortcut
+
+        self.escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        self.escape.activated.connect(self.close)
+        self.find.visibilityChanged.connect(self._escape_follows_find)
 
         note_row = QHBoxLayout()
         note_row.addWidget(self.note, 1)
@@ -348,6 +356,10 @@ class PreviewWindow(QWidget):
         layout.addWidget(self.stack, stretch=1)
         layout.addWidget(self.find)
         layout.addLayout(exits)
+
+    def _escape_follows_find(self, shown: bool) -> None:
+        """MS-10: the window's Esc is armed exactly while the find bar's is not."""
+        self.escape.setEnabled(not shown)
 
     def _button(self, label: str, tip: str, on_click: Any) -> QPushButton:
         """Every control states its effect — §6's rule, and §6a's test."""
