@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Sequence
 
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QRect, QSize, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame, QLineEdit, QListWidget, QListWidgetItem, QStyledItemDelegate, QVBoxLayout,
@@ -204,7 +204,10 @@ class CommandPalette(CardWindow):
         entry = self._shown[row]
         self.last_run = entry
         self.close()
-        QTimer.singleShot(0, lambda: self._run(entry))
+        # After the close has gone through, and never on a palette already destroyed (`later`).
+        from app.ui.later import later  # noqa: PLC0415
+
+        later(self, 0, lambda: self._run(entry))
 
     def _run(self, entry: Entry) -> None:
         try:

@@ -533,6 +533,7 @@
     <Compile Include="app\ui\controllers\index_controller.py" />
     <Compile Include="app\ui\controllers\interpret_controller.py" />
     <Compile Include="app\ui\controllers\mcp_controller.py" />
+    <Compile Include="app\ui\controllers\navigation_controller.py" />
     <Compile Include="app\ui\controllers\outlook_cleanup_controller.py" />
     <Compile Include="app\ui\controllers\settings_controller.py" />
     <Compile Include="app\ui\controllers\timeline_controller.py" />
@@ -558,7 +559,9 @@
     <Compile Include="app\ui\photos_view.py" />
     <Compile Include="app\ui\pinned.py" />
     <Compile Include="app\ui\presenter\__init__.py" />
+    <Compile Include="app\ui\presenter\account_actions.py" />
     <Compile Include="app\ui\presenter\account_activity.py" />
+    <Compile Include="app\ui\presenter\actions.py" />
     <Compile Include="app\ui\presenter\activity.py" />
     <Compile Include="app\ui\presenter\answer.py" />
     <Compile Include="app\ui\presenter\chat.py" />
@@ -573,6 +576,7 @@
     <Compile Include="app\ui\presenter\formatting.py" />
     <Compile Include="app\ui\presenter\indexing.py" />
     <Compile Include="app\ui\presenter\interrupted.py" />
+    <Compile Include="app\ui\presenter\link_marks.py" />
     <Compile Include="app\ui\presenter\live_progress.py" />
     <Compile Include="app\ui\presenter\log_filter.py" />
     <Compile Include="app\ui\presenter\mail.py" />
@@ -581,18 +585,24 @@
     <Compile Include="app\ui\presenter\needed_models.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\opening.py" />
+    <Compile Include="app\ui\presenter\page_history.py" />
+    <Compile Include="app\ui\presenter\photo_people.py" />
+    <Compile Include="app\ui\presenter\photo_rows.py" />
     <Compile Include="app\ui\presenter\photos.py" />
     <Compile Include="app\ui\presenter\quick_search.py" />
     <Compile Include="app\ui\presenter\regions.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
     <Compile Include="app\ui\presenter\rows.py" />
+    <Compile Include="app\ui\presenter\scopes.py" />
     <Compile Include="app\ui\presenter\search.py" />
+    <Compile Include="app\ui\presenter\search_feedback.py" />
     <Compile Include="app\ui\presenter\settings.py" />
     <Compile Include="app\ui\presenter\side_entries.py" />
     <Compile Include="app\ui\presenter\side_entry.py" />
     <Compile Include="app\ui\presenter\snippets.py" />
     <Compile Include="app\ui\presenter\space_rows.py" />
+    <Compile Include="app\ui\presenter\sync_chip.py" />
     <Compile Include="app\ui\presenter\sync_status.py" />
     <Compile Include="app\ui\presenter\tidy.py" />
     <Compile Include="app\ui\presenter\tidy_marks.py" />
@@ -635,8 +645,10 @@
     <Compile Include="app\ui\widgets\advanced_fold.py" />
     <Compile Include="app\ui\widgets\answer_card.py" />
     <Compile Include="app\ui\widgets\archived_roots.py" />
+    <Compile Include="app\ui\widgets\arrow_keys.py" />
     <Compile Include="app\ui\widgets\browse_table.py" />
     <Compile Include="app\ui\widgets\buttons.py" />
+    <Compile Include="app\ui\widgets\card.py" />
     <Compile Include="app\ui\widgets\category_nav.py" />
     <Compile Include="app\ui\widgets\chat_answer_run.py" />
     <Compile Include="app\ui\widgets\chat_box.py" />
@@ -659,6 +671,7 @@
     <Compile Include="app\ui\widgets\code_results.py" />
     <Compile Include="app\ui\widgets\code_types_box.py" />
     <Compile Include="app\ui\widgets\command_icon.py" />
+    <Compile Include="app\ui\widgets\command_palette.py" />
     <Compile Include="app\ui\widgets\command_popup.py" />
     <Compile Include="app\ui\widgets\confirm.py" />
     <Compile Include="app\ui\widgets\converter_box.py" />
@@ -680,6 +693,7 @@
     <Compile Include="app\ui\widgets\find_bar.py" />
     <Compile Include="app\ui\widgets\fitted_tree.py" />
     <Compile Include="app\ui\widgets\flow_layout.py" />
+    <Compile Include="app\ui\widgets\focus_visible.py" />
     <Compile Include="app\ui\widgets\git_tree.py" />
     <Compile Include="app\ui\widgets\highlight.py" />
     <Compile Include="app\ui\widgets\history_pass.py" />
@@ -720,11 +734,15 @@
     <Compile Include="app\ui\widgets\offline_media_rows.py" />
     <Compile Include="app\ui\widgets\page_frame.py" />
     <Compile Include="app\ui\widgets\page_states.py" />
+    <Compile Include="app\ui\widgets\paint_kit.py" />
     <Compile Include="app\ui\widgets\person_card.py" />
+    <Compile Include="app\ui\widgets\photo_aspect.py" />
     <Compile Include="app\ui\widgets\photo_browser.py" />
+    <Compile Include="app\ui\widgets\photo_contacts.py" />
     <Compile Include="app\ui\widgets\photo_info.py" />
     <Compile Include="app\ui\widgets\photo_page_parts.py" />
     <Compile Include="app\ui\widgets\photo_sidebar.py" />
+    <Compile Include="app\ui\widgets\photo_strip.py" />
     <Compile Include="app\ui\widgets\photo_tagger_page.py" />
     <Compile Include="app\ui\widgets\photo_tagger_window.py" />
     <Compile Include="app\ui\widgets\photo_thumbs.py" />
@@ -733,6 +751,7 @@
     <Compile Include="app\ui\widgets\pinned_panel.py" />
     <Compile Include="app\ui\widgets\preview.py" />
     <Compile Include="app\ui\widgets\preview_window.py" />
+    <Compile Include="app\ui\widgets\quick_look.py" />
     <Compile Include="app\ui\widgets\rail.py" />
     <Compile Include="app\ui\widgets\rail_order.py" />
     <Compile Include="app\ui\widgets\region_box.py" />
@@ -750,8 +769,10 @@
     <Compile Include="app\ui\widgets\search_bar.py" />
     <Compile Include="app\ui\widgets\search_behaviour_box.py" />
     <Compile Include="app\ui\widgets\search_box.py" />
+    <Compile Include="app\ui\widgets\search_flight.py" />
     <Compile Include="app\ui\widgets\search_home.py" />
     <Compile Include="app\ui\widgets\search_marks.py" />
+    <Compile Include="app\ui\widgets\search_photos.py" />
     <Compile Include="app\ui\widgets\segmented.py" />
     <Compile Include="app\ui\widgets\select_all.py" />
     <Compile Include="app\ui\widgets\settings_row.py" />
@@ -773,6 +794,7 @@
     <Compile Include="app\ui\widgets\status_funnel.py" />
     <Compile Include="app\ui\widgets\status_line.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
+    <Compile Include="app\ui\widgets\sync_chip.py" />
     <Compile Include="app\ui\widgets\thumbnail_grid.py" />
     <Compile Include="app\ui\widgets\tidy_list_pane.py" />
     <Compile Include="app\ui\widgets\tidy_parts.py" />
@@ -842,6 +864,7 @@
     <Compile Include="tests\unit\mail_sync_fakes.py" />
     <Compile Include="tests\unit\test_about_dialog.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
+    <Compile Include="tests\unit\test_account_actions.py" />
     <Compile Include="tests\unit\test_account_activity.py" />
     <Compile Include="tests\unit\test_account_address.py" />
     <Compile Include="tests\unit\test_account_limits.py" />
@@ -870,6 +893,7 @@
     <Compile Include="tests\unit\test_archive_run.py" />
     <Compile Include="tests\unit\test_archive_scan.py" />
     <Compile Include="tests\unit\test_archives.py" />
+    <Compile Include="tests\unit\test_arrow_keys.py" />
     <Compile Include="tests\unit\test_attachment_in_pane.py" />
     <Compile Include="tests\unit\test_attachment_type_and_size.py" />
     <Compile Include="tests\unit\test_attachments_on_files_tab.py" />
@@ -1265,8 +1289,11 @@
     <Compile Include="tests\unit\test_own_python.py" />
     <Compile Include="tests\unit\test_owner_questions.py" />
     <Compile Include="tests\unit\test_packaging_entry.py" />
+    <Compile Include="tests\unit\test_page_history.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
+    <Compile Include="tests\unit\test_paint_kit.py" />
+    <Compile Include="tests\unit\test_palette_actions.py" />
     <Compile Include="tests\unit\test_part_read_archives.py" />
     <Compile Include="tests\unit\test_partial_status_migration.py" />
     <Compile Include="tests\unit\test_pasted.py" />
@@ -1281,6 +1308,7 @@
     <Compile Include="tests\unit\test_phash.py" />
     <Compile Include="tests\unit\test_phash_column_migration.py" />
     <Compile Include="tests\unit\test_phash_pipeline.py" />
+    <Compile Include="tests\unit\test_photo_aspect.py" />
     <Compile Include="tests\unit\test_photo_description_reuse.py" />
     <Compile Include="tests\unit\test_photo_indexing_speed.py" />
     <Compile Include="tests\unit\test_photo_metadata_write.py" />
@@ -1291,6 +1319,7 @@
     <Compile Include="tests\unit\test_photo_tags_at_run_end.py" />
     <Compile Include="tests\unit\test_photo_tree_toggle.py" />
     <Compile Include="tests\unit\test_photos_beside_meaning.py" />
+    <Compile Include="tests\unit\test_photos_contacts_links.py" />
     <Compile Include="tests\unit\test_photos_page.py" />
     <Compile Include="tests\unit\test_photos_smooth.py" />
     <Compile Include="tests\unit\test_photos_worker.py" />
@@ -1333,7 +1362,9 @@
     <Compile Include="tests\unit\test_query.py" />
     <Compile Include="tests\unit\test_query_plans.py" />
     <Compile Include="tests\unit\test_query_vector_cache.py" />
+    <Compile Include="tests\unit\test_quick_look.py" />
     <Compile Include="tests\unit\test_quoting.py" />
+    <Compile Include="tests\unit\test_rail_hide.py" />
     <Compile Include="tests\unit\test_rail_order.py" />
     <Compile Include="tests\unit\test_raw_extractor.py" />
     <Compile Include="tests\unit\test_read_order.py" />
@@ -1393,6 +1424,8 @@
     <Compile Include="tests\unit\test_scale_limits.py" />
     <Compile Include="tests\unit\test_scan.py" />
     <Compile Include="tests\unit\test_schedule.py" />
+    <Compile Include="tests\unit\test_scopes.py" />
+    <Compile Include="tests\unit\test_search_feedback.py" />
     <Compile Include="tests\unit\test_search_images.py" />
     <Compile Include="tests\unit\test_search_notices.py" />
     <Compile Include="tests\unit\test_search_policy.py" />
@@ -1446,7 +1479,10 @@
     <Compile Include="tests\unit\test_suite_speed.py" />
     <Compile Include="tests\unit\test_suite_tiers.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
+    <Compile Include="tests\unit\test_sync_contract.py" />
+    <Compile Include="tests\unit\test_sync_contract_dialog.py" />
     <Compile Include="tests\unit\test_sync_dialog.py" />
+    <Compile Include="tests\unit\test_sync_status_ui.py" />
     <Compile Include="tests\unit\test_sync_transport_and_batches.py" />
     <Compile Include="tests\unit\test_tab_scale_bounds.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
@@ -1501,6 +1537,8 @@
     <Compile Include="tests\unit\test_ui_style_rules.py" />
     <Compile Include="tests\unit\test_unchanged_passages_keep_vectors.py" />
     <Compile Include="tests\unit\test_unexpected_skip_is_logged.py" />
+    <Compile Include="tests\unit\test_ux_guards.py" />
+    <Compile Include="tests\unit\test_ux_keys_and_palette.py" />
     <Compile Include="tests\unit\test_value_suggestions.py" />
     <Compile Include="tests\unit\test_vector_compaction.py" />
     <Compile Include="tests\unit\test_vector_drop_locked.py" />
@@ -1577,7 +1615,9 @@
     <Content Include="archive\scripts\setup-github.ps1" />
     <Content Include="assets\icons\archive-restore.svg" />
     <Content Include="assets\icons\archive.svg" />
+    <Content Include="assets\icons\arrow-left.svg" />
     <Content Include="assets\icons\arrow-right-left.svg" />
+    <Content Include="assets\icons\arrow-right.svg" />
     <Content Include="assets\icons\at-sign.svg" />
     <Content Include="assets\icons\badge-check.svg" />
     <Content Include="assets\icons\ban.svg" />
@@ -1607,6 +1647,7 @@
     <Content Include="assets\icons\clock.svg" />
     <Content Include="assets\icons\cloud.svg" />
     <Content Include="assets\icons\code.svg" />
+    <Content Include="assets\icons\command.svg" />
     <Content Include="assets\icons\contact-round.svg" />
     <Content Include="assets\icons\contact.svg" />
     <Content Include="assets\icons\copy-plus.svg" />

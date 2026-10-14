@@ -322,6 +322,9 @@ def fresh_faces(monkeypatch):
     monkeypatch.setattr(face_detect, "_engine_failed", False)
     monkeypatch.setattr(face_detect, "_engine_attempts", 0)
     monkeypatch.setattr(face_detect, "_engine_is_gpu", False)
+    # 2026-10-14: an index run earlier in the same process leaves the conductor's
+    # share behind (`configure_threads`), which overrides the envelope these read.
+    monkeypatch.setattr(face_detect, "_threads_wanted", None)
     monkeypatch.setattr(face_detect, "_choice", lambda: backends.choose(None, backends.CPU))
     monkeypatch.setattr(compute_profile, "detect", lambda *a, **k: _owner_laptop())
     return face_detect

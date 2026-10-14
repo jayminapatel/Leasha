@@ -129,7 +129,16 @@ class SyncChip(QToolButton):
         self.setAccessibleName(said)
         self.setToolTip(self.words.tip or _TIP)
         self.setIcon(icon(self.words.glyph, colours.get(self.words.tone, colours.get("text_dim", "#888888"))))
-        self.setVisible(bool(self.words.text))
+        # Never shown before it has a parent: a parentless widget made visible opens as a window of its
+        # own (test_window_opens). The wish is kept, and applied when the chip is put in its bar.
+        self._wanted = bool(self.words.text)
+        if self.parentWidget() is not None:
+            self.setVisible(self._wanted)
+
+    def event(self, event: Any) -> bool:  # noqa: D102 - Qt's
+        if event.type() == QEvent.Type.ParentChange and self.parentWidget() is not None:
+            self.setVisible(getattr(self, "_wanted", False))
+        return super().event(event)
 
     # -- Qt
     def try_attach(self) -> None:
