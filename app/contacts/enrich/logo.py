@@ -33,7 +33,13 @@ from app.contacts.card import Card
 from app.contacts.enrich.base import MAX_IMAGE_BYTES, Proposal, normalise_image
 from app.contacts.enrich.company import company_guess, registrable_name, work_domains
 
-__all__ = ["company_domain", "usable_domain", "logo_proposals"]
+__all__ = ["company_domain", "usable_domain", "logo_proposals", "CONFIDENCE"]
+
+#: How sure a logo is: at Hide below's default (0.5, order 1s D4), so it is shown but never starts ticked.
+#: It was 0.4 - under that default - so every logo found was hidden: 150 of them on the owner's index, with
+#: the Enrich window offering only what mail gave (found 2026-10-15). The domain is already the company's
+#: own (6d); what stays unsure is whether the site's icon is the company's logo.
+CONFIDENCE = 0.5
 
 _PRIVATE_SUFFIXES = (".local", ".lan", ".internal", ".home", ".corp", ".localdomain", ".intranet", ".test",
                      ".invalid", ".example", ".localhost", ".arpa")
@@ -145,7 +151,7 @@ def logo_proposals(transport: Transport, allowed: AllowedHosts, cid: int, card: 
         for url in icon_urls:
             photo = _icon(get(url))
             if photo is not None:
-                return [Proposal(cid, "photo", "", "", photo, "logo", url, 0.4)]
+                return [Proposal(cid, "photo", "", "", photo, "logo", url, CONFIDENCE)]
         page = get(f"https://{domain}/")
         if page is not None and page.status == 200:
             for href in _icon_links(page.body[:MAX_PAGE_BYTES].decode("utf-8", "replace"), f"https://{domain}/"):
@@ -153,7 +159,7 @@ def logo_proposals(transport: Transport, allowed: AllowedHosts, cid: int, card: 
                     continue
                 photo = _icon(get(href))
                 if photo is not None:
-                    return [Proposal(cid, "photo", "", "", photo, "logo", href, 0.4)]
+                    return [Proposal(cid, "photo", "", "", photo, "logo", href, CONFIDENCE)]
         return []
     finally:
         for h in registered:

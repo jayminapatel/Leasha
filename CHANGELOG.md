@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.137 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 4.138 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Enrich: company logos shown, the best picture wins, unreachable sites said once (2026-10-15)
+
+- **Company logos are shown.** A logo was scored below Hide suggestions below's default, so the Enrich
+  window hid every one it found; it is now shown, never ticked by itself. Logos found by earlier runs
+  are offered again without asking the internet.
+- **The best picture wins.** The person's own face from the photos, then their Gravatar, then the
+  company's logo. A better picture can replace one enrichment put on the card; a photo from anywhere
+  else is never replaced. Of two pictures ticked at once, the better one is used.
+- **Unreachable websites in one sentence.** The notes line said "could not be reached" once a contact;
+  a run now says it once, names three and counts the rest, and does not ask a failed site again.
 
 ### Three CI runs, each started by hand: Windows Run, Mac Run, Windows JVM Run (2026-10-15)
 
