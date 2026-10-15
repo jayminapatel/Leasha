@@ -655,3 +655,112 @@ def test_bytes_are_counted_even_when_the_first_document_is_unchanged(tmp_path, c
 
     assert second.unchanged_documents >= 1, "the archive was re-read and skipped"
     assert second.bytes_read > 0, "an archive that was read reported reading nothing"
+
+
+# -- 2026-10-15: a .pst is read again only when its size changed, or after the interval ----
+
+
+def _touched(path: Path) -> None:
+    """A new date and the same bytes - what Outlook does to every archive it has open."""
+    stamp = time.time() - LONG_AGO // 3
+    os.utime(path, (stamp, stamp))
+
+
+@pytest.fixture()
+def settled_fakepst(monkeypatch):
+    """The rule covers `.pst`; the stand-in archive here is `.fakepst`."""
+    monkeypatch.setattr(Pipeline, "SETTLED_ARCHIVE_EXTS", frozenset({".pst", ".fakepst"}))
+
+
+@pytest.mark.slow
+def test_a_touched_archive_of_the_same_size_is_not_read_again(tmp_path, corpus, settled_fakepst):
+    """The owner, 2026-10-15: "a date change alone does not count"."""
+    db = tmp_path / "index.db"
+    run_index(db, corpus)
+    _touched(corpus / "archive.fakepst")
+
+    second = run_index(db, corpus)
+
+    assert second.unchanged_documents == 0, "the archive was opened and read again"
+    assert second.indexed == 0
+
+
+@pytest.mark.slow
+def test_without_the_rule_the_same_touch_is_a_full_read(tmp_path, corpus):
+    """The control for the test above: the touch it makes is one the indexer acts on."""
+    db = tmp_path / "index.db"
+    run_index(db, corpus)
+    _touched(corpus / "archive.fakepst")
+
+    second = run_index(db, corpus)
+
+    assert second.unchanged_documents >= FakeArchive.messages
+
+
+@pytest.mark.slow
+def test_an_archive_whose_size_changed_is_read_again(tmp_path, corpus, settled_fakepst):
+    db = tmp_path / "index.db"
+    run_index(db, corpus)
+    archive = corpus / "archive.fakepst"
+    archive.write_bytes(b"x" * 8192)
+    aged(archive)
+
+    second = run_index(db, corpus)
+
+    assert second.unchanged_documents >= FakeArchive.messages
+
+
+@pytest.mark.slow
+def test_an_archive_last_read_longer_ago_than_the_interval_is_read_again(
+        tmp_path, corpus, settled_fakepst):
+    db = tmp_path / "index.db"
+    run_index(db, corpus)
+    with SqliteStore(db) as store, store.write() as conn:
+        conn.execute("UPDATE files SET indexed_at = ? WHERE path LIKE '%archive.fakepst'",
+                     (int(time.time()) - 31 * 86400,))
+    _touched(corpus / "archive.fakepst")
+
+    second = run_index(db, corpus)
+
+    assert second.unchanged_documents >= FakeArchive.messages
+
+
+class _Row:
+    def __init__(self, size=1000, status="INDEXED", indexed_at=None):
+        self.size_bytes, self.status = size, status
+        self.indexed_at = indexed_at if indexed_at is not None else int(time.time()) - 86400
+
+
+class _Candidate:
+    def __init__(self, name="2007.pst", size=1000, retry=False):
+        self.path, self.size_bytes, self.retry = Path(name), size, retry
+
+
+def _rule(candidate, record, *, recheck_days=30, recheck_archives=False):
+    import types
+
+    from loguru import logger
+
+    me = types.SimpleNamespace(
+        config=types.SimpleNamespace(recheck_days=recheck_days, recheck_archives=recheck_archives),
+        _log=logger, SETTLED_ARCHIVE_EXTS=Pipeline.SETTLED_ARCHIVE_EXTS)
+    return Pipeline._archive_only_touched(me, candidate, record)
+
+
+def test_the_rule_keeps_a_recently_read_pst_of_the_same_size():
+    assert _rule(_Candidate(), _Row()) is True
+
+
+@pytest.mark.parametrize("candidate, record, kwargs", [
+    (_Candidate(size=1001), _Row(), {}),                                   # it grew
+    (_Candidate(), _Row(indexed_at=int(time.time()) - 31 * 86400), {}),    # past the interval
+    (_Candidate(), _Row(), {"recheck_archives": True}),                    # a re-check was asked
+    (_Candidate(name="live.ost"), _Row(), {}),                             # Outlook's live copy
+    (_Candidate(), _Row(status="FAILED"), {}),                             # never fully read
+    (_Candidate(retry=True), _Row(), {}),                                  # being retried
+    (_Candidate(), _Row(), {"recheck_days": 0}),                           # no interval set
+    (_Candidate(), None, {}),                                              # never seen
+], ids=["grew", "interval-passed", "recheck-asked", "ost", "not-indexed", "retry",
+        "no-interval", "no-row"])
+def test_the_rule_reads_it_again_otherwise(candidate, record, kwargs):
+    assert _rule(candidate, record, **kwargs) is False

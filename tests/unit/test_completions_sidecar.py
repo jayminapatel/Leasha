@@ -248,6 +248,7 @@ def test_it_opens_the_database_read_only() -> None:
     assert "uri=True" in source
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_it_answers_inside_the_budget(indexed) -> None:
     """4c: "measured under 300ms cold on the scale fixture, or the fallback is

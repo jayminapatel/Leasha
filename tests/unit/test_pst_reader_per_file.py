@@ -418,6 +418,12 @@ def test_a_message_waiting_for_its_vectors_is_still_passed_over_by_its_stamp(
         assert changed, "no message rows to make PARTIAL"
         assert store.known_read_stamps(str(archive)), \
             "a PARTIAL message lost its stamp"
+        # 2026-10-15: a date change alone no longer re-reads a `.pst` (the owner's
+        # rule: size, or the re-check interval). The interval is what brings this
+        # archive back here, so its last full read is put 31 days ago.
+        with store.write() as conn:
+            conn.execute("UPDATE files SET indexed_at = ? WHERE path = ?",
+                         (int(time.time()) - 31 * 86400, str(archive)))
 
     # Outlook mounts it: the date moves, nothing else.
     later = time.time() - 1800

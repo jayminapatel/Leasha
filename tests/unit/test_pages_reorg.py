@@ -277,6 +277,7 @@ def indexing_page():
     view.hide()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("size_name", sorted(SIZES))
 def test_no_indexing_control_is_laid_out_at_zero_height(indexing_page, size_name):
     """The same regression class `test_settings_layout.py` guards against on
