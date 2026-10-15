@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.139 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 4.140 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The full local suite green on `main`; native crashes leave a stack; Contacts opens fast; worktrees not indexed (2026-10-15)
+
+Order 1v item 7a met: 18,278 passed, 0 failed, 0 crashed on `main` (`1c9bfc7`). A native crash in a full run now leaves every thread's stack in the part's crash file. Contacts' first visit takes 125-237 ms (it was 513-569 ms). The slow-marker guard judges each test on the lowest of its last three runs. Each conversation has one title timer, restarted after every answer. Tests marked `timing` run last, on their own. The GUI journeys wait up to 30 s. `.worktrees` and `.claude` are no longer indexed, and a missing picture is not treated as too big. Also earlier today: the Photos freeze (a GIL / Qt-lock deadlock), the 2 s+ window stalls, and three manual CI runs (#97-#99).
 
 ### The Enrich window: see a suggestion's picture and where it came from; misread addresses offered as fixes (2026-10-15)
 
