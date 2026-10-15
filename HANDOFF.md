@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.179 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 7.180 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-15, midday - #97 and #98 on `main`; order 1v's 7a still open (owner: "merge PR #97 and PR #98 ... then close 7a", then "do recommended").** Both merged as merge commits (`2a43582`, `68e0817`), so the hashes cited below stay on `main`. GitHub Actions lists only Windows Run, Mac Run and Windows JVM Run, plus CodeQL and Dependency Graph (repository security settings; the owner's to switch off). **Fixed on `chore/slow-marks-and-7a`:** `Leasha.pyproj` still named the deleted `ci.yml` (#98's miss; `test_vs_project` red on `main`); `test_contact_import_match` read the wall clock through the fakes and lost its name lookup under load; the wheel-glide test now waits for the glide to land; the 177 tests a quiet run measured over 1 s are marked `slow`. **Why 7a is not ticked** - three full runs, none green: `test_navigation_is_instant` (Contacts first visit 440-735 ms > 400 ms, red on `main` before these PRs; about 126 ms of it is building the page on the window's thread - the editor 50 ms, 178 icon renders 36 ms); `test_slow_markers_truthful` (the set of tests over 1 s moves with each run's load - after 177 were marked, a 3-part run listed 108 others; marking again would only move the line); `test_chat_tab_qt::test_the_title_is_asked_once_the_model_has_been_idle` once; and one part died with 0xC0000005 while `test_one_unwritable_document.py` ran (it passes alone 3 of 3; cause UNCONFIRMED). **Next:** each of the four is proposed as its own session. **Now untrue in the UX-survey and indexing-cockpit handovers to this thread:** nothing beyond 7a's state above.
 
 **2026-10-15, morning - the full local suite on `fix/photos-freeze` (PR #97, `d4a1ffd`, `main` merged in), the laptop quiet (Leasha closed, no index run).** `scripts/run_suite.py`, four parts: 18,189 passed, 165 skipped, 3 failed, 0 crashed, 1,490 s. `test_navigation_is_instant` (Contacts first visit 735 ms > 400 ms) and `test_photos_smooth::test_a_wheel_notch_glides_the_grid` (scroll 0, not 120) pass alone 3 of 3 on the branch; on `main` the navigation test failed 1 of 3 (894 ms) - the `phonenumbers` import the branch removes. `test_slow_markers_truthful` lists 37 older tests from the previous, loaded run's durations; none of the branch's 11 new tests is among them; nothing was marked. **Read as:** no regression from the branch. The wheel-glide test is load-sensitive under four parts (UNCONFIRMED as the only cause). The entry below's suite line is superseded by this one.
 
