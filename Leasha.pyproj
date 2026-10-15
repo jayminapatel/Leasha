@@ -998,6 +998,7 @@
     <Compile Include="tests\unit\test_contacts_enrich_local.py" />
     <Compile Include="tests\unit\test_contacts_enrich_net.py" />
     <Compile Include="tests\unit\test_contacts_export.py" />
+    <Compile Include="tests\unit\test_contacts_first_visit_cheap.py" />
     <Compile Include="tests\unit\test_contacts_import.py" />
     <Compile Include="tests\unit\test_contacts_index_panel.py" />
     <Compile Include="tests\unit\test_contacts_people.py" />
