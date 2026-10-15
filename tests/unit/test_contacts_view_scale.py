@@ -20,6 +20,12 @@ import types
 
 import pytest
 
+# 2026-10-15: the whole file is `timing`, not two of its tests. Its tests are one sequence
+# over a module fixture - the first builds the page the rest sort, narrow and report on - so
+# with only the budget tests moved to the runner's last pass, the others ran on a page that
+# was never built (`'NoneType' object has no attribute 'toolbar'`).
+pytestmark = pytest.mark.timing
+
 pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
