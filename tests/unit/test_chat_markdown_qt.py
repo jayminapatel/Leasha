@@ -429,6 +429,7 @@ def _stream(body, text, step=1, **kwargs):
         yield end
 
 
+@pytest.mark.slow
 def test_streaming_char_by_char_is_calm(body, qtbot):
     counts = []
     heights = []
