@@ -4363,6 +4363,20 @@ class Pipeline:
                     self._note_marker_moved(candidate, record, known, marker)
             digest = marker
 
+        # **A mail archive is read again only when its size changed, or once its
+        # re-check interval has passed** (the owner, 2026-10-15: "Re-read an Outlook
+        # archive only when its size changed, or once its recheck interval
+        # (ARCHIVE_RECHECK_DAYS) has passed since its last full read; a date change
+        # alone does not count"). The marker above cannot be read while Outlook
+        # holds the file, and Outlook moves the date of every archive it has open
+        # every few minutes - on 2026-10-15 2007-2009.pst, same size to the byte,
+        # were read again through Outlook, message by message, within hours of
+        # their last full read. **Only when the header could not be read:** a marker
+        # that moved is evidence the contents did - new mail in an archive of the
+        # same size (`test_pst_change_marker.py`) - not a date change.
+        if changed and marker is None and self._archive_only_touched(candidate, record):
+            changed = False
+
         if self.config.force:
             return digest                    # `--force`: index it whatever the row says
 
@@ -7234,6 +7248,45 @@ class Pipeline:
             self._log.warning(
                 "could not keep the read stamps for {}: {}. Nothing is lost - its "
                 "messages are read again next time.", candidate.path.name, exc)
+
+    #: The archives the size-or-interval rule covers. Not `.ost`: Outlook's live
+    #: copy of a mailbox, whose new mail must not wait for the interval.
+    SETTLED_ARCHIVE_EXTS = frozenset({".pst"})
+
+    def _archive_only_touched(self, candidate: Candidate, record: Any) -> bool:
+        """True when a `.pst` that looks changed is only touched: the same size as
+        at its last full read, which was less than `recheck_days` ago. Never raises.
+
+        2026-10-15, the owner's rule (see `_classify`). Not when a re-check was asked
+        for (`recheck_archives`), when the row is being retried, or when the last
+        read is unknown or not a full one. Said once per archive per run, so a skip
+        is never silent."""
+        try:
+            if Path(str(candidate.path)).suffix.lower() not in self.SETTLED_ARCHIVE_EXTS:
+                return False
+            if (record is None or record.status != FileStatus.INDEXED
+                    or self.config.recheck_archives or getattr(candidate, "retry", False)):
+                return False
+            if int(record.size_bytes or -1) != int(candidate.size_bytes or -2):
+                return False
+            read_at = record.indexed_at
+            days = int(self.config.recheck_days or 0)
+            if not read_at or days <= 0:
+                return False
+            age_days = (time.time() - float(read_at)) / 86400.0
+            if age_days >= days:
+                return False
+            seen = self.__dict__.setdefault("_archives_kept", set())
+            if str(candidate.path) not in seen:
+                seen.add(str(candidate.path))
+                self._log.info(
+                    "{} is not read again: the same size as at its last full read "
+                    "({:.0f} days ago) - only its date moved. It is read again when its "
+                    "size changes, or after {} days.",
+                    candidate.path.name, age_days, days)
+            return True
+        except Exception:                                   # noqa: BLE001 - see the docstring
+            return False
 
     def _note_marker_moved(self, candidate: Candidate, record: Any,
                            known: str, marker: str) -> None:

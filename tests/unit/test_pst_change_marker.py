@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import pathlib
 
 import pytest
@@ -204,8 +205,14 @@ class TestTheDateAloneNoLongerMeansChanged:
         finally:
             store.close()
 
-    def test_an_archive_whose_header_cannot_be_read_is_decided_by_its_date(self, tmp_path):
-        """What an archive mounted in Outlook is: the read fails, so no marker."""
+    def test_an_archive_whose_header_cannot_be_read_is_decided_by_size_and_interval(
+            self, tmp_path):
+        """What an archive mounted in Outlook is: the read fails, so no marker.
+
+        2026-10-15: was "...is decided by its date" - a moved date re-read it. The
+        owner's rule now: with no marker, a `.pst` of the same size whose last full
+        read is within `ARCHIVE_RECHECK_DAYS` is not read again; past the interval
+        it is."""
         from app.index.pipeline import UNCHANGED
 
         archive = _archive(tmp_path, version=14)
@@ -213,7 +220,13 @@ class TestTheDateAloneNoLongerMeansChanged:
         store, pipeline = _classifier(tmp_path)
         try:
             _indexed_row(store, archive, marker=MARKER_PREFIX + "anything")
-            assert pipeline._classify(_candidate(archive)) is not UNCHANGED
+            assert pipeline._classify(_candidate(archive)) is UNCHANGED, \
+                "a date that moved, alone, read the archive again"
+            with store.write() as conn:
+                conn.execute("UPDATE files SET indexed_at = ? WHERE path = ?",
+                             (int(time.time()) - 31 * 86400, str(archive)))
+            assert pipeline._classify(_candidate(archive)) is not UNCHANGED, \
+                "past the re-check interval it must be read again"
         finally:
             store.close()
 

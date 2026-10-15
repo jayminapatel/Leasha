@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.140 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 4.141 · **Updated:** 2026-10-16 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### An Outlook archive is read again only when its size changes, or after the re-check interval (2026-10-16)
+
+The owner: "Re-read an Outlook archive only when its size changed, or once its recheck interval (ARCHIVE_RECHECK_DAYS) has passed since its last full read; a date change alone does not count." Outlook moves the date of every archive it has open every few minutes. While it holds a `.pst`, Leasha cannot read the archive's header marker, so date and size had decided, and 2007-2009.pst were read again in full through Outlook within hours of their last read. Now, with no marker, a `.pst` of the same size whose last full read is within `ARCHIVE_RECHECK_DAYS` is left alone, and a log line says so. A header marker that moved still means new mail and is read. `.ost` is not covered. `test_completions_sidecar`'s 300 ms budget joins the `timing` pass.
 
 ### The full local suite green on `main`; native crashes leave a stack; Contacts opens fast; worktrees not indexed (2026-10-15)
 
