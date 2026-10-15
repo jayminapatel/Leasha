@@ -34,7 +34,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 from app.ui.tray import assets_dir
 
-__all__ = ["icon", "icon_file", "clear_cache", "ICON_PX", "ICON_NAMES", "ICON_SIZES", "icon_size"]
+__all__ = ["icon", "icon_file", "clear_cache", "preload", "ICON_PX", "ICON_NAMES", "ICON_SIZES", "icon_size"]
 
 #: Rendered at this size and left for Qt to scale down.
 ICON_PX = 48
@@ -129,10 +129,18 @@ def icon_file(name: str) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
-def _svg_bytes(name: str, colour: str) -> Optional[bytes]:
-    """The SVG with `currentColor` replaced by `colour`, or None. Reads a shipped
-    asset of a few hundred bytes; the result is cached by `icon`.
-    """
+#: **The shipped SVG text, by name, read once** (2026-10-15). `icon`'s cache is per colour and size,
+#: so the same file was read again for every new colour or size - on the window's thread, a file open
+#: each. Measured in `gui_mainwindow`: 27 reads, 16-26 ms, of the Contacts page's first visit. A name
+#: whose file is missing or unreadable is not kept, so it is looked for again, as before.
+_texts: dict[str, str] = {}
+
+
+def _svg_text(name: str) -> Optional[str]:
+    """The SVG for `name` as shipped, or None. Safe on any thread: a file read and a dict write."""
+    text = _texts.get(name)
+    if text is not None:
+        return text
     path = icon_file(name)
     if path is None:
         return None
@@ -140,6 +148,29 @@ def _svg_bytes(name: str, colour: str) -> Optional[bytes]:
         text = path.read_text(encoding="utf-8")
     # An unreadable asset is a missing glyph, never a failure to open a page.
     except OSError:
+        return None
+    _texts[name] = text
+    return text
+
+
+def preload(names: Optional[tuple[str, ...]] = None) -> int:
+    """Read every shipped SVG (or `names`) into memory, **for a worker** (2026-10-15).
+
+    Only the text: rendering makes a `QPixmap`, which belongs to the window's thread. Called by
+    `contacts_view.ContactsView.warm`, so a page built later renders its icons without opening a file.
+    Returns how many are held.
+    """
+    for name in names or ICON_NAMES:
+        _svg_text(name)
+    return len(_texts)
+
+
+def _svg_bytes(name: str, colour: str) -> Optional[bytes]:
+    """The SVG with `currentColor` replaced by `colour`, or None. The shipped asset of a few
+    hundred bytes is read once (`_svg_text`); the result is cached by `icon`.
+    """
+    text = _svg_text(name)
+    if text is None:
         return None
     return text.replace("currentColor", colour).encode("utf-8")
 
