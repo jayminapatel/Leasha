@@ -51,6 +51,7 @@ def elapsed_ms(work) -> float:
 CHUNKER_FLOOR_MS = 220 * SLACK
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_a_hundred_thousand_words_chunk_in_under_two_seconds() -> None:
     """The review asked for exactly this floor, and named the number.
@@ -110,6 +111,7 @@ def corpus(tmp_path_factory) -> SqliteStore:
     store.close()
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_a_three_word_query_stays_off_the_linear_path(corpus: SqliteStore) -> None:
     """H6: the keyword path ORed every term and then ranked the union.
@@ -131,6 +133,7 @@ def test_a_three_word_query_stays_off_the_linear_path(corpus: SqliteStore) -> No
     )
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_the_filename_lookup_stays_fast_enough_for_every_keystroke(
     corpus: SqliteStore
@@ -147,6 +150,7 @@ def test_the_filename_lookup_stays_fast_enough_for_every_keystroke(
 # --- the store's own counters ------------------------------------------------
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_asking_whether_anything_is_indexed_does_not_count_anything(
     corpus: SqliteStore

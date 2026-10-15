@@ -399,6 +399,7 @@ def test_a_month_of_photographs_arrives_a_page_at_a_time_as_the_list_is_scrolled
     store.close()
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_the_window_keeps_answering_while_a_dense_month_loads_and_scrolls(qtbot, tmp_path):
     """The `test_ui_never_blocks` promise, measured: a 5 ms heartbeat on the

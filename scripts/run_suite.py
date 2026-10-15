@@ -44,6 +44,14 @@ being whatever the slowest alphabetical third needs - on 2026-10-08 that was 23 
 against a 17-minute fastest part. With no measurements yet the files are cut into contiguous
 alphabetical groups as before.
 
+**The `timing` tests run last, on their own (2026-10-15, the owner).** A test marked
+`timing` asserts a wall-clock budget of about a second or less - a page that must open
+within 400 ms, a stall no longer than 0.3 s. Measured while three other parts load the
+machine, such a budget measures the load: they passed alone and failed in full runs. The
+parallel parts leave them out (`and not timing`), and once those have finished one more
+process runs `and timing` over only the files that have any (`timing_files`), reported as
+the timing part.
+
 **Which tests are slow (2026-10-15).** The same file keeps each test's last three times
 (`HISTORY_RUNS`). A test is judged on the lowest of them, once it has two
 (`JUDGED_AFTER_RUNS`), and `--audit-markers` and the slow-marker guard
@@ -354,6 +362,26 @@ TIMEOUT_MARK = "+ Timeout +"
 LAST_LINE = re.compile(r"^=+ .* in [\d.]+s.*=+\s*$", re.MULTILINE)
 
 
+#: The mark a `timing` test carries in its source (`pytest.mark.timing`).
+TIMING_MARK = re.compile(r"\bmark\.timing\b")
+
+
+def timing_files(files: list[str]) -> list[str]:
+    """The test files with a `timing` test - the last pass runs only these, on its own.
+
+    2026-10-15: read from the source rather than by collecting, which takes ~50 s over the
+    whole tree. A file that cannot be read is left out, never a reason to stop the run."""
+    found = []
+    for name in files:
+        try:
+            text = (ROOT / name).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if TIMING_MARK.search(text):
+            found.append(name)
+    return found
+
+
 def part_died(code: int, log_text: str) -> bool:
     """Did this process stop before it finished its files?
 
@@ -492,8 +520,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.quick:
         print(f"quick: deselecting `{QUICK_DESELECT}` - a sanity pass, not a gate", flush=True)
 
-    running = []
-    for number, group in enumerate(groups):
+    tier = TIERS["quick"] if args.quick else PROJECT_DESELECT
+    timed = timing_files(files)
+
+    def start(number: int, group: list[str], marker: str) -> tuple:
         log = work / f"part{number}.txt"
         handle = open(log, "w", encoding="utf-8", errors="replace")
         # 2026-10-05: `-v` undoes the project's `addopts = -q`, which dropped the
@@ -510,9 +540,7 @@ def main(argv: list[str] | None = None) -> int:
         command = [sys.executable, "-m", "pytest", *group, "-v", "-rfE",
                    "-p", "no:cacheprovider", "-p", "scripts.suite_durations",
                    f"--timeout={args.timeout}",
-                   f"--basetemp={work / f'tmp{number}'}"]
-        if args.quick:
-            command += ["-m", TIERS["quick"]]
+                   f"--basetemp={work / f'tmp{number}'}", "-m", marker]
         env = dict(os.environ)
         env["LEASHA_SUITE_DURATIONS"] = str(work / f"durations{number}.json")
         # 2026-10-15: a native crash's stacks, for every thread (`tests/conftest.py`,
@@ -521,9 +549,21 @@ def main(argv: list[str] | None = None) -> int:
         extra = {} if sys.platform == "win32" else {"start_new_session": True}
         process = subprocess.Popen(command, cwd=ROOT, stdout=handle,
                                    stderr=subprocess.STDOUT, env=env, **extra)
-        running.append((number, group, log, handle, process))
+        return (number, group, log, handle, process)
 
+    # The parallel parts leave out the `timing` tests: a wall-clock budget measured while
+    # three other parts load the machine measures the load (2026-10-15, the owner's choice).
+    running = [start(number, group, f"{tier} and not timing")
+               for number, group in enumerate(groups)]
     outcomes = _wait_all(running, started + args.part_timeout)
+    # Then the `timing` tests, alone: one process, only the files that have any.
+    timing_number = None
+    if timed:
+        timing_number = len(groups)
+        print(f"timing: {len(timed)} files with `timing` tests, run on their own", flush=True)
+        alone = [start(timing_number, timed, f"{tier} and timing")]
+        outcomes.update(_wait_all(alone, time.time() + args.part_timeout))
+        running += alone
 
     failures: set[str] = set()
     crashed = 0
@@ -552,7 +592,8 @@ def main(argv: list[str] | None = None) -> int:
                   f"with its process tree. Last file it started: {last_file}. Its later tests "
                   f"did NOT run.", flush=True)
         elif not part_died(code, text):
-            print(f"  part {number}: finished ({tally or 'nothing passed or failed'}) - "
+            alone = " (timing, on its own)" if number == timing_number else ""
+            print(f"  part {number}{alone}: finished ({tally or 'nothing passed or failed'}) - "
                   f"{len(group)} files", flush=True)
         elif code in NORMAL_EXITS:
             # 2026-10-05: an ordinary exit code and no summary line. pytest-timeout

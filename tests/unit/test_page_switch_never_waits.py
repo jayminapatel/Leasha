@@ -62,6 +62,7 @@ def _wait_for(app, predicate, timeout_s: float = 5.0) -> bool:
     return predicate()
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_switching_page_during_an_index_batch_returns_at_once(gui_mainwindow):
     app, window, store, _engine = gui_mainwindow

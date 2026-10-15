@@ -24,6 +24,7 @@ import threading
 import time
 
 from app.search.engine import SearchEngine
+import pytest
 
 
 def _engine():
@@ -62,6 +63,7 @@ def test_queued_work_is_cancelled_rather_than_waited_for():
     assert len(ran) <= 2, "cancelled work ran anyway"
 
 
+@pytest.mark.timing
 def test_close_returns_promptly_even_with_work_in_flight():
     """It must not become a blocking wait in the handler that closes the window.
 

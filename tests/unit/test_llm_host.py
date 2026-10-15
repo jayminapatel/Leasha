@@ -53,6 +53,7 @@ def test_a_stream_arrives_piece_by_piece_in_order(client):
     assert list(client.chat_stream([{"role": "user", "content": "a b"}])) == ["a", "b"]
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_stop_ends_a_reply_early(client):
     flag = threading.Event()
@@ -89,6 +90,7 @@ def test_two_replies_at_once_do_not_mix(client):
     assert out == {"a": ["a1", "a2", "a3", "a4", "a5"], "b": ["b1", "b2", "b3", "b4", "b5"]}
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_the_window_keeps_running_while_the_host_holds_its_own_lock(client):
     """The reason for all of it. The host spins for a second with its lock held, as a
@@ -188,6 +190,7 @@ def test_describe_returns_the_caption_and_never_raises_when_the_host_dies(host):
     assert host.started == 2
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_the_window_keeps_running_while_a_vision_model_holds_the_hosts_lock(host):
     florence = RemoteFlorence(host, factory=FAKE_FLORENCE)

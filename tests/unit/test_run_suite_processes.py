@@ -215,3 +215,66 @@ def test_a_clean_part_is_still_green(tmp_path, monkeypatch, capsys):
 
     assert run_suite.main(["-j", "1"]) == 0
     assert "0 failed, 0 errored, 0 process(es) crashed" in capsys.readouterr().out
+
+
+# -- 2026-10-15: the `timing` tests run last, on their own -----------------------------------
+
+
+def _marker(command):
+    """The `-m` expression handed to pytest - not the `-m` of `python -m pytest`."""
+    options = command[command.index("pytest") + 1:]
+    return options[options.index("-m") + 1]
+
+
+def _timing_tree(tmp_path, monkeypatch):
+    unit = tmp_path / "tests" / "unit"
+    unit.mkdir(parents=True)
+    (unit / "test_budget.py").write_text(
+        "import pytest\n\n@pytest.mark.timing\ndef test_fast():\n    pass\n", encoding="utf-8")
+    (unit / "test_plain.py").write_text("def test_any():\n    pass\n", encoding="utf-8")
+    monkeypatch.setattr(run_suite, "ROOT", tmp_path)
+    return ["tests/unit/test_budget.py", "tests/unit/test_plain.py"]
+
+
+def test_timing_files_are_found_by_their_mark_in_the_source(tmp_path, monkeypatch):
+    files = _timing_tree(tmp_path, monkeypatch)
+    assert run_suite.timing_files(files + ["tests/unit/test_gone.py"]) == ["tests/unit/test_budget.py"]
+
+
+@pytest.mark.parametrize("flags, tier", [([], "not jvm and not e2e"),
+                                         (["--quick"], None)])
+def test_the_parallel_parts_leave_timing_out_and_a_last_pass_runs_it_alone(
+        tmp_path, monkeypatch, capsys, flags, tier):
+    import subprocess
+
+    files = _timing_tree(tmp_path, monkeypatch)
+    tier = tier or run_suite.TIERS["quick"]
+    Part, seen = _part_that_writes("==================== 1 passed in 0.10s ====================\n", 0)
+    monkeypatch.setattr(subprocess, "Popen", Part)
+    monkeypatch.setattr(run_suite, "find_files", lambda explicit: files)
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(run_suite.tempfile, "mkdtemp", lambda prefix: str(work))
+
+    assert run_suite.main(["-j", "1", *flags]) == 0
+    assert len(seen) == 2, "one parallel part, then the timing pass"
+    parallel, alone = seen
+    assert _marker(parallel) == f"{tier} and not timing"
+    assert set(files) <= set(parallel)
+    assert _marker(alone) == f"{tier} and timing"
+    assert "tests/unit/test_budget.py" in alone and "tests/unit/test_plain.py" not in alone
+    assert "(timing, on its own)" in capsys.readouterr().out
+
+
+def test_no_timing_files_means_no_last_pass(tmp_path, monkeypatch):
+    import subprocess
+
+    files = _timing_tree(tmp_path, monkeypatch)[1:]
+    Part, seen = _part_that_writes("==================== 1 passed in 0.10s ====================\n", 0)
+    monkeypatch.setattr(subprocess, "Popen", Part)
+    monkeypatch.setattr(run_suite, "find_files", lambda explicit: files)
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setattr(run_suite.tempfile, "mkdtemp", lambda prefix: str(work))
+    assert run_suite.main(["-j", "1"]) == 0
+    assert len(seen) == 1

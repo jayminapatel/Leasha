@@ -413,11 +413,16 @@ def test_quick_repeats_the_projects_own_deselection_rather_than_replacing_it(tmp
         "the runner's copy of the project's `-m` has drifted from pyproject.toml")
 
 
-def test_without_quick_no_marker_expression_is_passed(tmp_path, monkeypatch):
+def test_without_quick_the_projects_own_deselection_is_passed_with_timing_left_out(
+        tmp_path, monkeypatch):
+    # 2026-10-15: was "no marker expression is passed" - the project's `addopts` decided.
+    # The parallel parts now leave the `timing` tests to a pass of their own, and a second
+    # `-m` replaces `addopts`' rather than adding to it, so the deselection is repeated.
     part, seen = _part_class(GREEN, 0)
     assert _run_main(monkeypatch, tmp_path, part, ["-j", "1"]) == 0
-    (command, _), = seen
-    assert "-m" not in command[command.index("pytest") + 1:]
+    command = seen[0][0]
+    options = command[command.index("pytest") + 1:]
+    assert options[options.index("-m") + 1] == f"{run_suite.PROJECT_DESELECT} and not timing"
 
 
 # ---------------------------------------------------------------------------
