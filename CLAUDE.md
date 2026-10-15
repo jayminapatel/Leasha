@@ -78,12 +78,14 @@ by hand, and there are three runs, each its own workflow: Windows Run, Mac Run a
 Run (Actions -> the run -> Run workflow, or `gh workflow run "Windows Run" --ref <branch>`). Nothing waits on a GitHub run: the full local suite, green, is what
 a merge to `main` needs.
 
-**Tests run on this laptop (owner, 2026-10-15).** Every test run for this project - the full
-suite, one file, a check before a merge - runs on this laptop, with
-`D:\Local\GitHub\Leasha\venv\Scripts\python.exe`, never in a cloud sandbox and never on
-GitHub CI, unless the owner asks otherwise for that run. A cloud session that needs a result
-runs it on the laptop through the desktop app while it is open; when it cannot, it says the
-result is still to come rather than testing somewhere else.
+**Tests run on this laptop (owner, 2026-10-15).** Testing is done locally, on this Windows
+laptop, with `D:\Local\GitHub\Leasha\venv\Scripts\python.exe`: it is faster than a cloud
+sandbox or GitHub CI, and it is the system Leasha ships on, so a result here is the one that
+counts. That is the constraint; how much to run and when is the session's judgement - one file
+while working, `scripts/run_suite.py --affected` before handing over, the full suite before a
+merge. Only the owner makes an exception, for one run. A cloud session runs its tests on the
+laptop through the desktop app while it is open; when it cannot reach it, it says the result is
+still to come and does not test somewhere else instead.
 
 ## Where a session runs (2026-09-30)
 
