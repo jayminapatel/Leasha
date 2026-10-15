@@ -274,6 +274,25 @@ def _snapshot(stats: Any) -> dict[str, Any]:
     return out
 
 
+def _record_alive(found: dict) -> bool:
+    """Is the process that wrote this run record still running? True when it cannot
+    be told (no pid, no psutil) - the record is then described as it always was.
+
+    2026-10-16: Remove was refused with "An index run is already in progress (the
+    window, since 21:01)" at 02:11, in a window opened at 02:07 that had started no
+    run: the 21:01 run's process had ended without taking its record down, and
+    something else held the lock. The refusal named a run that no longer existed."""
+    pid = found.get("pid")
+    if not pid:
+        return True
+    try:
+        import psutil
+
+        return bool(psutil.pid_exists(int(pid)))
+    except Exception:                    # noqa: BLE001 - cannot tell: describe as before
+        return True
+
+
 def active_run(store: Any) -> Optional[dict[str, Any]]:
     """What the current run says about itself, or None.
 
@@ -323,7 +342,7 @@ def describe_holder(store: Any) -> str:
     just this moment finished.
     """
     found = active_run(store)
-    if not found:
+    if not found or not _record_alive(found):
         return "another process"
     owner = str(found.get("owner") or "another process")
     started = found.get("started_at")

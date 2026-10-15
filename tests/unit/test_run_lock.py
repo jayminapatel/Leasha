@@ -554,3 +554,24 @@ def test_the_pipeline_polls_the_stop_flag_at_its_checkpoint():
     assert "stop_requested" in source
     assert "request_stop" in source
     assert "publish(" in source
+
+
+def test_a_record_left_by_a_process_that_ended_is_not_named_as_the_holder(tmp_path):
+    """2026-10-16: a refusal named "the window, since 21:01" - a run whose process had
+    ended hours before, its record left behind. A dead pid is "another process"."""
+    import json
+    import subprocess
+    import sys
+
+    from app.core import run_lock
+    from app.storage.sqlite_store import SqliteStore
+
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait()
+    with SqliteStore(tmp_path / "k.db") as store:
+        store.set_state(run_lock.RUN_STATE_KEY, json.dumps(
+            {"owner": run_lock.GUI, "started_at": 1_700_000_000, "pid": gone.pid}))
+        assert run_lock.describe_holder(store) == "another process"
+        store.set_state(run_lock.RUN_STATE_KEY, json.dumps(
+            {"owner": run_lock.GUI, "started_at": 1_700_000_000, "pid": os.getpid()}))
+        assert run_lock.describe_holder(store).startswith("the window, since ")
