@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.179 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 7.180 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-15 - Enrich: logos were hidden; the best picture wins; tests run on this laptop (on `main`, `36e024b`..`78afe4d`).** The owner: "I don't see any pictures etc enrichment from internet, only from mails". Measured read-only on `D:\LeashaIndex\Data`: all three internet switches on; kept answers held 150 logos, 4 Gravatar photos, Wikidata facts for 50 companies - but a logo was 0.4 sure and Hide below's default is 0.5, so every logo was hidden. **Built:** `logo.CONFIDENCE` = 0.5 (shown, never pre-ticked); a kept answer is offered at the source's sureness now (`remember.offer_again(confidence=)`). **Option A (owner's choice):** `base.PHOTO_RANK` face 3 > Gravatar 2 > logo 1; a source that outranks the photo enrichment put on a card may offer over it (as an update, never ticked); a photo from anywhere else is never replaced (`KEPT_PHOTO`, proved by the hash in `index_state` `enrich:photo:<id>`); of several photos ticked the best-ranked is written. Ambiguous Wikidata facts stay at 0.4, hidden by default (owner may lower Hide below). **Rule:** `CLAUDE.md` 1.11 - tests run on this laptop. **The suite:** the first full run starved (4 GB free, one process) and hit the hour limit at 73%; the rest ran green; a second full run (another session's run alongside, 1,951 s) had 2 failures, `test_navigation_is_instant` and `test_shimmer_bar`, both passing twice alone on the branch and on `main`, and the first also failing on `main` once - timing tests under load, not this change. `logs/suite/durations.json` from runs under load lists 297 unmarked tests over 1 s; `test_slow_markers_truthful` reads it - judge it only after a quiet run. **UNVERIFIED in the real window:** logos in the Enrich window and the picture order; the app's checkout was on another session's branch, so it does not have this until it takes `main`.
 
 **2026-10-15, morning - the full local suite on `fix/photos-freeze` (PR #97, `d4a1ffd`, `main` merged in), the laptop quiet (Leasha closed, no index run).** `scripts/run_suite.py`, four parts: 18,189 passed, 165 skipped, 3 failed, 0 crashed, 1,490 s. `test_navigation_is_instant` (Contacts first visit 735 ms > 400 ms) and `test_photos_smooth::test_a_wheel_notch_glides_the_grid` (scroll 0, not 120) pass alone 3 of 3 on the branch; on `main` the navigation test failed 1 of 3 (894 ms) - the `phonenumbers` import the branch removes. `test_slow_markers_truthful` lists 37 older tests from the previous, loaded run's durations; none of the branch's 11 new tests is among them; nothing was marked. **Read as:** no regression from the branch. The wheel-glide test is load-sensitive under four parts (UNCONFIRMED as the only cause). The entry below's suite line is superseded by this one.
 
