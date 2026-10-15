@@ -109,6 +109,8 @@ The owner saw one thread busy, three idle, and thousands of photos with no faces
 
 ## 7. Close-out
 
+*Note 2026-10-15 (owner): GitHub CI runs only when started by hand and the full local suite is the only gate
+(`CLAUDE.md`), so "CI green on `main`" in 7a is met by a green local suite on `main`.*
 - [ ] **7a** The full unit suite once, combined, on the merged branch; CI green on `main`.
 - [x] **7b** `HANDOFF.md`, `docs/ORDER_REGISTER.md`, `CHANGELOG.md` and the user guide's Indexing section say
   what is true afterwards.

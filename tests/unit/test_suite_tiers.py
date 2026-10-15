@@ -94,25 +94,35 @@ def test_pr_ci_runs_slow_and_leaves_out_only_e2e_and_jvm():
     assert pr_ci == run_suite.TIERS["full"], "a local full run and PR CI select the same tests"
 
 
-def test_the_windows_job_runs_the_pr_ci_tier_on_every_event():
+def test_ci_runs_only_when_started_by_hand():
+    """2026-10-15, the owner: "only this should run on demand for both". No push, pull
+    request or schedule starts a run; the local suite is the gate (CLAUDE.md)."""
+    workflow = _workflow()
+    triggers = workflow.get("on", workflow.get(True))         # YAML 1.1 reads `on` as true
+    assert set(triggers) == {"workflow_dispatch"}
+    boxes = triggers["workflow_dispatch"]["inputs"]
+    assert {name: box["default"] for name, box in boxes.items()} == {
+        "windows": True, "macos": True, "jvm": False}
+
+
+def test_the_windows_job_runs_the_pr_ci_tier_when_its_box_is_ticked():
+    # 2026-10-15: was "on every event"; there is one event now, and a box for the job.
     job = _workflow()["jobs"]["test"]
     assert job["runs-on"] == "windows-latest"
-    assert "if" not in job, ("the Windows job must not skip any event - the weekly schedule "
-                             "runs it too")
+    assert job["if"] == "inputs.windows"
     always = [step for step in _pytest_steps(job) if "if" not in step]
     assert len(always) == 1, "one unconditional suite run in the Windows job"
     assert _marker_expression(always[0]["run"]) == run_suite.TIERS["pr_ci"]
 
 
-def test_the_weekly_schedule_adds_the_jvm_tests_to_the_windows_job():
+def test_the_jvm_box_adds_the_jvm_tests_to_the_windows_job():
+    # 2026-10-15: was the weekly schedule's; the schedule is gone and a box asks for them.
     workflow = _workflow()
-    triggers = workflow.get("on", workflow.get(True))         # YAML 1.1 reads `on` as true
-    assert triggers["schedule"], "the weekly schedule is still there"
-    weekly = [step for step in _pytest_steps(workflow["jobs"]["test"])
-              if step.get("if") == "github.event_name == 'schedule'"]
-    assert len(weekly) == 1, "one weekly-only step in the Windows job"
-    assert _marker_expression(weekly[0]["run"]) == run_suite.TIERS["weekly_ci_adds"] == "jvm"
-
+    asked = [step for step in _pytest_steps(workflow["jobs"]["test"])
+             if step.get("if") == "inputs.jvm"]
+    assert len(asked) == 1, "one jvm step in the Windows job, behind its box"
+    assert _marker_expression(asked[0]["run"]) == run_suite.TIERS["weekly_ci_adds"] == "jvm"
+    assert workflow["jobs"]["test-macos"]["if"] == "inputs.macos"
 
 def test_no_ci_command_leaves_out_slow_on_windows():
     for step in _pytest_steps(_workflow()["jobs"]["test"]):

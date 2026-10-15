@@ -1500,6 +1500,7 @@
     <Compile Include="tests\unit\test_timeline.py" />
     <Compile Include="tests\unit\test_timeline_cli.py" />
     <Compile Include="tests\unit\test_timeline_entry_points.py" />
+    <Compile Include="tests\unit\test_timeline_picker_height.py" />
     <Compile Include="tests\unit\test_timeline_query_plans.py" />
     <Compile Include="tests\unit\test_timeline_scale.py" />
     <Compile Include="tests\unit\test_timeline_strip.py" />

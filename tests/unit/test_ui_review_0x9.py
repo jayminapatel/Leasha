@@ -475,7 +475,13 @@ def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwin
                                                                 getattr(second, "text", str)())
         # Every control is inside the picker, none pushed off its right edge.
         for widget in placed:
-            assert picker.rect().contains(box(widget)), getattr(widget, "text", str)()
+            # 2026-10-15: red on CI only, never here (96-144 dpi tried) - what the page gave the
+            # picker, beside what its lines need, so the next failure says which one is short.
+            flow = picker.layout()
+            assert picker.rect().contains(box(widget)), (
+                getattr(widget, "text", str)(), "picker", picker.size(),
+                "needs", flow.heightForWidth(picker.width()) if flow.hasHeightForWidth() else None,
+                "minimum", picker.minimumHeight(), "parent", picker.parentWidget().size())
 
         enabled = next(b for b in picker.month_buttons[1:] if b.isEnabled())
         qtbot.mouseClick(enabled, Qt.MouseButton.LeftButton)

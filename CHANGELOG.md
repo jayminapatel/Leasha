@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.135 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 4.136 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -17,6 +17,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### CI only when started by hand; what it found after the UX review (2026-10-15)
+
+- **GitHub CI runs only on demand** - Actions -> CI -> Run workflow, or `gh workflow run CI`,
+  with a box each for Windows, macOS and the jvm tests. The full local suite is the gate for `main`.
+- **Fixed:** the Search busy line could be ended by a search answering after its page was gone
+  (a deleted timer); the Browse timeline picker is no longer squeezed by a short page (its last
+  line, Show, was drawn outside it).
+- **Tests:** a run that cannot end writes every thread's stack and stops after five minutes, and
+  no process a test started outlives the run.
 ### The UX review of 2026-10-14, built: keys, palette, honest search and sync status, one paint layer (2026-10-14)
 
 From `docs/REVIEW-2026-10-14-ux-architecture.md` (48 findings); the owner: "do recommended ... do all

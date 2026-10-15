@@ -43,7 +43,13 @@ def test_a_busy_bar_moves_by_itself(qtbot) -> None:
     bar = _bar(qtbot)
     bar.setRange(0, 0)
     assert bar.animating()
-    qtbot.waitUntil(lambda: bar.frames >= 3, timeout=2000)
+    # 2026-10-15: red twice on CI, never here - say what the bar was doing when it did not move.
+    try:
+        qtbot.waitUntil(lambda: bar.frames >= 3, timeout=2000)
+    except Exception as exc:                                   # noqa: BLE001 - re-raised with facts
+        raise AssertionError(
+            f"frames={bar.frames} animating={bar.animating()} visible={bar.isVisible()} "
+            f"timer_active={bar._anim.isActive()} interval={bar._anim.interval()}") from exc
 
 
 def test_a_running_bar_shimmers_and_stops_when_the_run_ends(qtbot) -> None:

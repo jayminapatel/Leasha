@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 4.6 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 4.7 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 <p align="center">
   <img src="assets/leasha-lockup.png" width="420" alt="Leasha">
@@ -12,7 +12,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jayminapatel/Leasha/actions/workflows/ci.yml"><img src="https://github.com/jayminapatel/Leasha/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/jayminapatel/Leasha/tags"><img src="https://img.shields.io/github/v/tag/jayminapatel/Leasha?label=version&color=2f2a6b" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/jayminapatel/Leasha?color=2f2a6b" alt="MIT licence"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4" alt="Windows 10 and 11">
@@ -344,8 +343,10 @@ Two test runs can share one copy: each takes its own folder under `.pytest_tmp`
 `tools\guide_pictures.py` retakes the user guide's pictures against the demonstration store
 and puts them into the guide (`--list` names them; `--all` takes the lot).
 
-CI runs the unit, Qt and property-based suites on Windows for every push to `main` and every
-pull request, and the macOS suite once a week (`.github/workflows/ci.yml`).
+The full suite runs on the owner's laptop (`scripts/run_suite.py`), and a green run is what a
+merge to `main` needs. The GitHub workflow (`.github/workflows/ci.yml`) runs only when started by hand -
+Actions -> CI -> Run workflow, or `gh workflow run CI` - with a box each for Windows, macOS and
+the jvm tests.
 
 ### Layout
 
