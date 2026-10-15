@@ -14,6 +14,10 @@ name: Mac Run
 on:
   workflow_dispatch:
 
+# Read the code and nothing else: no run writes to the repository (CodeQL, PR #98).
+permissions:
+  contents: read
+
 concurrency:
   group: mac-run-${{ github.ref_name }}
   cancel-in-progress: true

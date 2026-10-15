@@ -122,6 +122,12 @@ def test_ci_runs_only_when_started_by_hand():
         assert triggers == {"workflow_dispatch": None}, f"{file} must start only by hand"
 
 
+def test_every_run_may_only_read_the_repository():
+    """CodeQL on PR #98: a workflow with no `permissions` gets the token's defaults."""
+    for file in RUNS:
+        assert _workflow(file).get("permissions") == {"contents": "read"}, file
+
+
 def test_windows_run_runs_the_pr_ci_tier():
     (job,) = _workflow("windows-run.yml")["jobs"].values()
     assert job["runs-on"] == "windows-latest"

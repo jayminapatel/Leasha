@@ -9,6 +9,10 @@ name: Windows JVM Run
 on:
   workflow_dispatch:
 
+# Read the code and nothing else: no run writes to the repository (CodeQL, PR #98).
+permissions:
+  contents: read
+
 concurrency:
   group: windows-jvm-run-${{ github.ref_name }}
   cancel-in-progress: true

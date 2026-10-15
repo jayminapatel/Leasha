@@ -16,6 +16,10 @@ name: Windows Run
 on:
   workflow_dispatch:
 
+# Read the code and nothing else: no run writes to the repository (CodeQL, PR #98).
+permissions:
+  contents: read
+
 # A second run started on the same branch cancels the one still going.
 concurrency:
   group: windows-run-${{ github.ref_name }}
