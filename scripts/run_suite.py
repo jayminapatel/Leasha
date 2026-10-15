@@ -63,7 +63,9 @@ again, look for whatever just walked all widgets, not at the test named in the t
 
 Exit code 0 only when every process finished and nothing failed. A process
 that died is reported as **CRASHED**, with the last test file it had started -
-that file is the place to start looking - and counts as a failure.
+that file is the place to start looking - and every thread's stack at the moment
+it died, which `tests/conftest.py` has `faulthandler` write to the part's own
+`crash<N>.txt` (2026-10-15) - and counts as a failure.
 """
 
 from __future__ import annotations
@@ -308,6 +310,19 @@ def kill_tree(process) -> None:
         pass
 
 
+def _crash_stacks(path: Path, limit: int = 120) -> str:
+    """The stacks `faulthandler` wrote when a part died, indented, at most `limit` lines; "" if none.
+
+    2026-10-15: a part died with 0xC0000005 and said nothing about where. `tests/conftest.py`
+    now points `faulthandler` at this file for every test; this reads it back."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+    lines = text.splitlines()[:limit]
+    return "\n".join("      " + line for line in lines)
+
+
 def _wait_all(running: list, deadline: float) -> dict[int, tuple[int | None, bool]]:
     """Wait for every part; a part still going at `deadline` is killed.
 
@@ -412,6 +427,9 @@ def main(argv: list[str] | None = None) -> int:
             command += ["-m", TIERS["quick"]]
         env = dict(os.environ)
         env["LEASHA_SUITE_DURATIONS"] = str(work / f"durations{number}.json")
+        # 2026-10-15: a native crash's stacks, for every thread (`tests/conftest.py`,
+        # `_native_crashes_are_always_reported`) - printed below if this part dies.
+        env["LEASHA_SUITE_CRASH_LOG"] = str(work / f"crash{number}.txt")
         extra = {} if sys.platform == "win32" else {"start_new_session": True}
         process = subprocess.Popen(command, cwd=ROOT, stdout=handle,
                                    stderr=subprocess.STDOUT, env=env, **extra)
@@ -465,6 +483,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  part {number}: CRASHED, exit {code} (0x{code & 0xFFFFFFFF:X}) - the "
                   f"process died. Last file it started: {last_file}. Its later tests did "
                   f"NOT run.", flush=True)
+            stacks = _crash_stacks(work / f"crash{number}.txt")
+            if stacks:
+                print(f"    where it died (every thread, innermost first):\n{stacks}", flush=True)
 
     if measured_parts:
         merged = merge_durations(measurements, measured_parts)

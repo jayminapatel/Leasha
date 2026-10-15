@@ -1248,6 +1248,7 @@
     <Compile Include="tests\unit\test_name_of.py" />
     <Compile Include="tests\unit\test_name_only.py" />
     <Compile Include="tests\unit\test_named_file_types.py" />
+    <Compile Include="tests\unit\test_native_crash_reported.py" />
     <Compile Include="tests\unit\test_navigation_is_instant.py" />
     <Compile Include="tests\unit\test_needed_models_box.py" />
     <Compile Include="tests\unit\test_nightly.py" />
