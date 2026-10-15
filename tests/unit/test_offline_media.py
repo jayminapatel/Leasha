@@ -114,6 +114,7 @@ def _run(store, roots, *, volume_roots=None, **config):
 
 # --- 1a-1c: identity, storage, letter roulette -------------------------------
 
+@pytest.mark.slow
 def test_the_same_volume_walked_at_two_mount_points_is_one_row(tmp_path):
     r"""**The acceptance test named in the order, word for word**: "catalogue
     as E:, remount fixture as F: -> ... dedup all correct."

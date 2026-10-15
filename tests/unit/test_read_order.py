@@ -744,6 +744,7 @@ def test_a_marked_folder_s_names_are_listed_before_its_first_file_is_read(
     assert chosen <= set(listed)
 
 
+@pytest.mark.slow
 def test_an_interrupted_run_with_a_marked_folder_resumes_in_order(tmp_path: Path) -> None:
     """Stopped inside the marked folder: the next run reads the rest of it
     first, then everything else newest first."""

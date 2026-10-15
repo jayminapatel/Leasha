@@ -114,6 +114,7 @@ def test_pause_choices_save_and_reload_and_turn_back_on(world):
     assert 3000 < svc.settings().paused_until - time.time() <= 3600
 
 
+@pytest.mark.slow
 def test_quiet_hours_cap_conflict_and_safety_save_and_reload(world):
     from PySide6.QtCore import QTime
     svc, page = world
@@ -280,6 +281,7 @@ def test_quiet_hours_are_said_on_the_row(world):
     assert "Quiet hours" in p.account_list.topLevelItem(0).text(7)
 
 
+@pytest.mark.slow
 def test_dragging_reorders_and_saves(world):
     svc, page = world
     ids = [svc.accounts.add("carddav", f"{n}@x.com", n) for n in ("One", "Two", "Three")]

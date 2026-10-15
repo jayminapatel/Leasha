@@ -689,6 +689,7 @@ def _payload_role() -> int:
     return ROLE_PAYLOAD
 
 
+@pytest.mark.slow
 def test_the_results_list_and_the_scope_are_reachable_by_tab(gui_mainwindow, quokkas, qtbot):
     """Everything on the page that can be pressed is a tab stop: the scope's
     four segments and the results list itself (which arrows then walk)."""

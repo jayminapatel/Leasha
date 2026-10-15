@@ -254,6 +254,7 @@ def _geometry(view) -> list:
     return [QRect(part.mapTo(view, QPoint(0, 0)), part.size()) for part in parts]
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("size", [(1150, 700), (1920, 1080)])
 def test_nothing_on_the_shelf_moves_whatever_it_shows(qtbot, size) -> None:
     """The owner's complaint itself: boxes that change size with what they hold."""

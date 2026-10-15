@@ -19,7 +19,10 @@ from PySide6.QtGui import QColor  # noqa: E402
 
 from app.ui.widgets.shimmer_bar import ShimmerBar, fill_colours, text_on  # noqa: E402
 
-pytestmark = pytest.mark.gui
+# 2026-10-15: and `timing`, the whole file. Its animation tests count frames inside a fixed
+# wait - a frame rate, which a loaded machine misses: one failed in a full run and passed
+# alone, as its sibling had before it was marked.
+pytestmark = [pytest.mark.gui, pytest.mark.timing]
 
 
 def _bar(qtbot, *, show: bool = True) -> ShimmerBar:

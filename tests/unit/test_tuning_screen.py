@@ -91,6 +91,7 @@ def test_building_the_screen_saves_nothing(box) -> None:
     assert saved == []
 
 
+@pytest.mark.slow
 def test_a_machine_arriving_saves_nothing(box) -> None:
     """Detection lands seconds after the window opens, and re-bounds every
     control. That is a clamp on every value, which is an emission on every
