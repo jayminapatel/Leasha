@@ -20,6 +20,7 @@ cause of the flash, found in the code before it was fixed:
 from __future__ import annotations
 
 import os
+import time
 
 import pytest
 
@@ -359,8 +360,13 @@ def test_a_wheel_notch_glides_the_grid(qapp):
     QApplication.sendEvent(browser.grid.viewport(), wheel)
     qapp.processEvents()
     assert bar.value() < photo_browser.GLIDE_PX, "it jumped, not glided"
-    QTest.qWait(photo_browser.GLIDE_MS + 150)
-    assert bar.value() == photo_browser.GLIDE_PX
+    # 2026-10-15: waits for the glide to land, up to 2 s, instead of exactly GLIDE_MS + 150 ms -
+    # it read 0 twice in full local runs (3-4 parts loading the laptop) and passed alone and in
+    # the same 161-file sequence in one process. A glide that never runs still fails here.
+    deadline = time.monotonic() + 2.0
+    while bar.value() != photo_browser.GLIDE_PX and time.monotonic() < deadline:
+        QTest.qWait(20)
+    assert bar.value() == photo_browser.GLIDE_PX, f"the glide stopped at {bar.value()}"
 
 
 def test_the_next_screenful_is_asked_for_ahead(qapp):
