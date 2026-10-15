@@ -306,9 +306,19 @@ def _files_held_inside(work: Path) -> list[str]:
     import subprocess
     import sys
 
-    done = subprocess.run(
-        [sys.executable, "-c", _HELD_INSIDE, str(os.getpid()), str(work)],
-        capture_output=True, text=True, timeout=180, check=False)
+    # 2026-10-16: up to three children of 60 s each, not one of 180 s. One child hung
+    # past 180 s in a full run (the killed-thread hazard above, in the child as
+    # designed) and the next, fresh, would have answered: a hang belongs to the child
+    # it happened in. Three that all hang still fail, with the reason.
+    for attempt in range(3):
+        try:
+            done = subprocess.run(
+                [sys.executable, "-c", _HELD_INSIDE, str(os.getpid()), str(work)],
+                capture_output=True, text=True, timeout=60, check=False)
+            break
+        except subprocess.TimeoutExpired:
+            if attempt == 2:
+                raise AssertionError("the open-files check hung in three children in a row")
     assert done.returncode == 0, f"the open-files check failed: {done.stderr[-2000:]}"
     return json.loads(done.stdout)
 

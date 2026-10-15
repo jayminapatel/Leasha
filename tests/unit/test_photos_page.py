@@ -246,6 +246,7 @@ def _library_store(store, tmp_path):
     return paths
 
 
+@pytest.mark.slow
 def test_the_tab_shows_narrows_switches_view_and_opens_naming(qapp, qtbot, store, tmp_path):
     from app.ui.photos_view import PhotosView
 

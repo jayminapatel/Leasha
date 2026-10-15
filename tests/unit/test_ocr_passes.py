@@ -167,6 +167,7 @@ def test_the_skip_ledger_shows_it_as_its_own_row_with_a_count():
 
 # --- pass two: OCR only -----------------------------------------------------
 
+@pytest.mark.slow
 def test_the_images_pass_fills_in_exactly_what_the_first_one_held(tmp_path, corpus):
     with SqliteStore(tmp_path / "index.db") as store:
         _run(store, corpus, ocr_mode="text")

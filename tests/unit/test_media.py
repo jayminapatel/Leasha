@@ -715,6 +715,7 @@ def test_a_damaged_file_is_one_skip(tmp_path):
     assert caught.value.error.details
 
 
+@pytest.mark.slow
 def test_a_real_video_is_read_end_to_end_by_the_real_reader(tmp_path, monkeypatch):
     """The whole of Layers 0 and 1 on a real file: PyAV opens it, takes the
     pictures, and the words come from the (faked) OCR - only the speech model and
@@ -1004,6 +1005,7 @@ def _pipeline(store, root, *, config=None, image_embedder=None, image_vectors=No
         image_embedder=image_embedder, image_vectors=image_vectors)
 
 
+@pytest.mark.slow
 def test_switched_off_a_video_is_found_by_name_and_no_tool_ever_starts(tmp_path, tools):
     root = _corpus(tmp_path)
     with SqliteStore(tmp_path / "index.db") as store:
