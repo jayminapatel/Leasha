@@ -158,8 +158,24 @@ class Job(QObject):
 # The dialog
 # --------------------------------------------------------------------------
 
+#: Where a tool window remembers itself, by its object name: its place, size and maximised state (the
+#: blob `window_state.save_window_state` gives, base64), and its list's column widths. `index_state`
+#: keys, written on the ordered state writer as every remembered view choice is.
+GEOMETRY_KEY = "ui:tool_window:{}"
+COLUMNS_KEY = "ui:tool_columns:{}"
+
+#: A normal window with a title bar's three buttons (owner, 2026-10-15: "make the window sizable and
+#: maximize and minimise"). A dialog's own flags give it only Close, and on Windows a help "?" too.
+WINDOW_FLAGS = (Qt.WindowType.Window | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowSystemMenuHint
+                | Qt.WindowType.WindowMinMaxButtonsHint | Qt.WindowType.WindowCloseButtonHint)
+
+
 class ToolDialog(QDialog):
-    """Header, body, status line, progress bar and a Close button."""
+    """Header, body, status line, progress bar and a Close button.
+
+    Every tool window can be minimised, maximised and sized by its edges, and opens where and as big as it
+    was last closed (owner, 2026-10-15) - one family, so all nine at once rather than Enrich alone.
+    """
 
     def __init__(self, ctx: Any, parent: Optional[QWidget], *, title: str, glyph: str, subtitle: str,
                  size: tuple[int, int] = (880, 620), name: str = "") -> None:
@@ -168,8 +184,12 @@ class ToolDialog(QDialog):
         self.setWindowTitle(title)
         self.setObjectName(name or title)
         self.setAccessibleName(title)
+        self.setWindowFlags(WINDOW_FLAGS)
+        self.setSizeGripEnabled(True)
         self.setMinimumSize(560, 420)
         self.resize(*size)
+        #: The header whose column widths are remembered (`remember_columns`), or None.
+        self._columns: Any = None
         root = frame(self)                        # the one dialog frame (UI phase B)
         head = QHBoxLayout()
         self.header_icon = QLabel()
@@ -209,6 +229,65 @@ class ToolDialog(QDialog):
         self.close_button.clicked.connect(self.close)
         self.footer.addWidget(self.close_button)
         root.addLayout(self.footer)
+        self._restore_window()
+
+    # -- remembered place, size and columns ----------------------------------
+    def _store(self) -> Any:
+        return getattr(getattr(self.ctx, "hub", None), "store", None)
+
+    def _state(self, key: str) -> str:
+        store = self._store()
+        try:
+            return str(store.get_state(key) or "") if store is not None else ""
+        except Exception:                                # noqa: BLE001 - a window opens fresh rather than not at all
+            return ""
+
+    def _restore_window(self) -> None:
+        import base64
+        import binascii
+
+        from app.ui.window_state import restore_window_state
+
+        text = self._state(GEOMETRY_KEY.format(self.objectName()))
+        try:
+            blob = base64.b64decode(text) if text else b""
+        except (binascii.Error, ValueError):
+            blob = b""
+        restore_window_state(self, blob or None)
+
+    def remember_columns(self, header: QHeaderView) -> None:
+        """Give `header` the widths it was last left at, and remember them when the window closes.
+        A stretched section takes the room that is left, so its width is never put back."""
+        from app.ui.widgets.splitter_memory import sizes_from_text
+
+        self._columns = header
+        saved = sizes_from_text(self._state(COLUMNS_KEY.format(self.objectName())))
+        if len(saved) != header.count():
+            return
+        for index, width in enumerate(saved):
+            if width > 0 and header.sectionResizeMode(index) != QHeaderView.ResizeMode.Stretch:
+                header.resizeSection(index, width)
+
+    def _remember_window(self) -> None:
+        """Write the place, size and column widths. Only for a window that was on screen: one built and
+        never shown (a test's) has nothing a person chose."""
+        import base64
+
+        from app.ui.state_writes import save_states
+        from app.ui.widgets.splitter_memory import sizes_text
+        from app.ui.window_state import save_window_state
+
+        if not self.isVisible():
+            return
+        values = {GEOMETRY_KEY.format(self.objectName()): base64.b64encode(save_window_state(self)).decode("ascii")}
+        if self._columns is not None:
+            values[COLUMNS_KEY.format(self.objectName())] = sizes_text(
+                [self._columns.sectionSize(i) for i in range(self._columns.count())])
+        save_states(self._store(), values, component="ui.contacts_tools")
+
+    def done(self, result: int) -> None:                 # noqa: D401 - Qt override: Close, Esc and accept all end here
+        self._remember_window()
+        super().done(result)
 
     # -- state ---------------------------------------------------------------
     def say(self, text: str) -> None:
