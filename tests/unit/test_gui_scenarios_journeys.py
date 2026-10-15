@@ -28,6 +28,11 @@ from PySide6.QtCore import Qt  # noqa: E402
 
 from tests.unit.conftest import gui_pump, gui_row_count, gui_select_row  # noqa: E402
 
+#: 2026-10-15: how long a step may take before it counts as stuck. Was 4 s and 5 s; in
+#: a full local run with Teams and other desktop apps on two cores, three journeys ran
+#: past 4 s and passed alone. A ceiling, not a budget - what each step shows is unchanged.
+WAIT_MS = 30_000
+
 pytestmark = pytest.mark.gui
 
 
@@ -112,7 +117,7 @@ def journeys(gui_mainwindow, tmp_path_factory):
 def _pop_out_first_result(qtbot, app, window, query: str):
     view = window.search_view
     _type(qtbot, app, view, query)
-    qtbot.waitUntil(lambda: gui_row_count(view.results) > 0, timeout=4000)
+    qtbot.waitUntil(lambda: gui_row_count(view.results) > 0, timeout=WAIT_MS)
     qtbot.wait(700)
     gui_select_row(view.results, 0)
     gui_pump(app)
@@ -139,7 +144,7 @@ def test_a_popped_out_photo_is_drawn_and_rotates_a_quarter_turn_per_click(journe
     popped = _pop_out_first_result(qtbot, app, window, "harbour sunset")
     try:
         qtbot.waitUntil(lambda: popped.rotate.isEnabled() and _drawn_size(popped)[0] > 0,
-                        timeout=5000)
+                        timeout=WAIT_MS)
         wide, high = _drawn_size(popped)
         assert wide > high, "the photo is landscape before any turn"
 
@@ -147,7 +152,7 @@ def test_a_popped_out_photo_is_drawn_and_rotates_a_quarter_turn_per_click(journe
         for _ in range(4):
             before = _drawn_size(popped)
             qtbot.mouseClick(popped.rotate, Qt.MouseButton.LeftButton)
-            qtbot.waitUntil(lambda b=before: _drawn_size(popped) != b, timeout=5000)
+            qtbot.waitUntil(lambda b=before: _drawn_size(popped) != b, timeout=WAIT_MS)
             seen.append(_drawn_size(popped))
 
         first, second, third, fourth = seen
@@ -170,16 +175,16 @@ def test_a_rotation_is_remembered_the_next_time_the_photo_is_popped_out(journeys
 
     popped = _pop_out_first_result(qtbot, app, window, "harbour sunset")
     qtbot.waitUntil(lambda: popped.rotate.isEnabled() and _drawn_size(popped)[0] > 0,
-                    timeout=5000)
+                    timeout=WAIT_MS)
     before = _drawn_size(popped)
     qtbot.mouseClick(popped.rotate, Qt.MouseButton.LeftButton)
-    qtbot.waitUntil(lambda: _drawn_size(popped) != before, timeout=5000)
+    qtbot.waitUntil(lambda: _drawn_size(popped) != before, timeout=WAIT_MS)
     popped.close()
     gui_pump(app)
 
     again = _pop_out_first_result(qtbot, app, window, "harbour sunset")
     try:
-        qtbot.waitUntil(lambda: _drawn_size(again)[0] > 0, timeout=5000)
+        qtbot.waitUntil(lambda: _drawn_size(again)[0] > 0, timeout=WAIT_MS)
         wide, high = _drawn_size(again)
         assert high > wide, "still turned a quarter, as it was left"
     finally:
@@ -196,7 +201,7 @@ def test_ctrl_f_in_a_popped_out_document_counts_and_highlights_the_word(journeys
     app, window, *_ = journeys
     popped = _pop_out_first_result(qtbot, app, window, "harbour survey quay")
     try:
-        qtbot.waitUntil(lambda: "quay" in popped.text.toPlainText().lower(), timeout=5000)
+        qtbot.waitUntil(lambda: "quay" in popped.text.toPlainText().lower(), timeout=WAIT_MS)
         assert not popped.find.isVisible()
 
         popped.activateWindow()
@@ -224,7 +229,7 @@ def test_escape_closes_the_find_bar_and_takes_the_highlighting_off(journeys, qtb
     app, window, *_ = journeys
     popped = _pop_out_first_result(qtbot, app, window, "harbour survey quay")
     try:
-        qtbot.waitUntil(lambda: "quay" in popped.text.toPlainText().lower(), timeout=5000)
+        qtbot.waitUntil(lambda: "quay" in popped.text.toPlainText().lower(), timeout=WAIT_MS)
         popped.activateWindow()
         qtbot.keyClick(popped, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
         qtbot.keyClicks(popped.find.box, "quay")
@@ -244,7 +249,7 @@ def test_escape_closes_the_find_bar_and_takes_the_highlighting_off(journeys, qtb
 # the eight-year-old scenarios (search-experience order, section 7), typed
 # ---------------------------------------------------------------------------
 
-def _wait_for_bar(qtbot, view, needle: str, timeout: int = 4000) -> None:
+def _wait_for_bar(qtbot, view, needle: str, timeout: int = WAIT_MS) -> None:
     qtbot.waitUntil(lambda: needle in _bar(view), timeout=timeout)
 
 
@@ -263,7 +268,7 @@ def test_she_types_a_misspelled_word_and_finds_her_essay_and_is_told_why(journey
     view = window.search_view
     _type(qtbot, app, view, "volcanno")
 
-    qtbot.waitUntil(lambda: "volcanoes.docx" in _names(view), timeout=4000)
+    qtbot.waitUntil(lambda: "volcanoes.docx" in _names(view), timeout=WAIT_MS)
     _wait_for_bar(qtbot, view, "also looked for 'volcano'")
     assert view.input.text() == "volcanno"
 
@@ -274,7 +279,7 @@ def test_she_asks_a_whole_question_with_a_spelling_mistake_in_it(journeys, qtbot
     view = window.search_view
     _type(qtbot, app, view, "my homework about volcannos")
 
-    qtbot.waitUntil(lambda: gui_row_count(view.results) > 0, timeout=4000)
+    qtbot.waitUntil(lambda: gui_row_count(view.results) > 0, timeout=WAIT_MS)
     qtbot.wait(700)
     assert _names(view)[0] == "volcanoes.docx"
 
@@ -300,7 +305,7 @@ def test_a_quoted_phrase_with_one_wrong_word_still_lands_and_says_so(journeys, q
     view = window.search_view
     _type(qtbot, app, view, '"my homework about big volcanoes"')
 
-    qtbot.waitUntil(lambda: "volcanoes.docx" in _names(view), timeout=4000)
+    qtbot.waitUntil(lambda: "volcanoes.docx" in _names(view), timeout=WAIT_MS)
     _wait_for_bar(qtbot, view, "Nothing contains the exact phrase")
 
 
@@ -311,7 +316,7 @@ def test_a_filter_that_empties_the_page_is_let_go_of_and_named(journeys, qtbot):
     view = window.search_view
     _type(qtbot, app, view, "volcanoes type:pdf")
 
-    qtbot.waitUntil(lambda: "volcanoes.docx" in _names(view), timeout=4000)
+    qtbot.waitUntil(lambda: "volcanoes.docx" in _names(view), timeout=WAIT_MS)
     _wait_for_bar(qtbot, view, "these ignore it")
     # The filter she typed is still on screen as a chip she can remove.
     assert any("pdf" in label for label in view.chips.labels())
@@ -336,8 +341,8 @@ def test_a_sentence_with_a_known_name_applies_that_name_as_a_filter(journeys, qt
     sentence = "the email Dave sent about the school trip"
     _type(qtbot, app, view, sentence)
 
-    qtbot.waitUntil(lambda: "from dave.smith@acme.com" in view.chips.labels(), timeout=4000)
-    qtbot.waitUntil(lambda: "dad-school-trip.eml" in _names(view), timeout=4000)
+    qtbot.waitUntil(lambda: "from dave.smith@acme.com" in view.chips.labels(), timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: "dad-school-trip.eml" in _names(view), timeout=WAIT_MS)
     assert "mail" in view.chips.labels()
     assert view.input.text() == sentence
     assert "apply:from:" not in _bar(view)          # applied, so not offered too
@@ -390,7 +395,7 @@ def test_enter_on_the_selected_row_opens_her_document(journeys, qtbot, monkeypat
                         lambda store, row, reveal=False, **_k: opened.append((row.path, reveal)))
 
     _type(qtbot, app, view, "volcanoes")
-    qtbot.waitUntil(lambda: gui_row_count(view.results) > 0, timeout=4000)
+    qtbot.waitUntil(lambda: gui_row_count(view.results) > 0, timeout=WAIT_MS)
     qtbot.wait(700)
 
     qtbot.keyClick(view.input, Qt.Key.Key_Down)
@@ -406,7 +411,7 @@ def test_clearing_the_box_offers_what_she_searched_for_last(journeys, qtbot):
     app, window, *_ = journeys
     view = window.search_view
     _type(qtbot, app, view, "rivers")
-    qtbot.waitUntil(lambda: gui_row_count(view.results) > 0, timeout=4000)
+    qtbot.waitUntil(lambda: gui_row_count(view.results) > 0, timeout=WAIT_MS)
     qtbot.wait(700)
 
     qtbot.keyClick(view.input, Qt.Key.Key_Escape)
@@ -421,7 +426,7 @@ def test_clearing_the_box_offers_what_she_searched_for_last(journeys, qtbot):
         return any("rivers" in b.text()
                    for b in view.home.recent.findChildren(QToolButton))
 
-    qtbot.waitUntil(offered, timeout=4000)
+    qtbot.waitUntil(offered, timeout=WAIT_MS)
 
 
 def test_the_idle_timer_runs_the_full_search_even_when_it_fires_early(journeys, monkeypatch):
