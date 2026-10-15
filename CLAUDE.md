@@ -1,6 +1,6 @@
 # Leasha — session briefing
 
-**Doc version:** 1.8 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.9 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 **Leasha** is a Windows desktop app that searches ~100GB of local files and Outlook
 mail from a plain-English description. One process, fully offline, single user.
@@ -68,10 +68,15 @@ orders still wait for the owner (above).
 
 **Parallel, then test together (owner, 2026-10-13).** Independent pieces of work run at
 the same time - agents or worktrees side by side, not one after another. Do all the
-coding first, then test everything together in one pass. PRs that are green on their own
-and conflict only in records are merged back to back and verified once, combined (local
-suite and CI on `main`), not one PR, one CI wait, then the next. The test still runs and
-a red result is still reported; it just runs once, at the end.
+coding first, then test everything together in one pass. Branches that are green on their own
+and conflict only in records are merged back to back and verified once, combined, by the
+local suite (`scripts/run_suite.py` on this laptop), not one branch at a time. The test
+still runs and a red result is still reported; it just runs once, at the end.
+
+**The local suite is the only gate (owner, 2026-10-15).** GitHub CI runs only when started
+by hand (Actions -> CI -> Run workflow, or `gh workflow run CI`; a box each for Windows,
+macOS and the jvm tests). Nothing waits on a GitHub run: the full local suite, green, is what
+a merge to `main` needs.
 
 ## Where a session runs (2026-09-30)
 

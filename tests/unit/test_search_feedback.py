@@ -187,6 +187,38 @@ def test_a_failed_search_ends_the_busy_line(view, qtbot):
     assert _settle(lambda: not view.flight.busy())
 
 
+def test_a_search_that_answers_after_its_page_is_gone_says_nothing(qtbot):
+    """2026-10-15, CI on main: a search still running when its page was destroyed
+    answered into the deleted busy timer - `RuntimeError ... QTimer already deleted`
+    in the next test's event loop. The answer now finds nothing to update."""
+    from app.ui import qtsip
+
+    widget = SearchView(FakeEngine())
+    widget.resize(900, 600)
+    widget.show()
+    widget.results.show_results([result(1)], ["pump"])
+    widget._shown_anything = True
+    flight = widget.flight
+    worker = flight.launch(Gate(1, fail=True))
+    assert _settle(lambda: worker.started.is_set())
+    timer = flight._busy_timer
+    qtsip.delete(widget)
+    QApplication.processEvents()
+    assert qtsip.isdeleted(timer)
+    errors = []
+    worker.signals.failed.connect(lambda _e: None)
+    try:
+        import sys
+        old = sys.excepthook
+        sys.excepthook = lambda *a: errors.append(a[1])
+        worker.release.set()
+        _settle(lambda: worker.ran, tries=100)
+        _settle(lambda: False, tries=10)
+    finally:
+        sys.excepthook = old
+    assert not errors, errors
+
+
 def test_an_empty_list_gets_its_skeleton_not_the_busy_line(qtbot):
     widget = SearchView(FakeEngine())
     qtbot.addWidget(widget)

@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.15 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.16 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 ## Scheme
 
@@ -139,8 +139,8 @@ git tag -a v0.1.0 -m "Environment, installer, doctor, build spec, skeleton"
    the venv, naming it; a release build never passes `-AllowMissingOptional`.
 10. Run the `e2e` tier on the owner's laptop, against the packaged app, with nothing else
     using the mouse: `venv\Scripts\python.exe -m pytest tests -m e2e -v`. It is the one tier
-    that runs only here: CI runs everything except `e2e` and `jvm` on every push (`slow`
-    included) and adds `jvm` on its weekly schedule, and `scripts/run_suite.py` holds the
+    that runs only here: the full local suite runs everything except `e2e` and `jvm` (`slow`
+    included) and is the gate for `main`; the GitHub workflow, started by hand, adds `jvm` when its box is ticked, and `scripts/run_suite.py` holds the
     local tiers (`TIERS`). `tests/unit/test_suite_tiers.py` fails if these disagree.
 11. Publish it: `.\packaging\build.ps1 -Publish` in place of `-Release` in step 9 (it does
     everything `-Release` does). Before building it checks that `gh` is signed in as
