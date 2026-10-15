@@ -588,3 +588,25 @@ def test_a_cache_name_is_worked_out_once():
     assert cache_name("D:/Photos/a.jpg", 10, 20) == first
     assert cache_name.cache_info().hits >= 1
     assert cache_name("D:/Photos/a.jpg", 10, 21) != first
+
+
+def test_the_blurred_preview_never_writes_through_a_python_qbuffer(qapp, tmp_path, monkeypatch):
+    """2026-10-15: the window froze on the Photos page. Qt's image reader and
+    writer call a Python-made `QBuffer` inside their own lock, and each call
+    takes the GIL - while the window's thread held the GIL waiting for that
+    lock. The thumbnail worker must make its blurred preview without one."""
+    from PySide6 import QtCore
+    from PySide6.QtGui import QImage
+
+    from app.ui.widgets import photo_thumbs
+
+    def refused(*_a, **_k):
+        raise AssertionError("the thumbnail worker built a Python QBuffer")
+
+    monkeypatch.setattr(QtCore, "QBuffer", refused)
+    photo = tmp_path / "wide.png"
+    Image.new("RGB", (60, 40), "green").save(photo)
+    image, tiny = photo_thumbs._thumb_and_tiny(str(photo), 1, 1, tmp_path / "thumbs")
+    assert image is not None and image.width() == 60
+    preview = QImage.fromData(tiny)
+    assert (preview.width(), preview.height()) == (photo_thumbs.TINY_EDGE, photo_thumbs.TINY_EDGE)

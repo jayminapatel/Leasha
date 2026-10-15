@@ -590,6 +590,7 @@
     <Compile Include="app\ui\presenter\photo_rows.py" />
     <Compile Include="app\ui\presenter\photos.py" />
     <Compile Include="app\ui\presenter\quick_search.py" />
+    <Compile Include="app\ui\presenter\region_table.py" />
     <Compile Include="app\ui\presenter\regions.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
@@ -962,6 +963,7 @@
     <Compile Include="tests\unit\test_close_during_read.py" />
     <Compile Include="tests\unit\test_close_ends_the_app.py" />
     <Compile Include="tests\unit\test_close_waits_for_index_run.py" />
+    <Compile Include="tests\unit\test_close_waits_off_the_window.py" />
     <Compile Include="tests\unit\test_cloud_content_cli.py" />
     <Compile Include="tests\unit\test_cloudstub.py" />
     <Compile Include="tests\unit\test_code_fixes_0y.py" />

@@ -44,3 +44,31 @@ def test_the_country_box_keeps_any_word_typed(qtbot) -> None:
     box.setText("Narnia")
     assert box.text() == "Narnia" and changed[-1] == "Narnia"
     assert box.findText("United Kingdom") >= 0
+
+
+def test_the_country_lists_import_no_phone_library() -> None:
+    """2026-10-14, the lag monitor: the window held 2 s importing `phonenumbers/geodata` while a
+    contact was shown (23:46; 10:45 in the contact editor) - `regions()` worked the list out of
+    `phonenumbers` (336 modules, about 117 MB) on the window's thread. It reads a table now.
+    A fresh interpreter, so what an earlier test imported does not count."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    probe = ("import sys\n"
+             "from app.ui.presenter.regions import code_of, country_names, regions\n"
+             "assert len(regions()) > 200 and 'United Kingdom' in country_names() and code_of('+44') == 'GB'\n"
+             "print(sorted(m for m in sys.modules if m.split('.')[0] == 'phonenumbers'))\n")
+    done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=120,
+                          cwd=str(Path(__file__).resolve().parents[2]))
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert done.stdout.strip() == "[]", f"the country list imported {done.stdout.strip()[:300]}"
+
+
+@pytest.mark.slow
+def test_regions_table_matches_phonenumbers() -> None:
+    """The table is `phonenumbers`' own answer, written out. Red after an upgrade changed a name or a
+    code: write `app/ui/presenter/region_table.py` again from `regions._derive()`."""
+    from app.ui.presenter.regions import _derive
+
+    assert regions() == _derive()

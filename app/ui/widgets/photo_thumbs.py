@@ -137,8 +137,16 @@ def photo_thumbnail(path: str, size: int, mtime_ns: int, cache_dir: Optional[Pat
 
 def _thumb_and_tiny(path: str, size: int, mtime_ns: int, cache_dir: Optional[Path]) -> Any:
     """`(thumbnail QImage, tiny JPEG bytes)` - the thumbnail as `photo_thumbnail`
-    makes it, and its blurred preview encoded here, off the window's thread."""
-    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    makes it, and its blurred preview encoded here, off the window's thread.
+
+    2026-10-15: encoded with Pillow, not `QImage.save` into a Python-made
+    `QBuffer` - Qt's image writer calls that buffer's virtuals inside its own
+    lock, and each one takes the GIL; the window's thread holding the GIL in
+    a decode then waits on the lock for ever (see `preview_loader.decode_image_data`)."""
+    import io
+
+    from PIL import Image
+    from PySide6.QtGui import QImage
 
     image = photo_thumbnail(path, size, mtime_ns, cache_dir)
     if image is None or image.isNull():
@@ -147,12 +155,12 @@ def _thumb_and_tiny(path: str, size: int, mtime_ns: int, cache_dir: Optional[Pat
     square = image.copy((image.width() - edge) // 2, (image.height() - edge) // 2, edge, edge)
     tiny = square.scaled(TINY_EDGE, TINY_EDGE, Qt.AspectRatioMode.IgnoreAspectRatio,
                          Qt.TransformationMode.SmoothTransformation)
-    data = QByteArray()
-    buffer = QBuffer(data)
-    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
-    tiny.save(buffer, "JPG", 70)
-    buffer.close()
-    return image, bytes(data)
+    tiny = tiny.convertToFormat(QImage.Format.Format_RGB888)
+    pixels = bytes(tiny.constBits())[: tiny.bytesPerLine() * tiny.height()]
+    out = io.BytesIO()
+    Image.frombuffer("RGB", (tiny.width(), tiny.height()), pixels, "raw", "RGB",
+                     tiny.bytesPerLine(), 1).save(out, "JPEG", quality=70)
+    return image, out.getvalue()
 
 
 def read_tiny_pack(path: Path) -> dict[str, bytes]:

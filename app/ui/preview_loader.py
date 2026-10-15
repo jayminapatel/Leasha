@@ -1391,6 +1391,8 @@ def decode_image(path: str):
     except Exception:                            # noqa: BLE001 - boundary
         return None
     if image.isNull():
+        image = _decode_too_big(str(path))
+    if image is None or image.isNull():
         return None
 
     from app.extract.exif import read_orientation
@@ -1398,28 +1400,94 @@ def decode_image(path: str):
     return _apply_orientation(image, orientation)
 
 
+#: The longest edge `_decode_too_big` reads a picture down to - far more than any
+#: preview pane or thumbnail shows, and well inside Qt's 256 MB image limit.
+TOO_BIG_EDGE = 4096
+
+
+def _decode_too_big(path: str):
+    """A picture `QImage(path)` refused, read smaller; None if it still will not.
+    **Worker thread only.**
+
+    2026-10-15: 22 pictures in one day were refused with "Rejecting image as it
+    exceeds the current allocation limit of 256 megabytes" and showed as blank
+    tiles. Qt's reader is asked for a smaller picture first (a JPEG decodes small
+    directly; it reads from its own file, no Python device). A format that cannot
+    decode small in Qt goes to Pillow, which has no such limit and refuses only
+    a decompression bomb. Orientation is left to `decode_image`, as for any
+    picture."""
+    from PySide6.QtCore import QSize, Qt
+    from PySide6.QtGui import QImage, QImageReader
+
+    try:
+        reader = QImageReader(path)
+        size = reader.size()
+        if size.isValid() and max(size.width(), size.height()) > TOO_BIG_EDGE:
+            reader.setScaledSize(size.scaled(QSize(TOO_BIG_EDGE, TOO_BIG_EDGE),
+                                             Qt.AspectRatioMode.KeepAspectRatio))
+        image = reader.read()
+        if not image.isNull():
+            return image
+    except Exception:                            # noqa: BLE001 - falls through to Pillow
+        pass
+    try:
+        from PIL import Image
+
+        with Image.open(path) as opened:
+            opened.draft("RGB", (TOO_BIG_EDGE, TOO_BIG_EDGE))
+            small = opened.convert("RGB")
+        small.thumbnail((TOO_BIG_EDGE, TOO_BIG_EDGE))
+        data = small.tobytes("raw", "RGB")
+        return QImage(data, small.width, small.height, small.width * 3,
+                      QImage.Format.Format_RGB888).copy()
+    except Exception as exc:                     # noqa: BLE001 - a blank tile, said why
+        _log.debug("could not read the large picture {}: {}", path, exc)
+        return None
+
+
 def decode_image_data(data: bytes):
     """An image in memory to a `QImage`, upright. **Worker thread only.**
 
     `decode_image`'s twin for bytes that have no file (2026-10-04, an
-    attachment in the preview pane). `QImageReader.setAutoTransform` applies
-    the EXIF orientation `decode_image` reads from the file. None for
-    anything that will not decode.
+    attachment in the preview pane). None for anything that will not decode.
+
+    **No Python-made `QBuffer` (2026-10-15, the window froze on the Photos
+    page).** This read through a `QBuffer` built here and a `QImageReader`.
+    A `QBuffer` made from Python is a shiboken wrapper: each virtual Qt calls
+    on it (`readData`, `peek`) first takes the GIL to look for a Python
+    override. `QImageReader` probes the device while holding a Qt lock, so this
+    worker sat in Qt's lock waiting for the GIL, while the window's thread held
+    the GIL in `QPixmap.loadFromData` (`photo_thumbs.ThumbLoader.tiny`) and
+    waited for Qt's lock: a deadlock, at 0% CPU (py-spy, PID 15060).
+    `QImage.fromData` reads through a buffer Qt makes in C++, which never calls
+    back into Python. The EXIF orientation `setAutoTransform` applied is read
+    with Pillow instead and applied as `decode_image` does.
     """
-    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
-    from PySide6.QtGui import QImageReader
+    from PySide6.QtGui import QImage
 
     try:
-        buffer = QBuffer()
-        buffer.setData(QByteArray(bytes(data)))
-        buffer.open(QIODevice.OpenModeFlag.ReadOnly)
-        reader = QImageReader(buffer)
-        reader.setAutoTransform(True)
-        image = reader.read()
-        buffer.close()
+        raw = bytes(data)
+        image = QImage.fromData(raw)
     except Exception:                            # noqa: BLE001 - boundary
         return None
-    return None if image.isNull() else image
+    if image.isNull():
+        return None
+    return _apply_orientation(image, _orientation_of_bytes(raw))
+
+
+def _orientation_of_bytes(data: bytes) -> int:
+    """The EXIF orientation (1-8) of an image in memory; 1 when it has none
+    or cannot be read. Pillow only - no Qt device involved."""
+    try:
+        import io
+
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as opened:
+            value = opened.getexif().get(0x0112, 1)
+        return value if isinstance(value, int) else 1
+    except Exception:                            # noqa: BLE001 - upright is the safe default
+        return 1
 
 
 def _decode_heif(path: str):

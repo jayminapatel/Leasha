@@ -32,6 +32,19 @@ def flag(code: str) -> str:
 @lru_cache(maxsize=1)
 def regions() -> tuple[Region, ...]:
     """Every region phone numbers are known for, by name."""
+    # 2026-10-15: read from a table written out of `phonenumbers` (`region_table`), not worked out
+    # here. Working it out imported `phonenumbers`, its geocoder and every region's metadata - 336
+    # modules, about 117 MB - on the window's thread the first time a contact with an address was
+    # shown; with an index run on the same disk the lag monitor caught it holding the window 2 s
+    # (2026-10-14 23:46, `phonenumbers/geodata`; 10:45, the contact editor). `_derive` is the old
+    # way, kept for the test that says when the table needs writing again.
+    from app.ui.presenter.region_table import TABLE
+
+    return tuple(Region(*row) for row in TABLE)
+
+
+def _derive() -> tuple[Region, ...]:
+    """`regions()` worked out from `phonenumbers` itself - what `region_table` was written from."""
     import phonenumbers
     from phonenumbers import geocoder
 

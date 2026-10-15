@@ -45,7 +45,7 @@ from typing import Any, Callable, Deque, Optional
 
 from app.core.logging import logger
 
-__all__ = ["LagMonitor", "install", "tighten_switch_interval",
+__all__ = ["LagMonitor", "install", "tighten_switch_interval", "stack_text",
            "BEAT_MS", "STALL_S", "SWITCH_INTERVAL_S"]
 
 log = logger.bind(component="ui.lag")
@@ -74,6 +74,23 @@ LONG_STALL_S = (2.0, 5.0, 10.0)
 
 #: Beats kept for the percentile. Twelve thousand is ten minutes at 50 ms.
 _KEEP = 12_000
+
+
+def stack_text(frame: Any, keep: int) -> str:
+    """The innermost `keep` frames of a thread's stack, as text - Python's import machinery left out.
+
+    2026-10-15. Three of the 2 s stalls of 2026-10-14 (10:45:08, 17:25:10, 23:46:49) were reported as
+    six frames of `<frozen importlib._bootstrap...>` and nothing else: the window was importing a
+    module from a disk an index run kept busy, and the frames that would say *which* import, and from
+    where, were cut off. Those frames say only that an import is running, so they are dropped and
+    replaced by one line saying so; `keep` then reaches the line of Leasha's that asked.
+    """
+    entries = traceback.extract_stack(frame)
+    kept = [e for e in entries if not str(e.filename).startswith("<frozen importlib")]
+    text = "".join(traceback.format_list(kept[-keep:])).rstrip()
+    if len(kept) < len(entries) and entries and str(entries[-1].filename).startswith("<frozen importlib"):
+        text += "\n  (inside an import - Python's import frames left out)"
+    return text
 
 
 class LagMonitor:
@@ -198,7 +215,7 @@ class LagMonitor:
         frames = sys._current_frames()                          # noqa: SLF001
         names = {t.ident: t.name for t in threading.enumerate()}
         ui = frames.get(self._ui_id)
-        where = ("".join(traceback.format_stack(ui)[-8:]).rstrip()
+        where = (stack_text(ui, 8)
                  if ui is not None else "(no frame)")
         others = ", ".join(sorted(
             names.get(ident, str(ident)) for ident in frames if ident != self._ui_id))
@@ -264,7 +281,7 @@ class LagMonitor:
                 continue                                        # this watcher
             title = "the window" if ident == self._ui_id else names.get(ident, str(ident))
             parts.append(f"-- {title}\n"
-                         + "".join(traceback.format_stack(frames[ident])[-6:]).rstrip())
+                         + stack_text(frames[ident], 6))
         report = "\n".join(parts)
         log.warning("{}", report)
         return report
