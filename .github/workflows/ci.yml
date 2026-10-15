@@ -13,26 +13,31 @@ name: CI
 # the mouse - S3) and `jvm` (can hard-crash the host process - see
 # pyproject.toml's own comment). `slow` is included (order 1u section 4a,
 # 2026-10-13): its tests used to run nowhere but a local full run, and a
-# blind spot costs more than the minutes they take. The weekly schedule adds
+# blind spot costs more than the minutes they take. The `jvm` box adds
 # the `jvm` tests in a step of their own. The tiers are listed in
 # `scripts/run_suite.py` (`TIERS`) and `tests/unit/test_suite_tiers.py`
 # fails if this file and that list disagree.
 
 on:
-  # 2026-09-27 (order 0x): pushes to a branch with an open pull request used
-  # to run everything twice - once for the push, once for the pull request -
-  # and the macOS job bills at about ten times the Windows rate. `main` still
-  # runs on push; every other branch runs through its pull request only.
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["**"]
-  # Started by hand from the Actions tab (Run workflow), and once a week:
-  # the macOS job runs only on these two (see its `if:` below); the Windows
-  # job runs on all of them, and adds the `jvm` tests on the weekly one.
+  # 2026-10-15, the owner: "only this should run on demand for both". Nothing
+  # runs on a push, a pull request or a schedule any more - the full local
+  # suite (`scripts/run_suite.py`) is the gate for `main` (CLAUDE.md). A run is
+  # started by hand: Actions -> CI -> Run workflow, or `gh workflow run CI`,
+  # with a box for each job and one for the `jvm` tests (which ran weekly).
   workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * 1"   # Mondays 03:17 UTC
+    inputs:
+      windows:
+        description: "Run the Windows suite"
+        type: boolean
+        default: true
+      macos:
+        description: "Run the macOS suite"
+        type: boolean
+        default: true
+      jvm:
+        description: "Also run the jvm tests on Windows"
+        type: boolean
+        default: false
 
 # A newer push to the same branch cancels the run still going for the old
 # one: only the newest commit's result is ever read.
@@ -42,8 +47,9 @@ concurrency:
 
 jobs:
   test:
-    # The Windows job is the everyday gate, and runs on the weekly schedule as
-    # well (order 1u section 4a): that run is the one that adds `jvm`.
+    if: inputs.windows
+    # The Windows job, when its box is ticked (it is by default); the `jvm` box
+    # adds the jvm step (order 1u section 4a).
     runs-on: windows-latest
     # 2026-09-27 (order 0x): one run on this branch sat in the test step for
     # 50 minutes with no output, where a normal run takes about 12. A ceiling
@@ -83,12 +89,12 @@ jobs:
         run: |
           venv\Scripts\python.exe -m pytest tests -q -m "not jvm and not e2e" --timeout=600
 
-      # Weekly only. In a process of its own, as pyproject.toml asks: JPype can
+      # Only when the `jvm` box is ticked. In a process of its own, as pyproject.toml asks: JPype can
       # take the whole process down, and that must not cost the step above its
       # report. mpxj and jpype1 are not in the requirements, so without them
       # these tests prove the fallback and skip the real reader, honestly.
-      - name: Run the jvm tests (weekly)
-        if: github.event_name == 'schedule'
+      - name: Run the jvm tests (when asked)
+        if: inputs.jvm
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
@@ -102,15 +108,14 @@ jobs:
   # **Non-blocking for now** (`continue-on-error`): many tests were written
   # for Windows and have never run on a Mac, so a red result here is a
   # report, not a verdict. Each section of order 0x that is made to pass here
-  # moves into a blocking subset; the counts land in the job summary so the
-  # trend is visible on every run.
+  # moves into a blocking subset; the counts land in the job summary.
   test-macos:
     # 2026-09-27: macOS minutes bill at about ten times the Windows rate on a
     # private repository, and a run takes about 50 minutes - so running it on
     # every commit used the account's Actions allowance up in an afternoon and
-    # every job, Windows included, was then refused. It now runs only when
-    # started by hand (Actions -> CI -> Run workflow) or on the weekly schedule.
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    # every job, Windows included, was then refused. It runs only when started
+    # by hand (Actions -> CI -> Run workflow) with its box ticked.
+    if: inputs.macos
     runs-on: macos-14
     continue-on-error: true
     timeout-minutes: 90

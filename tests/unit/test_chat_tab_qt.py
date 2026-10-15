@@ -773,7 +773,9 @@ def test_fast_or_thoughtful_is_remembered_and_handed_to_the_engine(chat):
     # Queued on the ordered state writer since bug 3a; the question below
     # reads the combo, not the store, so only the persisting has to wait.
     from app.ui.state_writes import pool
-    assert pool().waitForDone(5000)
+    # 2026-10-15: 5 s was too short once with the suite in four parts on the laptop (it
+    # passed alone and in its part's own order); a wait for the writes, not a timing.
+    assert pool().waitForDone(20000)
     assert c.store.get_state("ui:chat_speed", "") == "thoughtful"
     ask(c, "deposit?")
     answered(c)
