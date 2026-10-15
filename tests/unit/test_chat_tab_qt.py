@@ -78,6 +78,11 @@ def chat(gui_mainwindow, qtbot, monkeypatch):
     _wait(qtbot, lambda: ctl._ask is None and not getattr(ctl, "_saving", False)
           and not getattr(ctl, "_pending", None))
     gui_pump(app)
+    # 2026-10-15: no title, and no idle pause counting towards one, crosses into this test
+    # from the one before - the controller is the module's, not the test's.
+    if getattr(ctl, "_title_timer", None) is not None:
+        ctl._title_timer.stop()
+    ctl._title_pending = None
     fake = FakeChatEngine()
     backend = FakeSessionBackend()
     ctl._sessions = ChatSessions(backend)
@@ -448,6 +453,24 @@ def test_the_title_is_asked_once_the_model_has_been_idle(chat):
     _wait(c.qtbot, lambda: c.ctl.session.title == "The deposit chat", timeout=_LOADED_MS)
     assert titling.order.count("title") == 1
     assert c.ctl._title_pending is None
+
+
+def test_a_second_answer_restarts_the_titles_idle_pause_rather_than_adding_one(chat):
+    """2026-10-15: each answer started a title timer of its own, so the first could fire a
+    few milliseconds after a later answer ended - and one left over fired into the next
+    test's conversation (a title 63 ms after its answer, in a full run). One timer now."""
+    c = chat
+    c.ctl._title_pending = None                  # the timer may fire; it then asks nothing
+    c.ctl._arm_title()
+    first = c.ctl._title_timer
+    c.ctl._arm_title()
+    second = c.ctl._title_timer
+    assert second is not first and second.isActive()
+    try:
+        assert not first.isActive(), "the first answer's pause still counts"
+    except RuntimeError:
+        pass                                      # deleted already: stopped, and gone
+    second.stop()
 
 
 @pytest.mark.slow
