@@ -1,0 +1,39 @@
+name: Windows JVM Run
+
+# The `jvm` tests on Windows, started by hand only (the owner, 2026-10-15: "clean jobs in CI
+# ... so i can run them manual"). Actions -> Windows JVM Run -> Run workflow, or
+# `gh workflow run "Windows JVM Run" --ref <branch>`. A workflow of its own, as pyproject.toml
+# asks: JPype can take the whole process down. mpxj and jpype1 are not in the requirements,
+# so without them these tests prove the fallback and skip the real reader, honestly.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: windows-jvm-run-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  jvm:
+    name: Windows JVM Run
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv and install dependencies
+        run: |
+          python -m venv venv
+          venv\Scripts\python.exe -m pip install --upgrade pip
+          venv\Scripts\python.exe -m pip install -r requirements.txt
+          venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+      - name: Run the jvm tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          venv\Scripts\python.exe -m pytest tests -q -m "jvm" --timeout=600

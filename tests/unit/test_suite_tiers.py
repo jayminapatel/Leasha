@@ -18,6 +18,10 @@ nothing said so except the YAML. The tiers are now written once, in
 | weekly CI | the Windows job on the schedule | adds `jvm`, in its own process |
 | release | the owner's laptop | `e2e` against the packaged app |
 
+*2026-10-15: CI runs only when started by hand now, and `ci.yml` is three workflows -
+Windows Run (the PR CI selection), Mac Run and Windows JVM Run (the `jvm` tests). The table's
+"every push" and "the schedule" are the history of those two rows.*
+
 **And section 4f's guard:** the autouse fixture in `tests/unit/conftest.py` that fails a
 test leaving a key or mouse button held is checked to exist, to be active, and to see
 and release the exact leak that #80 fixed by hand.
@@ -35,7 +39,10 @@ import pytest
 yaml = pytest.importorskip("yaml")
 
 ROOT = Path(__file__).resolve().parents[2]
-CI = ROOT / ".github" / "workflows" / "ci.yml"
+WORKFLOWS = ROOT / ".github" / "workflows"
+#: The workflows, each started by hand: file -> the name GitHub shows (2026-10-15).
+RUNS = {"windows-run.yml": "Windows Run", "mac-run.yml": "Mac Run",
+        "windows-jvm-run.yml": "Windows JVM Run"}
 
 
 def _run_suite():
@@ -49,8 +56,8 @@ def _run_suite():
 run_suite = _run_suite()
 
 
-def _workflow() -> dict:
-    return yaml.safe_load(CI.read_text(encoding="utf-8"))
+def _workflow(file: str) -> dict:
+    return yaml.safe_load((WORKFLOWS / file).read_text(encoding="utf-8"))
 
 
 def _marker_expression(command: str) -> str | None:
@@ -94,39 +101,52 @@ def test_pr_ci_runs_slow_and_leaves_out_only_e2e_and_jvm():
     assert pr_ci == run_suite.TIERS["full"], "a local full run and PR CI select the same tests"
 
 
+# 2026-10-15, later, the owner: "set up clean jobs in CI i.e. Windows Run, Mac Run, etc so i
+# can run them manual and only those should be there". `ci.yml` and its three boxes became
+# three workflows of their own, each one Run button; the tests below read those files.
+
+
+def test_the_only_workflows_are_the_three_runs():
+    assert {path.name for path in WORKFLOWS.glob("*.y*ml")} == set(RUNS), \
+        "only Windows Run, Mac Run and Windows JVM Run belong in .github/workflows"
+    for file, name in RUNS.items():
+        assert _workflow(file)["name"] == name
+
+
 def test_ci_runs_only_when_started_by_hand():
     """2026-10-15, the owner: "only this should run on demand for both". No push, pull
     request or schedule starts a run; the local suite is the gate (CLAUDE.md)."""
-    workflow = _workflow()
-    triggers = workflow.get("on", workflow.get(True))         # YAML 1.1 reads `on` as true
-    assert set(triggers) == {"workflow_dispatch"}
-    boxes = triggers["workflow_dispatch"]["inputs"]
-    assert {name: box["default"] for name, box in boxes.items()} == {
-        "windows": True, "macos": True, "jvm": False}
+    for file in RUNS:
+        workflow = _workflow(file)
+        triggers = workflow.get("on", workflow.get(True))     # YAML 1.1 reads `on` as true
+        assert triggers == {"workflow_dispatch": None}, f"{file} must start only by hand"
 
 
-def test_the_windows_job_runs_the_pr_ci_tier_when_its_box_is_ticked():
-    # 2026-10-15: was "on every event"; there is one event now, and a box for the job.
-    job = _workflow()["jobs"]["test"]
+def test_windows_run_runs_the_pr_ci_tier():
+    (job,) = _workflow("windows-run.yml")["jobs"].values()
     assert job["runs-on"] == "windows-latest"
-    assert job["if"] == "inputs.windows"
-    always = [step for step in _pytest_steps(job) if "if" not in step]
-    assert len(always) == 1, "one unconditional suite run in the Windows job"
-    assert _marker_expression(always[0]["run"]) == run_suite.TIERS["pr_ci"]
+    (step,) = _pytest_steps(job)
+    assert _marker_expression(step["run"]) == run_suite.TIERS["pr_ci"]
 
 
-def test_the_jvm_box_adds_the_jvm_tests_to_the_windows_job():
-    # 2026-10-15: was the weekly schedule's; the schedule is gone and a box asks for them.
-    workflow = _workflow()
-    asked = [step for step in _pytest_steps(workflow["jobs"]["test"])
-             if step.get("if") == "inputs.jvm"]
-    assert len(asked) == 1, "one jvm step in the Windows job, behind its box"
-    assert _marker_expression(asked[0]["run"]) == run_suite.TIERS["weekly_ci_adds"] == "jvm"
-    assert workflow["jobs"]["test-macos"]["if"] == "inputs.macos"
+def test_windows_jvm_run_runs_the_jvm_tests_in_a_run_of_their_own():
+    (job,) = _workflow("windows-jvm-run.yml")["jobs"].values()
+    assert job["runs-on"] == "windows-latest"
+    (step,) = _pytest_steps(job)
+    assert _marker_expression(step["run"]) == run_suite.TIERS["weekly_ci_adds"] == "jvm"
+
+
+def test_mac_run_runs_on_a_mac():
+    (job,) = _workflow("mac-run.yml")["jobs"].values()
+    assert job["runs-on"].startswith("macos")
+    assert len(_pytest_steps(job)) == 1
+
 
 def test_no_ci_command_leaves_out_slow_on_windows():
-    for step in _pytest_steps(_workflow()["jobs"]["test"]):
-        assert "not slow" not in step["run"], step["name"]
+    for file in ("windows-run.yml", "windows-jvm-run.yml"):
+        for job in _workflow(file)["jobs"].values():
+            for step in _pytest_steps(job):
+                assert "not slow" not in step["run"], step["name"]
 
 
 def test_the_release_checklist_runs_e2e_on_the_packaged_app():
