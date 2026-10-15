@@ -42,7 +42,14 @@ merges the parts into `logs/suite/durations.json` after the run. The next run pl
 longest-first into the emptiest part, so the parts finish together instead of the wall time
 being whatever the slowest alphabetical third needs - on 2026-10-08 that was 23 minutes
 against a 17-minute fastest part. With no measurements yet the files are cut into contiguous
-alphabetical groups as before. `--affected` runs only the test files that can see a change
+alphabetical groups as before.
+
+**Which tests are slow (2026-10-15).** The same file keeps each test's last three times
+(`HISTORY_RUNS`). A test is judged on the lowest of them, once it has two
+(`JUDGED_AFTER_RUNS`), and `--audit-markers` and the slow-marker guard
+(`tests/unit/test_slow_markers_truthful.py`) both judge that way: load only adds time, so
+one busy run cannot make a quick test look slow, and a new test that really is slow is
+caught after its second run. `--affected` runs only the test files that can see a change
 (`scripts/suite_affected.py` says how that is decided, and the runner prints what it chose);
 the whole suite stays the release gate.
 
@@ -130,8 +137,23 @@ DEFAULT_PART_TIMEOUT = 3600
 #: How often the runner looks at its parts. A module constant so a test can shorten it.
 POLL_SECONDS = 1.0
 
-#: Tests at or over this are listed by `--audit-markers` when not marked `slow`.
+#: Tests at or over this are listed by `--audit-markers` when not marked `slow`, and fail
+#: `tests/unit/test_slow_markers_truthful.py` - one number for both.
 SLOW_SECONDS = 1.0
+
+#: 2026-10-15: how many of a test's most recent measured times are kept, and how many it
+#: needs before it is judged slow or not. A test is judged on the LOWEST of its kept times.
+#: Load only ever adds time - a test cannot run faster than its own work - so the lowest of
+#: a few runs is the closest thing to the test's real cost, and one loaded run cannot make
+#: a quick test look slow. Replayed over this laptop's full runs of 14-15 October (the
+#: parts' own files, against the marks as they stand after #99): judged on one run, 0 to
+#: 186 unmarked tests crossed a second, a different set each time; on the lowest of two,
+#: two loaded runs back to back still left 35; on the lowest of three, none. Three runs
+#: that are all heavily loaded can still flag a test - on 12 October two suites run at
+#: once did - so the guard is read after a run on a quiet machine. A new test that really
+#: is slow has two times over the line after its second run, and is caught then.
+HISTORY_RUNS = 3
+JUDGED_AFTER_RUNS = 2
 
 
 def find_files(explicit: list[str]) -> list[str]:
@@ -185,24 +207,84 @@ def load_durations(path: Path = DURATIONS_FILE) -> dict:
 def merge_durations(previous: dict, parts: list[dict]) -> dict:
     """The previous measurements updated by this run's parts.
 
-    A file that ran this time takes its new number and drops its old slow tests; a file
-    that did not run (a crashed part, an `--affected` run) keeps what it had.
+    Files: a file that ran this time takes its new number; one that did not (a crashed
+    part, an `--affected` run) keeps what it had.
+
+    Tests: each test that ran has this run's time added to its history, which keeps the
+    last `HISTORY_RUNS` times, and takes its `slow` mark from this run. A test that did not
+    run keeps its history untouched - its file did not run, or it was deselected (`--quick`
+    deselects `slow`, `gui` and `qt`), which says nothing about how long it takes. A test
+    whose file ran and which was neither run nor deselected no longer exists (renamed or
+    deleted) and is dropped. Measurements from before the history (2026-10-15: a
+    `slow_tests` map with one time each) are not carried over: one time cannot be judged.
     """
     files = dict(previous.get("files", {}))
-    slow = dict(previous.get("slow_tests", {}))
+    tests = {name: dict(entry) for name, entry in previous.get("tests", {}).items()
+             if isinstance(entry, dict)}
     for part in parts:
         ran = set(part.get("files", {}))
         files.update(part.get("files", {}))
-        slow = {name: entry for name, entry in slow.items() if name.split("::", 1)[0] not in ran}
-        slow.update(part.get("slow_tests", {}))
-    return {"written": time.strftime("%Y-%m-%dT%H:%M:%S"), "files": files, "slow_tests": slow}
+        measured = part.get("tests", {})
+        set_aside = set(part.get("deselected", []))
+        for name in [n for n in tests if n not in measured and n not in set_aside
+                     and n.split("::", 1)[0] in ran]:
+            del tests[name]
+        for name, now in measured.items():
+            runs = [*recent_runs(tests.get(name, {})), round(float(now.get("seconds", 0.0)), 3)]
+            tests[name] = {"runs": runs[-HISTORY_RUNS:], "marked": bool(now.get("marked"))}
+    return {"written": time.strftime("%Y-%m-%dT%H:%M:%S"), "files": files, "tests": tests}
+
+
+def dumps_durations(measurements: dict) -> str:
+    """The measurements as JSON, one test to a line: thousands of tests stay readable and
+    the file stays a size that loads in a moment."""
+    tests = measurements.get("tests") or {}
+    rest = {k: v for k, v in measurements.items() if k != "tests"}
+    if not tests:
+        return json.dumps(rest, indent=1)
+    rows = ",\n".join(f"  {json.dumps(name)}: {json.dumps(entry)}"
+                      for name, entry in sorted(tests.items()))
+    head = json.dumps(rest, indent=1)[:-2] + ",\n" if rest else "{\n"
+    return head + ' "tests": {\n' + rows + "\n }\n}"
+
+
+def recent_runs(entry: dict) -> list[float]:
+    """A test's kept times, oldest first - at most `HISTORY_RUNS` of them."""
+    runs = entry.get("runs") if isinstance(entry, dict) else None
+    if not isinstance(runs, list):
+        return []
+    return [float(seconds) for seconds in runs][-HISTORY_RUNS:]
+
+
+def judged_seconds(entry: dict) -> float | None:
+    """What a test is judged on: the lowest of its kept times, or `None` while it has fewer
+    than `JUDGED_AFTER_RUNS` of them. `--audit-markers` and the slow-marker guard both
+    judge through this, so they cannot disagree."""
+    runs = recent_runs(entry)
+    if len(runs) < JUDGED_AFTER_RUNS:
+        return None
+    return min(runs)
 
 
 def unmarked_slow(measurements: dict) -> list[tuple[str, float]]:
-    """Tests at or over `SLOW_SECONDS` without the `slow` mark, slowest first."""
-    found = [(name, float(entry.get("seconds", 0.0)))
-             for name, entry in measurements.get("slow_tests", {}).items()
-             if not entry.get("marked") and float(entry.get("seconds", 0.0)) >= SLOW_SECONDS]
+    """Tests judged at or over `SLOW_SECONDS` without the `slow` mark, slowest first."""
+    found = []
+    for name, entry in measurements.get("tests", {}).items():
+        seconds = judged_seconds(entry)
+        if seconds is not None and seconds >= SLOW_SECONDS and not entry.get("marked"):
+            found.append((name, seconds))
+    return sorted(found, key=lambda pair: (-pair[1], pair[0]))
+
+
+def awaiting_judgement(measurements: dict) -> list[tuple[str, float]]:
+    """Unmarked tests over `SLOW_SECONDS` in their latest run that have too few runs to be
+    judged yet (new, or measured once since the history began), slowest first."""
+    found = []
+    for name, entry in measurements.get("tests", {}).items():
+        runs = recent_runs(entry)
+        if runs and len(runs) < JUDGED_AFTER_RUNS and runs[-1] >= SLOW_SECONDS \
+                and not entry.get("marked"):
+            found.append((name, runs[-1]))
     return sorted(found, key=lambda pair: (-pair[1], pair[0]))
 
 
@@ -218,9 +300,14 @@ def describe_measurements(measurements: dict, limit: int = 10) -> str:
     slow = unmarked_slow(measurements)
     if slow:
         lines.append(f"{len(slow)} test(s) over {SLOW_SECONDS:.0f}s not marked `slow` "
-                     f"(the marker's own definition); the slowest:")
+                     f"(the marker's own definition), judged on the lowest of each one's "
+                     f"last {HISTORY_RUNS} runs; the slowest:")
         for name, seconds in slow[:limit]:
             lines.append(f"  {seconds:7.1f}s  {name}")
+    waiting = awaiting_judgement(measurements)
+    if waiting:
+        lines.append(f"{len(waiting)} more unmarked test(s) over {SLOW_SECONDS:.0f}s in their "
+                     f"only measured run so far - judged once they have {JUDGED_AFTER_RUNS}")
     return "\n".join(lines)
 
 
@@ -355,7 +442,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="where the measured durations are kept (default logs/suite/)")
     parser.add_argument("--audit-markers", action="store_true",
                         help="print the slowest files and the tests over a second not marked "
-                             "`slow`, from the stored measurements, and run nothing")
+                             f"`slow` (the lowest of each one's last {HISTORY_RUNS} runs), from "
+                             "the stored measurements, and run nothing")
     args = parser.parse_args(argv)
 
     measurements = load_durations(args.durations)
@@ -471,7 +559,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             args.durations.parent.mkdir(parents=True, exist_ok=True)
             tmp = args.durations.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(merged, indent=1), encoding="utf-8")
+            tmp.write_text(dumps_durations(merged), encoding="utf-8")
             tmp.replace(args.durations)
         except OSError as exc:
             print(f"(could not write {args.durations}: {exc})", flush=True)

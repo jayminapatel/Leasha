@@ -3,10 +3,20 @@
 Layer: L0 - repo tooling, no app imports.
 
 A pytest plugin, loaded by the runner with `-p scripts.suite_durations`. It sums the
-setup, call and teardown durations of every test by the file it lives in, keeps every
-test that took a second or more together with whether it was marked `slow` (the
-marker's own definition in `pyproject.toml` is "takes more than a second"), and at the
-end of the session writes it all as JSON to the path in `LEASHA_SUITE_DURATIONS`.
+setup, call and teardown durations of every test, by the file it lives in and by the
+test itself, notes whether each test is marked `slow` (the marker's own definition in
+`pyproject.toml` is "takes more than a second") and which tests were deselected, and at
+the end of the session writes it all as JSON to the path in `LEASHA_SUITE_DURATIONS`:
+
+* `files` - seconds per test file, which balances the next run's parts;
+* `tests` - every test that ran: its seconds and its `slow` mark. The runner keeps each
+  test's last few times from this (`run_suite.merge_durations`), and the slow-marker
+  guard judges a test on the lowest of them, so one loaded run cannot flag it;
+* `deselected` - tests collected but not run (`--quick`'s `-m`, `-k`, `--deselect`), so
+  the runner keeps their history rather than taking them for deleted;
+* `slow_tests` - the tests at or over `SLOW_SECONDS` in this session alone, for a person
+  reading one part's file.
+
 Without that variable the plugin registers nothing, so `pytest tests/unit/test_x.py`
 by hand is unchanged.
 
@@ -42,6 +52,7 @@ class Recorder:
         self.by_file: dict[str, float] = defaultdict(float)
         self.by_test: dict[str, float] = defaultdict(float)
         self.marked_slow: set[str] = set()
+        self.deselected: set[str] = set()
         self.started = time.time()
 
     def add(self, nodeid: str, seconds: float) -> None:
@@ -55,6 +66,9 @@ class Recorder:
             "written": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "elapsed": round(time.time() - self.started, 1),
             "files": {name: round(seconds, 3) for name, seconds in sorted(self.by_file.items())},
+            "tests": {name: {"seconds": round(seconds, 3), "marked": name in self.marked_slow}
+                      for name, seconds in sorted(self.by_test.items())},
+            "deselected": sorted(self.deselected - set(self.by_test)),
             "slow_tests": {name: {"seconds": seconds, "marked": name in self.marked_slow}
                            for name, seconds in sorted(slow.items(), key=lambda kv: -kv[1])},
         }
@@ -65,6 +79,9 @@ class Recorder:
         for item in items:
             if "slow" in item.keywords:
                 self.marked_slow.add(item.nodeid)
+
+    def pytest_deselected(self, items: list[pytest.Item]) -> None:
+        self.deselected.update(item.nodeid for item in items)
 
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
         # Three reports per test (setup, call, teardown); their durations add up.

@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 4.8 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 4.9 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 <p align="center">
   <img src="assets/leasha-lockup.png" width="420" alt="Leasha">
@@ -344,7 +344,10 @@ Two test runs can share one copy: each takes its own folder under `.pytest_tmp`
 and puts them into the guide (`--list` names them; `--all` takes the lot).
 
 The full suite runs on the owner's laptop (`scripts/run_suite.py`), and a green run is what a
-merge to `main` needs. GitHub runs nothing by itself. There are three runs, each a workflow started by hand -
+merge to `main` needs. Each run adds every test's time to `logs/suite/durations.json`, which
+keeps the last three; `tests/unit/test_slow_markers_truthful.py` fails a test that is not marked
+`slow` only when the lowest of those is a second or more, so one busy run cannot turn it red. It
+skips until a test has been measured twice - on a fresh clone, two full runs. GitHub runs nothing by itself. There are three runs, each a workflow started by hand -
 Actions -> the run -> Run workflow, or `gh workflow run "<name>" --ref <branch>`: **Windows Run**
 (`.github/workflows/windows-run.yml`, the full suite), **Mac Run** (`mac-run.yml`, the suite on
 macOS, a report rather than a verdict) and **Windows JVM Run** (`windows-jvm-run.yml`, the jvm tests).
