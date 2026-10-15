@@ -1,0 +1,93 @@
+name: Mac Run
+
+# The suite on a real Mac, started by hand only (the owner, 2026-10-15: "clean jobs in CI
+# i.e. Windows Run, Mac Run, etc so i can run them manual and only those should be there").
+# Actions -> Mac Run -> Run workflow, or `gh workflow run "Mac Run" --ref <branch>`.
+#
+# Order 0x section 0c (2026-09-27): Apple Silicon, macOS 14 - the oldest macOS onnxruntime
+# 1.24.4 ships a wheel for. Nobody on the project has a Mac, so this runner is the only place
+# the code meets macOS. A red result is a report, not a verdict: many tests were written for
+# Windows and have never run on a Mac, so the step reports and the summary gives the counts.
+# macOS minutes bill at about ten times the Windows rate on a private repository and a run
+# takes about 50 minutes - which is why it never starts by itself.
+
+on:
+  workflow_dispatch:
+
+# Read the code and nothing else: no run writes to the repository (CodeQL, PR #98).
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-run-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  mac:
+    name: Mac Run
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: test_pages_reorg reads a 2026-09 commit with `git show`.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv and install dependencies
+        # The requirements files carry `sys_platform` markers, so the Windows-only
+        # packages (pywin32, pywinauto) are skipped here.
+        run: |
+          python -m venv venv
+          venv/bin/python -m pip install --upgrade pip
+          venv/bin/python -m pip install -r requirements.txt
+          venv/bin/python -m pip install -r requirements-dev.txt
+
+      - name: Compile the app to bytecode
+        run: |
+          venv/bin/python -m compileall -q app
+
+      - name: Run the suite (offscreen Qt, excluding e2e/jvm/slow)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          set +e
+          # 2026-10-05: named tests and a time limit that can end a hang. `-v` says where it
+          # is; the thread method writes every thread's stack and ends the run, so a hang
+          # costs ten minutes of this runner, not ninety.
+          venv/bin/python -m pytest tests -v -rfE -m "not jvm and not e2e and not slow" \
+            -p no:cacheprovider --timeout=600 --timeout-method=thread \
+            --junitxml=macos-junit.xml
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Summarise the macOS run
+        if: always()
+        run: |
+          venv/bin/python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          try:
+              root = ET.parse("macos-junit.xml").getroot()
+          except (OSError, ET.ParseError) as exc:
+              line = f"macOS run produced no report ({exc}) - the process probably died."
+          else:
+              suites = root.iter("testsuite")
+              t = f = e = s = 0
+              for suite in suites:
+                  t += int(suite.get("tests", 0)); f += int(suite.get("failures", 0))
+                  e += int(suite.get("errors", 0)); s += int(suite.get("skipped", 0))
+              line = (f"macOS: {t} tests, {t - f - e - s} passed, {f} failed, "
+                      f"{e} errors, {s} skipped")
+          print(line)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write(line + "\n")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-junit
+          path: macos-junit.xml

@@ -1,6 +1,6 @@
 # Leasha — session briefing
 
-**Doc version:** 1.9 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 1.10 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 **Leasha** is a Windows desktop app that searches ~100GB of local files and Outlook
 mail from a plain-English description. One process, fully offline, single user.
@@ -74,8 +74,8 @@ local suite (`scripts/run_suite.py` on this laptop), not one branch at a time. T
 still runs and a red result is still reported; it just runs once, at the end.
 
 **The local suite is the only gate (owner, 2026-10-15).** GitHub CI runs only when started
-by hand (Actions -> CI -> Run workflow, or `gh workflow run CI`; a box each for Windows,
-macOS and the jvm tests). Nothing waits on a GitHub run: the full local suite, green, is what
+by hand, and there are three runs, each its own workflow: Windows Run, Mac Run and Windows JVM
+Run (Actions -> the run -> Run workflow, or `gh workflow run "Windows Run" --ref <branch>`). Nothing waits on a GitHub run: the full local suite, green, is what
 a merge to `main` needs.
 
 ## Where a session runs (2026-09-30)

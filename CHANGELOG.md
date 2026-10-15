@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.136 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 4.137 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Three CI runs, each started by hand: Windows Run, Mac Run, Windows JVM Run (2026-10-15)
+
+The owner: "set up clean jobs in CI i.e. Windows Run, Mac Run, etc so i can run them manual and only those should be there". `ci.yml` and its three boxes are replaced by three workflows, each one Run button in Actions: `windows-run.yml` (the full suite, `not jvm and not e2e`), `mac-run.yml` (the macOS job as it was) and `windows-jvm-run.yml` (the `jvm` tests). None starts on a push, a pull request or a schedule. `tests/unit/test_suite_tiers.py` fails if a fourth workflow file appears or one of the three gains another trigger. CodeQL and the dependency graph are GitHub repository settings, not files, and are left to the owner.
 
 ### CI only when started by hand; what it found after the UX review (2026-10-15)
 

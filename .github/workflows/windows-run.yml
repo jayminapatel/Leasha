@@ -1,0 +1,62 @@
+name: Windows Run
+
+# The full suite on Windows, started by hand only (the owner, 2026-10-15: "clean jobs in CI
+# i.e. Windows Run, Mac Run, etc so i can run them manual and only those should be there").
+# Actions -> Windows Run -> Run workflow, or `gh workflow run "Windows Run" --ref <branch>`.
+# The full local suite (`scripts/run_suite.py`) is the gate for `main` (CLAUDE.md); this is
+# the same selection on a clean Windows machine, for when one is wanted.
+#
+# windows-latest because PySide6, pywin32 and Outlook COM are Windows-bound. unit +
+# pytest-qt (offscreen, the `gui` marker - never excluded, WORKORDER-CONVENTIONS.md S5b) +
+# hypothesis (the "leasha" profile). Excluded: `e2e` (needs a real interactive desktop -
+# S3) and `jvm` (can take the process down; it has its own workflow, Windows JVM Run).
+# `slow` is included (order 1u section 4a). `tests/unit/test_suite_tiers.py` fails if this
+# selection and `scripts/run_suite.py`'s `TIERS` disagree.
+
+on:
+  workflow_dispatch:
+
+# Read the code and nothing else: no run writes to the repository (CodeQL, PR #98).
+permissions:
+  contents: read
+
+# A second run started on the same branch cancels the one still going.
+concurrency:
+  group: windows-run-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows Run
+    runs-on: windows-latest
+    # 2026-09-27 (order 0x): one run sat 50 minutes with no output; a ceiling on the job and a
+    # per-test timeout that names the test that hung. 90 because `slow` runs too (order 1u 4a).
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: test_pages_reorg reads a 2026-09 commit with `git show`.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create venv and install dependencies
+        run: |
+          python -m venv venv
+          venv\Scripts\python.exe -m pip install --upgrade pip
+          venv\Scripts\python.exe -m pip install -r requirements.txt
+          venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+      # 2026-10-15: a fresh checkout has no bytecode, and the timing tests
+      # (test_navigation_is_instant) measured the compiler, not the window.
+      - name: Compile the app to bytecode
+        run: |
+          venv\Scripts\python.exe -m compileall -q app
+
+      - name: Run the suite (offscreen Qt, excluding e2e/jvm)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          venv\Scripts\python.exe -m pytest tests -q -m "not jvm and not e2e" --timeout=600

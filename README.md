@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 4.7 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 4.8 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 <p align="center">
   <img src="assets/leasha-lockup.png" width="420" alt="Leasha">
@@ -344,9 +344,10 @@ Two test runs can share one copy: each takes its own folder under `.pytest_tmp`
 and puts them into the guide (`--list` names them; `--all` takes the lot).
 
 The full suite runs on the owner's laptop (`scripts/run_suite.py`), and a green run is what a
-merge to `main` needs. The GitHub workflow (`.github/workflows/ci.yml`) runs only when started by hand -
-Actions -> CI -> Run workflow, or `gh workflow run CI` - with a box each for Windows, macOS and
-the jvm tests.
+merge to `main` needs. GitHub runs nothing by itself. There are three runs, each a workflow started by hand -
+Actions -> the run -> Run workflow, or `gh workflow run "<name>" --ref <branch>`: **Windows Run**
+(`.github/workflows/windows-run.yml`, the full suite), **Mac Run** (`mac-run.yml`, the suite on
+macOS, a report rather than a verdict) and **Windows JVM Run** (`windows-jvm-run.yml`, the jvm tests).
 
 ### Layout
 

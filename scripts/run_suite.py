@@ -101,7 +101,7 @@ PROJECT_DESELECT = "not jvm and not e2e"
 QUICK_DESELECT = "not gui and not slow and not qt"
 
 #: The test tiers, each with one job (order 1u section 4a, 2026-10-13), as the marker
-#: expression each one runs. `tests/unit/test_suite_tiers.py` reads `.github/workflows/ci.yml`
+#: expression each one runs. `tests/unit/test_suite_tiers.py` reads the workflows (`.github/workflows/*.yml`, 2026-10-15)
 #: and `docs/VERSIONING.md` and fails if either says something else.
 #:
 #: - quick: local, under two minutes - Qt-free logic and presenters only (`--quick`).
