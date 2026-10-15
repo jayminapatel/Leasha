@@ -21,6 +21,17 @@ writes what is ticked, and **Accept all** asks once, with the count, when it wou
 not start ticked. **Never suggest these** remembers the rows the person unticked
 (`app.contacts.enrich.declines`), so no source offers them for that contact again. The run's notes are
 one line under the list, not only a notice.
+
+The owner, 2026-10-15: "the photo suggestions should show the photo and double click should open source
+else how do i check ? ... this window has to be world class". So: a photo row shows the picture (and the
+card's own beside it, the one it would replace), and **Show the picture** shows it bigger; double-click and
+Enter open where a suggestion came from (`Proposal.opens`, else the receipt's web address) through the one
+open route, or say on the status line why there is nothing to open; a right-click menu by the menu
+builder; "Where from" in words with an icon, drawn as a link when it opens; a value a suggestion would
+replace is struck through; a filter row by kind, source and name, with the count; the notes folded into
+Details; the window sizes, minimises, maximises and remembers itself (`ToolDialog`). **Accept selected
+takes only the ticked rows the filter shows**: a ticked row the filter hides is left alone, as are
+Accept all and Never suggest these - what acts is what can be seen. The parts are `enrich_parts`.
 """
 
 from __future__ import annotations
@@ -31,14 +42,21 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QAbstractItemView, QLabel, QTreeWidget, QTreeWidgetItem, QWidget
+from PySide6.QtGui import QBrush, QColor
+from PySide6.QtWidgets import (
+    QAbstractItemView, QApplication, QHeaderView, QMenu, QTreeWidget, QTreeWidgetItem, QWidget,
+)
 
 from app.contacts.card import display_name
 from app.ui.contacts_tools import enrich_rows
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, named, plural
+from app.ui.contacts_tools.enrich_parts import DetailsArea, FilterBar, PictureWindow, thumbnail
 from app.ui.contacts_tools.enrich_rows import sure_words
 from app.ui.contacts_tools.enrich_run import run_for
+from app.ui.widgets import list_keys, menus
 from app.ui.widgets.icons import icon
+from app.ui.widgets.menus import Item
+from app.ui.widgets.page_states import EmptyState
 from app.ui.widgets.select_all import SelectBar
 
 __all__ = ["EnrichDialog", "EnrichData", "gather_proposals", "apply_selected", "sure_words"]
@@ -57,6 +75,9 @@ class EnrichData:
     hide_below: float = 0.5
     #: Order 1s D1: the age window's start (Unix seconds), or None for any age or no mail source on.
     since: Optional[int] = None
+    #: The photo each contact with a photo suggestion has now (owner, 2026-10-15): shown in "Now", since
+    #: accepting a photo replaces it. Read on the worker with the names; a contact with none is not here.
+    photos: dict = field(default_factory=dict)
 
 
 def _review_settings(ctx: Any) -> dict:
@@ -134,14 +155,18 @@ def gather_proposals(ctx: Any, on_progress: Any = None, cancelled: Any = None, f
     if not callable(apply):
         apply = getattr(ctx, "enrich_apply", None)
     names: dict = {}
+    photos: dict = {}
+    pictured = {getattr(p, "contact_id", None) for p in proposals if enrich_rows.is_photo(p)}
     for p in proposals:
         cid = getattr(p, "contact_id", None)
         if cid is not None and cid not in names:
             card = ctx.hub.get_card(cid)
             names[cid] = display_name(card) if card is not None else f"Contact {cid}"
+            if cid in pictured and card is not None and getattr(card, "photo", None) is not None:
+                photos[cid] = card.photo
     notes = [str(n) for n in (getattr(result, "notes", None) or [])]
     return EnrichData(list(proposals), names, apply if callable(apply) else None, notes=notes,
-                      **_review_settings(ctx))
+                      photos=photos, **_review_settings(ctx))
 
 
 def apply_selected(ctx: Any, data: EnrichData, indexes: list[int]) -> Any:
@@ -158,15 +183,28 @@ def apply_selected(ctx: Any, data: EnrichData, indexes: list[int]) -> Any:
     raise RuntimeError("Enrichment cannot be applied here: the proposals came without a way to write them.")
 
 
+#: The columns. "Suggested" takes the room the others leave (owner, 2026-10-15).
+COL_NOW, COL_NEW, COL_FROM = 1, 2, 3
+#: Each column's width before the person drags one: the contact and detail, Now, (Suggested stretches),
+#: Where from, When, Confidence.
+WIDTHS = (230, 150, 0, 170, 170, 150)
+#: Where a contact's row keeps its id, beside a suggestion row's proposal index in `UserRole`.
+CONTACT_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
 class EnrichDialog(ToolDialog):
     def __init__(self, ctx: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(ctx, parent, title="Enrich contacts", glyph="sparkles",
                          subtitle="Suggestions for missing details. Nothing is added until you accept it, and every accepted "
                                   "value remembers where it came from.",
-                         size=(900, 600), name="contacts-enrich")
+                         size=(1040, 660), name="contacts-enrich")
         self.hub = ctx.hub
         self.data: Optional[EnrichData] = None
         self.last_batch: Optional[str] = None
+        #: The right-click menu last shown, for the tests (`menus.show`'s `keep`).
+        self.last_menu: Optional[QMenu] = None
+        #: "Show the picture" windows open now, kept so they are not collected while on screen.
+        self._pictures: list = []
         #: The look-up belongs to the page: closing this window leaves it running, and opening it again
         #: shows where it got to (or what it found, waiting to be accepted).
         self.run = run_for(parent, ctx)
@@ -176,7 +214,15 @@ class EnrichDialog(ToolDialog):
         self.tree.setHeaderLabels(["Contact / detail", "Now", "Suggested", "Where from", "When", "Confidence"])
         self.tree.setRootIsDecorated(True)
         self.tree.setAlternatingRowColors(True)
+        self.tree.setUniformRowHeights(False)             # a photo's row is as tall as its picture
         named(self.tree, "Suggestions", "Details enrichment would add. Tick the ones to keep")
+        header = self.tree.header()
+        header.setStretchLastSection(False)
+        for column, width in enumerate(WIDTHS):
+            if width:
+                header.resizeSection(column, width)
+        header.setSectionResizeMode(COL_NEW, QHeaderView.ResizeMode.Stretch)
+        self.remember_columns(header)
         #: Order 1s 7c: each row's tick as last seen, and the rows the person unticked (Never suggest these).
         self._was: dict[int, bool] = {}
         self._unticked: set[int] = set()
@@ -187,16 +233,26 @@ class EnrichDialog(ToolDialog):
         # selecting it: it has no tick to take off (review of #75).
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.itemSelectionChanged.connect(self._sync)
+        # The house keys (style guide 5): double-click and Enter open where it came from, Delete is Never
+        # suggest this, Ctrl+C copies; Space stays Qt's, which ticks the row; Ctrl+A is Qt's select all.
+        list_keys.install(self.tree, default=self._activated, delete=self.decline_selected,
+                          copy=self.copy_suggestions)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._menu_at)
         self.select_bar = SelectBar(self.tree, "suggestions")
         self.select_bar.changed.connect(lambda _n: self._sync())
+        self.filters = FilterBar()
+        self.filters.changed.connect(self._filter)
+        self.empty = EmptyState("Press Look for suggestions to ask the sources you switched on.", glyph="sparkles")
+        named(self.empty, "No suggestions", "What the list would show, and why it is empty")
+        self.details = DetailsArea()
+        #: The run's notes, word for word (7d), shown under Details.
+        self.notes_line = self.details.notes_line
         self.body.addWidget(self.select_bar)
+        self.body.addWidget(self.filters)
         self.body.addWidget(self.tree, 1)
-        self.notes_line = QLabel("")
-        self.notes_line.setWordWrap(True)
-        self.notes_line.setObjectName("resultsSummary")
-        named(self.notes_line, "What the look-up said", "The age window, and what the sources said besides suggestions")
-        self.notes_line.hide()
-        self.body.addWidget(self.notes_line)
+        self.body.addWidget(self.empty, 1)
+        self.body.addWidget(self.details)
 
         self.find_button = btn("Look for suggestions", "sparkles", "secondary",
                                "Ask the enrichment sources you switched on for suggestions", "Look for suggestions")
@@ -271,32 +327,32 @@ class EnrichDialog(ToolDialog):
         for cid, indexes in groups:
             top = QTreeWidgetItem([data.names.get(cid, f"Contact {cid}")])
             top.setIcon(0, icon("user", ink()))
+            top.setData(0, CONTACT_ROLE, cid)
             top.setFlags(top.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsAutoTristate)
             top.setCheckState(0, Qt.CheckState.Unchecked)   # before its rows, so theirs decide its state
+            top.setToolTip(0, "Tick or untick every suggestion for this contact")
             self.tree.addTopLevelItem(top)
             for index in indexes:
                 top.addChild(self._row(data, index))
             top.setExpanded(True)
         self.tree.blockSignals(False)
-        for col in range(6):
-            self.tree.resizeColumnToContents(col)
         shown = sum(len(ix) for _c, ix in groups)
         said = (f"{plural(shown, 'suggestion')} for {plural(len(groups), 'contact')}. Tick what you want to keep."
                 if shown else ("Enrichment is not switched on." if not data.available else "No suggestions right now."))
         self.busy(False, said)
-        line = enrich_rows.notes_line(data.since, data.notes, hidden)
-        self.notes_line.setText(line)
-        self.notes_line.setToolTip(line or "The age window, and what the sources said besides suggestions")
-        self.notes_line.setVisible(bool(line))
-        self._sync()
+        self.empty.setText("Enrichment is not switched on." if not data.available else "No suggestions right now.")
+        self.filters.set_sources(getattr(data.proposals[i], "source", "") for _c, ix in groups for i in ix)
+        self.details.set_notes(enrich_rows.notes_bits(data.since, data.notes, hidden))
+        self._filter()
 
     def _row(self, data: EnrichData, index: int) -> QTreeWidgetItem:
         p = data.proposals[index]
         old, new = getattr(p, "old", ""), getattr(p, "new", "")
+        photo = enrich_rows.is_photo(p)
         child = QTreeWidgetItem([str(getattr(p, "field_label", "") or getattr(p, "field_kind", "")),
-                                 str(old or ""), "(a photo)" if hasattr(new, "mime") else str(new),
-                                 str(getattr(p, "source", "")), when_words(getattr(p, "when", None)),
-                                 sure_words(p)])
+                                 "" if photo else str(old or ""), "" if photo else str(new),
+                                 enrich_rows.source_words(getattr(p, "source", "")),
+                                 when_words(getattr(p, "when", None)), sure_words(p)])
         child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         ticked = enrich_rows.starts_ticked(p, data.tick_from)
         child.setCheckState(0, Qt.CheckState.Checked if ticked else Qt.CheckState.Unchecked)
@@ -304,12 +360,51 @@ class EnrichDialog(ToolDialog):
         self._was[index] = ticked
         if ticked:
             self._started.add(index)
-        receipt = getattr(p, "receipt", "")
-        if receipt:
-            child.setToolTip(3, str(receipt))
-        if getattr(p, "update", False):
-            child.setToolTip(1, "This would replace what the card has now, so it is never ticked for you")
+        now_photo = data.photos.get(getattr(p, "contact_id", None)) if photo else None
+        if photo:
+            self._picture(child, COL_NEW, new, "The suggested picture. Right-click and choose Show the picture "
+                                               "to see it bigger")
+            if now_photo is not None:
+                self._picture(child, COL_NOW, now_photo, "The contact's picture now: accepting the suggestion "
+                                                         "replaces it")
+        self._source_cell(child, p)
+        if getattr(p, "update", False) or now_photo is not None:
+            self._replaced(child, old, photo)
         return child
+
+    def _picture(self, child: QTreeWidgetItem, column: int, photo: Any, tip: str) -> None:
+        """A photo drawn in its cell, square, `enrich_parts.THUMB` across; the cell says so to a screen reader."""
+        pixmap = thumbnail(photo, ratio=self.devicePixelRatioF())
+        if pixmap.isNull():
+            child.setText(column, "(a photo)")
+            return
+        child.setData(column, Qt.ItemDataRole.DecorationRole, pixmap)
+        child.setData(column, Qt.ItemDataRole.AccessibleTextRole, "A picture")
+        child.setToolTip(column, tip)
+
+    def _source_cell(self, child: QTreeWidgetItem, p: Any) -> None:
+        """Where from: its words and icon, drawn as a link when there is something to open. The receipt is
+        the tooltip, as it always was."""
+        child.setIcon(COL_FROM, icon(enrich_rows.source_icon(getattr(p, "source", "")), ink()))
+        receipt = str(getattr(p, "receipt", "") or "")
+        if enrich_rows.where_to_open(p):
+            child.setForeground(COL_FROM, QBrush(QColor(ink("accent_text"))))
+            font = child.font(COL_FROM)
+            font.setUnderline(True)
+            child.setFont(COL_FROM, font)
+            child.setToolTip(COL_FROM, (f"{receipt}. " if receipt else "") + "Double-click to see it for yourself")
+        elif receipt:
+            child.setToolTip(COL_FROM, receipt)
+
+    def _replaced(self, child: QTreeWidgetItem, old: Any, photo: bool) -> None:
+        """A suggestion that replaces what the card has: the old value struck through and dimmed."""
+        font = child.font(COL_NOW)
+        font.setStrikeOut(True)
+        child.setFont(COL_NOW, font)
+        child.setForeground(COL_NOW, QBrush(QColor(ink("text_faint"))))
+        if not photo:
+            child.setToolTip(COL_NOW, "This would replace what the card has now, so it is never ticked for you")
+            child.setToolTip(COL_NEW, f"Replaces {old} on the card" if old else "Replaces what the card has now")
 
     def _ticked_changed(self, item: QTreeWidgetItem, _column: int) -> None:
         index = item.data(0, Qt.ItemDataRole.UserRole)
@@ -322,30 +417,138 @@ class EnrichDialog(ToolDialog):
             self._was[index] = on
         self._sync()
 
-    # -- accepting -----------------------------------------------------------
-    def ticked(self) -> list[int]:
+    # -- the filter ----------------------------------------------------------
+    def _rows(self, *, shown: bool = True) -> list[QTreeWidgetItem]:
+        """The suggestion rows, in order; with `shown`, only those the filter leaves on screen."""
         out = []
         for i in range(self.tree.topLevelItemCount()):
             top = self.tree.topLevelItem(i)
-            for j in range(top.childCount()):
-                child = top.child(j)
-                if child.checkState(0) == Qt.CheckState.Checked:
-                    out.append(child.data(0, Qt.ItemDataRole.UserRole))
+            out += [top.child(j) for j in range(top.childCount())
+                    if not shown or not (top.isHidden() or top.child(j).isHidden())]
         return out
 
-    def every(self) -> list[int]:
-        """Every row shown: a hidden one (below Hide suggestions below) is not in "all"."""
-        out = []
+    def _filter(self) -> None:
+        """Show the rows the filter row asks for; a contact with none left is hidden with them."""
+        if self.data is None:
+            self._sync()
+            return
+        wanted = self.filters.wanted()
         for i in range(self.tree.topLevelItemCount()):
             top = self.tree.topLevelItem(i)
-            out += [top.child(j).data(0, Qt.ItemDataRole.UserRole) for j in range(top.childCount())]
-        return out
+            name = self.data.names.get(top.data(0, CONTACT_ROLE), top.text(0))
+            left = 0
+            for j in range(top.childCount()):
+                child = top.child(j)
+                show = enrich_rows.matches(self.data.proposals[child.data(0, Qt.ItemDataRole.UserRole)], name,
+                                           **wanted)
+                child.setHidden(not show)
+                left += show
+            top.setHidden(not left)
+        self._sync()
+
+    # -- opening, looking, copying --------------------------------------------
+    def _proposal(self, item: Optional[QTreeWidgetItem]) -> Optional[int]:
+        index = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
+        return index if isinstance(index, int) and self.data is not None else None
+
+    def _activated(self, model_index: Any) -> None:
+        """Double-click and Enter: a suggestion opens where it came from. A contact's row is left to Qt,
+        which opens and closes it on a double-click (nothing here reaches the contact's page)."""
+        index = self._proposal(self.tree.itemFromIndex(model_index))
+        if index is not None:
+            self.open_source(index)
+
+    def open_source(self, index: int) -> None:
+        """Open where suggestion `index` came from through the one open route, or say why there is nothing."""
+        p = self.data.proposals[index]
+        where = enrich_rows.where_to_open(p)
+        if not where:
+            self.say(enrich_rows.nothing_to_open(p))
+            return
+        from app.ui import workers                            # noqa: PLC0415 - the one route, patched in tests
+        from app.ui.presenter.opening import Place            # noqa: PLC0415
+
+        workers.open_row_async(self.hub.store, Place(where), on_error=self.show_error)
+        self.say(f"Opening where it came from ({enrich_rows.source_words(getattr(p, 'source', ''))}): {where}")
+
+    def show_picture(self, index: int) -> Any:
+        """Show the suggested photo bigger, in a window of its own. Returns the window."""
+        p = self.data.proposals[index]
+        receipt = str(getattr(p, "receipt", "") or "")
+        source = enrich_rows.source_words(getattr(p, "source", ""))
+        window = PictureWindow(getattr(p, "new", None), f"{source}: {receipt}" if receipt else source, self)
+        self._pictures = [w for w in self._pictures if w.isVisible()] + [window]
+        window.open()
+        return window
+
+    def _copy(self, text: str) -> None:
+        if text:
+            QApplication.clipboard().setText(text)
+            self.say("Copied.")
+
+    def copy_suggestions(self) -> None:
+        """Ctrl+C: the selected suggestions' values, one a line. A picture has no words to copy."""
+        texts = [enrich_rows.suggestion_text(self.data.proposals[i]) for i in self._selected()] if self.data else []
+        self._copy("\n".join(t for t in texts if t))
+
+    def _selected(self) -> list[int]:
+        found = (self._proposal(item) for item in self.tree.selectedItems() if not item.isHidden())
+        return [i for i in found if i is not None]
+
+    def _menu_at(self, point: Any) -> None:
+        item = self.tree.itemAt(point)
+        if item is not None:
+            menus.show(self.row_menu(item), self.tree, point, wait=False, keep=self)
+
+    def row_menu(self, item: QTreeWidgetItem) -> QMenu:
+        """The right-click menu of one row, by the menu builder: open first and bold, Never last."""
+        on, off = Qt.CheckState.Checked, Qt.CheckState.Unchecked
+        index = self._proposal(item)
+        if index is None:
+            return menus.build(self.tree, [
+                Item("Tick all for this contact", lambda: item.setCheckState(0, on), tip="Keep all of them"),
+                Item("Untick all for this contact", lambda: item.setCheckState(0, off), tip="Keep none of them")])
+        p = self.data.proposals[index]
+        where = enrich_rows.where_to_open(p)
+        receipt = str(getattr(p, "receipt", "") or "")
+        ticked = item.checkState(0) == on
+        lines = [Item("Open where it came from", lambda: self.open_source(index), group="open", default=True,
+                      shortcut="Return", enabled=bool(where), tip=where or enrich_rows.nothing_to_open(p))]
+        if enrich_rows.is_photo(p):
+            lines.append(Item("Show the picture", lambda: self.show_picture(index), group="open"))
+        lines.append(Item("Untick this suggestion" if ticked else "Tick this suggestion",
+                          lambda: item.setCheckState(0, off if ticked else on), shortcut="Space"))
+        if not enrich_rows.is_photo(p):
+            lines.append(Item("Copy the suggestion", lambda: self._copy(enrich_rows.suggestion_text(p)),
+                              group="copy", shortcut="Ctrl+C"))
+        lines.append(Item("Copy where it came from", lambda: self._copy(where or receipt), group="copy",
+                          enabled=bool(where or receipt)))
+        lines.append(Item("Never suggest this", lambda: self.decline([index]), group="danger", shortcut="Delete",
+                          tip="It is not offered for this contact again, from any source"))
+        return menus.build(self.tree, lines)
+
+    # -- accepting -----------------------------------------------------------
+    def ticked(self) -> list[int]:
+        """The ticked rows the filter shows: a ticked row it hides is not taken (owner, 2026-10-15)."""
+        return [child.data(0, Qt.ItemDataRole.UserRole) for child in self._rows()
+                if child.checkState(0) == Qt.CheckState.Checked]
+
+    def every(self) -> list[int]:
+        """Every row shown: a hidden one (below Hide suggestions below, or by the filter) is not in "all"."""
+        return [child.data(0, Qt.ItemDataRole.UserRole) for child in self._rows()]
 
     def _sync(self) -> None:
         have = bool(self.data and self.data.proposals)
         self.accept_button.setEnabled(have and bool(self.ticked()))
         self.accept_all_button.setEnabled(have and bool(self.every()))
         self.never_button.setEnabled(have and bool(self.turned_down()))
+        total, shown = len(self._rows(shown=False)), len(self._rows())
+        self.filters.count.setText(enrich_rows.shown_words(shown, total, len(self.ticked())) if total else "")
+        self.filters.setEnabled(bool(total))
+        if total and not shown:
+            self.empty.setText("No suggestion matches the filter.")
+        self.tree.setVisible(bool(shown))
+        self.empty.setVisible(not shown)
 
     def accept_selected(self) -> None:
         self._accept(self.ticked())
@@ -366,14 +569,23 @@ class EnrichDialog(ToolDialog):
         self._accept(rows)
 
     def turned_down(self) -> set[int]:
-        """The rows to never offer again: those the person unticked, and selected rows that are not ticked."""
+        """The rows to never offer again: those the person unticked, and selected rows that are not ticked -
+        of the rows the filter shows."""
+        shown = set(self.every())
         picked = {item.data(0, Qt.ItemDataRole.UserRole) for item in self.tree.selectedItems()
                   if item.checkState(0) != Qt.CheckState.Checked}
-        return set(self._unticked) | {i for i in picked if isinstance(i, int)}
+        return {i for i in set(self._unticked) | picked if isinstance(i, int) and i in shown}
 
     def never_suggest(self) -> None:
         """D5: remember the turned-down rows, so no source offers those values for that contact again."""
-        chosen = sorted(self.turned_down())
+        self.decline(sorted(self.turned_down()))
+
+    def decline_selected(self) -> None:
+        """Delete: never suggest the selected rows, ticked or not - the menu's Never suggest this, for each."""
+        self.decline(sorted(self._selected()))
+
+    def decline(self, chosen: list[int]) -> None:
+        """Remember `chosen` as turned down, on a worker: the one way a suggestion is never suggested again."""
         if not chosen or self.data is None:
             return
         from app.contacts.enrich import declines     # noqa: PLC0415

@@ -48,6 +48,7 @@ ENRICH_FLAGS = (
     ("enrich_vcards", "enrich_vcards"),
     ("enrich_calendar", "enrich_calendar"), ("enrich_linkedin", "enrich_linkedin"),
     ("enrich_documents", "enrich_documents"), ("enrich_read_originals", "enrich_read_originals"),
+    ("enrich_corrections", "enrich_corrections"),                     # owner, 2026-10-15
 )
 
 #: Order 1s: the rules beside the switches, (argparse dest, AccountSettings field, type, help).
@@ -86,6 +87,7 @@ _ENRICH_HELP = {
     "enrich_linkedin": "own files: a LinkedIn Connections.csv export (nothing is fetched)",
     "enrich_documents": "own index: org charts and business cards (off by default; less reliable)",
     "enrich_read_originals": "own files: open the newest messages again, read-only, for a cut signature",
+    "enrich_corrections": "own book: offer fixes for misread email and web addresses (never names)",
 }
 
 _SCHEDULE_HELP = "manual | every:<minutes> | daily:HH:MM   (e.g. every:60)"

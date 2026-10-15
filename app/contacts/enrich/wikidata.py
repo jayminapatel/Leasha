@@ -54,7 +54,12 @@ class CompanyFacts:
 
     @property
     def receipt(self) -> str:
-        return f"https://www.wikidata.org/wiki/{self.qid} (Wikidata, CC0)"
+        return f"{self.page} (Wikidata, CC0)"
+
+    @property
+    def page(self) -> str:
+        """The entity's own page, bare - what `Proposal.opens` holds (the receipt adds words after it)."""
+        return f"https://www.wikidata.org/wiki/{self.qid}"
 
 
 def _person_names(card: Card) -> set[str]:
@@ -206,11 +211,12 @@ def proposals_from_facts(cid: int, card: Card, facts: Optional[CompanyFacts]) ->
     if facts.website:
         norm = lambda u: re.sub(r"^https?://(www\.)?", "", u.lower()).rstrip("/")     # noqa: E731
         if all(norm(f.value) != norm(facts.website) for f in card.values("url")):
-            out.append(Proposal(cid, "url", "company", "", facts.website, "wikidata", facts.receipt, conf))
+            out.append(Proposal(cid, "url", "company", "", facts.website, "wikidata", facts.receipt, conf,
+                                opens=facts.page))
     if facts.headquarters and not any(f.label.lower() == "headquarters" for f in card.values("address")):
         out.append(Proposal(cid, "address", "headquarters", "", facts.headquarters, "wikidata", facts.receipt,
-                            conf, data={"city": facts.headquarters}))
+                            conf, data={"city": facts.headquarters}, opens=facts.page))
     if facts.industries and not any(f.label.lower() == "industry" for f in card.values("custom")):
         out.append(Proposal(cid, "custom", "industry", "", ", ".join(facts.industries), "wikidata",
-                            facts.receipt, conf))
+                            facts.receipt, conf, opens=facts.page))
     return out

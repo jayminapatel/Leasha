@@ -175,6 +175,9 @@ class AccountSettings:
     enrich_linkedin_file: str = ""
     # 5e: documents name people with titles too, but less reliably: off until the owner turns it on.
     enrich_documents: bool = False
+    # Owner, 2026-10-15: misread values (an address at "schneidef-electric.com", a web address with words
+    # run on after ".com") offered as fixes in the same review. Local, reads only the book: on by default.
+    enrich_corrections: bool = True
     # 6b: an internet lookup is not repeated within this many days (0 = never asked again).
     enrich_repeat_days: int = 90
     # D4: confidence decides what starts ticked and what is shown, never what is applied.

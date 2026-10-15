@@ -10,16 +10,25 @@ Layer: L5
   person may have typed.
 * 7d - what the run said besides suggestions, as one line: the age window's start, the sources
   unreachable or not asked again, what Any age would add, and how many were hidden.
+* Where a suggestion came from, in a person's words, and where it can be seen for oneself
+  (owner, 2026-10-15: "double click should open source else how do i check?"): `source_words`,
+  `where_to_open`, `nothing_to_open`.
+* The filter row over the list (owner, 2026-10-15): by kind, by source and by the contact's name
+  (`matches`), and the count it shows (`shown_words`).
 
 Pure so the rules can be tested without a window, and so the dialog module stays the shell.
 """
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Iterable, Optional
 
-__all__ = ["confidence_of", "starts_ticked", "sure_words", "age_words", "layout", "notes_line", "since_words"]
+__all__ = ["confidence_of", "starts_ticked", "sure_words", "age_words", "layout", "notes_line", "since_words",
+           "notes_bits", "notes_summary", "SOURCES", "source_words", "source_icon", "where_to_open",
+           "nothing_to_open", "KIND_FILTERS", "ANY_SOURCE", "kind_tags", "matches", "shown_words",
+           "suggestion_text", "is_photo"]
 
 #: What a proposal that carries no confidence counts as: `Proposal`'s own default.
 DEFAULT_CONFIDENCE = 0.5
@@ -102,8 +111,8 @@ def since_words(since: Optional[int]) -> str:
     return time.strftime("%d %B %Y", time.gmtime(int(since))).lstrip("0")
 
 
-def notes_line(since: Optional[int], notes: Iterable[str], hidden: int) -> str:
-    """7d: the run's notes in one line - the window's start first, then what the sources said."""
+def notes_bits(since: Optional[int], notes: Iterable[str], hidden: int) -> list[str]:
+    """7d's notes one by one: the window's start first, then what the sources said, then what was hidden."""
     bits = []
     if since:
         bits.append(f"Reading mail since {since_words(since)}.")
@@ -111,4 +120,133 @@ def notes_line(since: Optional[int], notes: Iterable[str], hidden: int) -> str:
     if hidden:
         bits.append(f"{hidden} less sure suggestion{' is' if hidden == 1 else 's are'} hidden "
                     "(Settings > Accounts > Enrichment > Hide suggestions below).")
-    return " ".join(bits)
+    return bits
+
+
+def notes_line(since: Optional[int], notes: Iterable[str], hidden: int) -> str:
+    """7d: the run's notes in one line - the window's start first, then what the sources said."""
+    return " ".join(notes_bits(since, notes, hidden))
+
+
+def notes_summary(bits: list[str]) -> str:
+    """The one line shown while Details is closed (owner, 2026-10-15: the notes were a wall of text
+    under the list, taking the list's room). The first note as it is, and how many more Details holds."""
+    if not bits:
+        return ""
+    more = len(bits) - 1
+    return bits[0] if not more else f"{bits[0]} And {more} more note{'s' if more != 1 else ''} in Details."
+
+
+# --------------------------------------------------------------------------
+# Where a suggestion came from (owner, 2026-10-15)
+# --------------------------------------------------------------------------
+
+#: A source's id -> (its words, its Lucide icon). The words are what a person calls the place; the id
+#: stays what the receipt and the journal record.
+SOURCES: dict[str, tuple[str, str]] = {
+    "signature": ("Email signature", "mail"),
+    "gravatar": ("Gravatar", "user-round"),
+    "logo": ("Company website", "globe"),
+    "wikidata": ("Wikidata", "book-open-text"),
+    "face": ("Your photos", "image"),
+    "vcard": ("Contact file", "contact"),
+    "calendar": ("Calendar invitation", "calendar"),
+    "linkedin": ("LinkedIn export", "id-card"),
+    "document": ("Document", "file-text"),
+    "company": ("Email domain", "at-sign"),
+    "correction": ("Correction", "wand-sparkles"),
+}
+#: The icon of a source this table does not know yet.
+OTHER_ICON = "link"
+
+
+def source_words(source: Any) -> str:
+    """ "Email signature" for `signature`. An unknown id is shown capitalised rather than hidden."""
+    key = str(source or "").strip()
+    if key in SOURCES:
+        return SOURCES[key][0]
+    return key[:1].upper() + key[1:] if key else "Unknown"
+
+
+def source_icon(source: Any) -> str:
+    return SOURCES.get(str(source or "").strip(), ("", OTHER_ICON))[1]
+
+
+_URL = re.compile(r"https?://[^\s<>\"';,)]+", re.IGNORECASE)
+
+
+def where_to_open(p: Any) -> str:
+    """Where the suggestion can be seen for oneself: its `opens`, else the first web address in its
+    receipt, else "" (nothing to open). A web address goes to the browser, a path to the one open route."""
+    opens = str(getattr(p, "opens", "") or "").strip()
+    if opens:
+        return opens
+    found = _URL.search(str(getattr(p, "receipt", "") or ""))
+    return found.group(0).rstrip(".") if found else ""
+
+
+def nothing_to_open(p: Any) -> str:
+    """What a double-click says on the status line when there is nothing to open, and why."""
+    source = str(getattr(p, "source", "") or "")
+    if source == "company":
+        why = "it was worked out from the email address."
+    elif source == "correction":
+        why = "it corrects a value the card already has."
+    else:
+        why = f"{source_words(source)} gave no page, file or message to show."
+    return f"Nothing to open for this suggestion: {why}"
+
+
+def is_photo(p: Any) -> bool:
+    return str(getattr(p, "field_kind", "")) == "photo" or hasattr(getattr(p, "new", None), "mime")
+
+
+def suggestion_text(p: Any) -> str:
+    """The suggested value as text, for Copy the suggestion. A picture has none: ""."""
+    return "" if is_photo(p) else str(getattr(p, "new", "") or "")
+
+
+# --------------------------------------------------------------------------
+# The filter row (owner, 2026-10-15)
+# --------------------------------------------------------------------------
+
+#: The kinds to filter by, in the order the drop-down shows them: (words, icon).
+KIND_FILTERS: tuple[tuple[str, str], ...] = (
+    ("All", "list"), ("Photos", "image"), ("Phones", "phone"), ("Emails", "mail"),
+    ("Addresses", "map-pin"), ("Web", "globe"), ("Company & title", "briefcase"),
+    ("Corrections", "wand-sparkles"),
+)
+#: The source drop-down's first line.
+ANY_SOURCE = "Any source"
+
+_KIND_OF = {"photo": "Photos", "phone": "Phones", "email": "Emails", "address": "Addresses", "url": "Web",
+            "social": "Web", "company": "Company & title", "department": "Company & title",
+            "title": "Company & title"}
+
+
+def kind_tags(p: Any) -> set[str]:
+    """The kinds a suggestion is found under: All, its field's, and Corrections for a correction."""
+    tags = {"All"}
+    kind = _KIND_OF.get("photo" if is_photo(p) else str(getattr(p, "field_kind", "")))
+    if kind:
+        tags.add(kind)
+    if str(getattr(p, "source", "")) == "correction":
+        tags.add("Corrections")
+    return tags
+
+
+def matches(p: Any, contact_name: str, *, kind: str = "All", source: str = ANY_SOURCE, text: str = "") -> bool:
+    """Is this suggestion shown under the filter? `source` is the source's words; `text` is looked for
+    in the contact's name, ignoring case."""
+    if kind and kind not in kind_tags(p):
+        return False
+    if source and source != ANY_SOURCE and source_words(getattr(p, "source", "")) != source:
+        return False
+    wanted = " ".join(str(text or "").split()).casefold()
+    return not wanted or wanted in str(contact_name or "").casefold()
+
+
+def shown_words(shown: int, total: int, ticked: int) -> str:
+    """The count beside the filter: "Showing 12 of 140 - 5 ticked"."""
+    head = f"Showing all {total}" if shown == total else f"Showing {shown} of {total}"
+    return f"{head} - {ticked} ticked"

@@ -155,3 +155,13 @@ def test_no_address_reads_nothing(store, lookup):
     _mail(store, "Bob <bob@ray.example>", [ANN], _utc(2026, 1, 1))
 
     assert quoted.mail_quoting(store, ["", None]) == []
+
+
+def test_each_message_found_carries_its_indexed_path_to_open(store, lookup):
+    """Owner, 2026-10-15: a suggestion read from a quoted signature opens the message that quotes it - its
+    `files.path`, fetched with the row rather than a query a proposal."""
+    fid = _mail(store, "Bob <bob@ray.example>", [ANN], _utc(2026, 9, 1))
+
+    rows = quoted.mail_quoting(store, [ANN])
+
+    assert [r.path for r in rows] == [store.conn.execute("SELECT path FROM files WHERE id = ?", (fid,)).fetchone()[0]]

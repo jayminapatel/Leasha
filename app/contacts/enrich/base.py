@@ -105,6 +105,11 @@ class Proposal:
     #: Order 1s 9b: the signature block the value was read from - the receipt's own message's block, so the
     #: precision sample prints the block the value is in. Empty for every source but the signature reader.
     block: list = field(default_factory=list, repr=False, compare=False)
+    #: Where the value can be seen for oneself (owner, 2026-10-15: "double click should open source, else how
+    #: do i check?"): a web address (https://...), or an indexed path - a file, an attachment, or a message
+    #: (`files.path`, `account://...`, `pst://...`) - that `workers.open_row_async(store, Place(opens))` opens.
+    #: "" when there is nothing to open (the company guessed from an email domain).
+    opens: str = field(default="", compare=False)
 
     @property
     def is_scalar(self) -> bool:
@@ -241,10 +246,34 @@ def _put(card: Card, p: Proposal, region: str) -> bool:
     f = p.as_field()
     if not f.value.strip() and not any((f.data or {}).values()):
         return False
+    if p.update and str(p.old or "").strip():
+        return _replace(card, p, f, region)
     if any(field_key(x, region) == field_key(f, region) for x in card.fields):
         return False
     card.fields.append(f)
     return True
+
+
+def _replace(card: Card, p: Proposal, f: Field, region: str) -> bool:
+    """A repeatable value corrected in place (owner, 2026-10-15: misread values are part of the review).
+
+    Before this a repeatable proposal only ever added (`old` was "" for every one), so a correction put the
+    right address beside the misread one and left the misread one there. Now an `update` with an `old`
+    swaps: the field that holds `old` takes the new value and keeps its label and primary mark; when the card
+    already holds the new value as well, the field that holds `old` is removed - which is how a correction
+    whose right value is already there is a removal, with no empty value to show or store. False when `old`
+    is no longer on the card (changed since the run): a stale correction writes nothing."""
+    want = field_key(f, region)
+    for i, x in enumerate(card.fields):
+        if x.kind != f.kind or field_key(Field(x.kind, str(p.old), x.label, dict(x.data)), region) \
+                != field_key(x, region):
+            continue
+        if any(field_key(y, region) == want for j, y in enumerate(card.fields) if j != i):
+            del card.fields[i]
+        else:
+            card.fields[i] = Field(x.kind, f.value, x.label, dict(f.data) or dict(x.data), primary=x.primary)
+        return True
+    return False
 
 
 def _max_source_id(hub: Any, cid: int) -> int:
@@ -354,6 +383,9 @@ class MailRow:
     sender: str
     recipients: tuple[str, ...]
     sent_at: Optional[int]                               # Unix seconds, as the index stores it
+    #: The message's indexed path (`files.path`: `account://...`, `pst://...`, a `.eml` on disk), what
+    #: `Proposal.opens` hands the Enrich window (owner, 2026-10-15). "" from a reader that did not fetch it.
+    path: str = ""
 
 
 def recipients_of(raw: Any) -> tuple[str, ...]:
@@ -368,9 +400,15 @@ def recipients_of(raw: Any) -> tuple[str, ...]:
     return (str(data),)
 
 
+#: The message's `files.path`, fetched with its row by the readers below: one look-up on the primary key
+#: inside the same query, never a query a proposal. `{t}` is the messages table's name or alias.
+PATH_SQL = "(SELECT path FROM files WHERE files.id = {t}.file_id) AS path"
+
+
 def _row(r: Any) -> MailRow:
+    path = r["path"] if "path" in r.keys() else ""
     return MailRow(int(r["file_id"]), r["subject"] or "", r["sender"] or "", recipients_of(r["recipients"]),
-                   r["sent_at"])
+                   r["sent_at"], str(path or ""))
 
 
 def _has_sender_addr(store: Any) -> bool:
@@ -398,7 +436,8 @@ def mail_from(store: Any, emails: Sequence[str], *, limit: int = 50, since: Opti
     wanted = {e.lower() for e in emails if e}
     indexed = _has_sender_addr(store)
     for e in wanted:
-        sql = ("SELECT file_id, subject, sender, recipients, sent_at FROM messages "
+        sql = ("SELECT file_id, subject, sender, recipients, sent_at, " + PATH_SQL.format(t="messages")
+               + " FROM messages "
                + ("WHERE sender_addr = ? " if indexed else "WHERE instr(lower(sender), ?) > 0 ")
                + ("AND sent_at >= ? " if since is not None else "")
                + "ORDER BY sent_at DESC LIMIT ?")
@@ -419,7 +458,8 @@ def mail_with(store: Any, emails: Sequence[str], *, limit: int = 5000,
     for e in wanted:
         params = (e, e, *(() if since is None else (int(since),)), int(limit) * 2)
         for r in store.conn.execute(
-                "SELECT file_id, subject, sender, recipients, sent_at FROM messages "
+                "SELECT file_id, subject, sender, recipients, sent_at, " + PATH_SQL.format(t="messages")
+                + " FROM messages "
                 "WHERE (instr(lower(sender), ?) > 0 OR instr(lower(recipients), ?) > 0) "
                 + window + "ORDER BY sent_at DESC LIMIT ?", params):
             row = _row(r)

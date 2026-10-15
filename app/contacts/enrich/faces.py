@@ -83,5 +83,5 @@ def face_proposals(store: Any, cid: int, card: Card) -> list[Proposal]:
         photo = face_photo(path, bbox)
         if photo is not None:
             return [Proposal(cid, "photo", "", "", photo, "face",
-                             f"face of {label} in {os.path.basename(path)}", 0.7)]
+                             f"face of {label} in {os.path.basename(path)}", 0.7, opens=path)]
     return []

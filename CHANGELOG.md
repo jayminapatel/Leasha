@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.138 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 4.139 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,22 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The Enrich window: see a suggestion's picture and where it came from; misread addresses offered as fixes (2026-10-15)
+
+- **Pictures shown.** A photo suggestion shows the picture, and the photo it would replace; Show the
+  picture opens it bigger.
+- **Check it yourself.** Double-click or Enter opens where a suggestion came from - the email, the
+  photo, the file, the web page - or says why there is nothing to open. A right-click menu opens, copies,
+  ticks or turns down a suggestion.
+- **Easier to review.** Sources in words with icons, a value it would replace struck through, a filter
+  by kind, source and name with a count, and the notes folded into Details. Accepting takes only the rows
+  shown and ticked.
+- **Misread addresses.** A new source, Fix misread addresses (on), offers corrections for an email domain
+  that is a near-miss of one many contacts use, or a web address with words run on after .com. Never
+  names; never ticked for you.
+- **Every Contacts tool window** can be minimised, maximised and resized, and reopens at its last size
+  and column widths.
 
 ### Enrich: company logos shown, the best picture wins, unreachable sites said once (2026-10-15)
 

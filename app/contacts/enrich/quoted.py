@@ -127,7 +127,8 @@ def mail_quoting(store: Any, emails: Sequence[str], *, since: Optional[int] = No
         if indexed:
             try:
                 rows = store.conn.execute(
-                    "SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at FROM messages_fts "
+                    "SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at, " + base.PATH_SQL.format(t="m")
+                    + " FROM messages_fts "
                     "JOIN messages m ON m.file_id = messages_fts.rowid WHERE messages_fts MATCH ? "
                     + window + "ORDER BY m.sent_at DESC LIMIT ?",
                     ('recipients : "' + e.replace('"', '""') + '"', *tail)).fetchall()
@@ -135,7 +136,8 @@ def mail_quoting(store: Any, emails: Sequence[str], *, since: Optional[int] = No
                 indexed = False
         if not indexed:
             rows = store.conn.execute(
-                "SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at FROM messages m "
+                "SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at, " + base.PATH_SQL.format(t="m")
+                + " FROM messages m "
                 "WHERE instr(m.recipients_lc, ?) > 0 " + window + "ORDER BY m.sent_at DESC LIMIT ?",
                 (e, *tail)).fetchall()
         for r in rows:

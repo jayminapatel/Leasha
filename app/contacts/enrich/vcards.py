@@ -189,7 +189,7 @@ def vcard_proposals(hub: Any, cid: int, card: Card, *, region: str = "GB",
                 if name in _NAME_SCALARS and _words(new) <= named:
                     continue                             # already in the contact's name, in another part
                 offered.add(f"s:{name}")
-                out.append(Proposal(cid, name, "", "", new, "vcard", receipt, conf, when=f.mtime))
+                out.append(Proposal(cid, name, "", "", new, "vcard", receipt, conf, when=f.mtime, opens=f.shown))
             for field in other.fields:
                 if field.kind not in _KINDS or not (field.value.strip() or any(field.data.values())):
                     continue
@@ -210,5 +210,5 @@ def vcard_proposals(hub: Any, cid: int, card: Card, *, region: str = "GB",
                     continue
                 offered |= keys
                 out.append(Proposal(cid, field.kind, field.label, "", value, "vcard", receipt, conf,
-                                    data=dict(field.data), when=f.mtime))
+                                    data=dict(field.data), when=f.mtime, opens=f.shown))
     return out

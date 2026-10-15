@@ -127,6 +127,16 @@ MENU_ICONS: dict[str, str] = {
     "Regenerate": "refresh-cw",
     "Try again": "rotate-cw",
     "Edit": "pencil",
+    # A suggestion in Enrich contacts (`contacts_tools/enrich_dialog.py`, owner, 2026-10-15).
+    "Open where it came from": "external-link",
+    "Show the picture": "image",
+    "Tick this suggestion": "check",
+    "Untick this suggestion": "square",
+    "Tick all for this contact": "list-checks",
+    "Untick all for this contact": "list-x",
+    "Copy the suggestion": "copy",
+    "Copy where it came from": "copy",
+    "Never suggest this": "ban",
 }
 
 #: Words that carry a name or a number ("Remove .xyz", "Show all 4 separately")

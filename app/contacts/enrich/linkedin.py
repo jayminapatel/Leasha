@@ -135,9 +135,11 @@ def linkedin_proposals(cid: int, card: Card, path: str) -> list[Proposal]:
     receipt = f"{path} - LinkedIn connection" + (f", connected {day}" if day else "")
     out = []
     if row.company and not card.get("company").strip():
-        out.append(Proposal(cid, "company", "", "", row.company, "linkedin", receipt, conf, when=row.connected))
+        out.append(Proposal(cid, "company", "", "", row.company, "linkedin", receipt, conf, when=row.connected,
+                            opens=path))
     if row.position and not card.get("title").strip():
-        out.append(Proposal(cid, "title", "", "", row.position, "linkedin", receipt, conf, when=row.connected))
+        out.append(Proposal(cid, "title", "", "", row.position, "linkedin", receipt, conf, when=row.connected,
+                            opens=path))
     return out
 
 

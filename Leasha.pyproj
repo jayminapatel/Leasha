@@ -203,6 +203,7 @@
     <Compile Include="app\contacts\enrich\base.py" />
     <Compile Include="app\contacts\enrich\company.py" />
     <Compile Include="app\contacts\enrich\consensus.py" />
+    <Compile Include="app\contacts\enrich\corrections.py" />
     <Compile Include="app\contacts\enrich\declines.py" />
     <Compile Include="app\contacts\enrich\documents.py" />
     <Compile Include="app\contacts\enrich\faces.py" />
@@ -519,6 +520,7 @@
     <Compile Include="app\ui\contacts_tools\conflicts_dialog.py" />
     <Compile Include="app\ui\contacts_tools\duplicates_dialog.py" />
     <Compile Include="app\ui\contacts_tools\enrich_dialog.py" />
+    <Compile Include="app\ui\contacts_tools\enrich_parts.py" />
     <Compile Include="app\ui\contacts_tools\enrich_rows.py" />
     <Compile Include="app\ui\contacts_tools\enrich_run.py" />
     <Compile Include="app\ui\contacts_tools\export_dialog.py" />
@@ -994,6 +996,7 @@
     <Compile Include="tests\unit\test_contacts_cleanup.py" />
     <Compile Include="tests\unit\test_contacts_conflicts_ui.py" />
     <Compile Include="tests\unit\test_contacts_dupes.py" />
+    <Compile Include="tests\unit\test_contacts_enrich_corrections.py" />
     <Compile Include="tests\unit\test_contacts_enrich_files.py" />
     <Compile Include="tests\unit\test_contacts_enrich_local.py" />
     <Compile Include="tests\unit\test_contacts_enrich_net.py" />

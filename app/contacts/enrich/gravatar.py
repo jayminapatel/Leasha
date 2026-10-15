@@ -71,7 +71,7 @@ def gravatar_proposals(transport: Transport, cid: int, card: Card) -> list[Propo
             if r.status == 200:
                 photo = normalise_image(r.body)
                 if photo is not None:
-                    out.append(Proposal(cid, "photo", "", "", photo, "gravatar", receipt, 0.6))
+                    out.append(Proposal(cid, "photo", "", "", photo, "gravatar", receipt, 0.6, opens=receipt))
         r = transport.request("GET", profile_url(email), headers={**headers, "Accept": "application/json"},
                               timeout=15.0)
         if r.status == 200:
@@ -102,5 +102,5 @@ def _profile_links(body: bytes, cid: int, receipt: str, have: set[str]) -> list[
             continue
         have.add(key)
         label = str(u.get("title") or "").strip()[:40] or "profile"
-        out.append(Proposal(cid, "url", label, "", value, "gravatar", receipt, 0.5))
+        out.append(Proposal(cid, "url", label, "", value, "gravatar", receipt, 0.5, opens=receipt))
     return out
