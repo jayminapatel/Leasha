@@ -269,6 +269,7 @@ def _rows_made(side) -> int:
     return made
 
 
+@pytest.mark.slow
 def test_a_big_places_tree_makes_only_the_rows_that_can_be_seen(qtbot):
     """2026-10-14 06:56, the lag monitor: `set_entries` -> `_rebuild` -> `_item` held the window 5 s
     at start-up. Every folder three levels down was made a row - 19,533 for 18,750 folders - though

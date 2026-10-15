@@ -199,6 +199,7 @@ def test_a_run_records_where_its_time_went(corpus: Path, tmp_path: Path) -> None
     store.close()
 
 
+@pytest.mark.slow
 def test_the_summary_carries_the_stages(corpus: Path, tmp_path: Path) -> None:
     """It is read back by the tuning footer off `last_run_stats`, so it has to
     survive `as_dict`."""

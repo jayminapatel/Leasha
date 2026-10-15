@@ -307,6 +307,7 @@ def test_the_search_view_builds_a_strip_that_sits_above_the_results(search_world
     assert view.person_timer is view.person_strip.person_timer         # found by `stop_timers` at close
 
 
+@pytest.mark.slow
 def test_results_are_identical_with_and_without_a_matching_contact(search_world, hub_of=None):
     engine, store = search_world
     without, _t0 = _run_search(engine, "Ann")

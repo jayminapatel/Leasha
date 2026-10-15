@@ -305,6 +305,7 @@ def _view():
     return IndexingView()
 
 
+@pytest.mark.slow
 def test_the_pause_button_is_on_the_status_shelf_beside_stop_and_starts_dead():
     from app.ui.indexing_view import CATEGORY_STATUS, PAUSE_LABEL
 
@@ -319,6 +320,7 @@ def test_the_pause_button_is_on_the_status_shelf_beside_stop_and_starts_dead():
     assert row is not None
 
 
+@pytest.mark.slow
 def test_pressing_pause_holds_the_run_and_pressing_it_again_lets_go(qtbot):
     from PySide6.QtCore import Qt
 

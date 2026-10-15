@@ -130,6 +130,7 @@ def test_with_run_is_the_both_pass():
     assert run_setup.pass_for(Settings()) == "both"
 
 
+@pytest.mark.slow
 def test_a_held_photo_gets_its_faces_vector_and_fingerprint_on_a_both_run(tmp_path):
     root = tmp_path / "PhotosMaster"
     photo = _photo(root)

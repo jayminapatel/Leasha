@@ -197,6 +197,7 @@ def test_a_rotation_is_remembered_the_next_time_the_photo_is_popped_out(journeys
 # pop-out: Ctrl+F finds the sentence in a real text document
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_ctrl_f_in_a_popped_out_document_counts_and_highlights_the_word(journeys, qtbot):
     app, window, *_ = journeys
     popped = _pop_out_first_result(qtbot, app, window, "harbour survey quay")
@@ -225,6 +226,7 @@ def test_ctrl_f_in_a_popped_out_document_counts_and_highlights_the_word(journeys
         gui_pump(app)
 
 
+@pytest.mark.slow
 def test_escape_closes_the_find_bar_and_takes_the_highlighting_off(journeys, qtbot):
     app, window, *_ = journeys
     popped = _pop_out_first_result(qtbot, app, window, "harbour survey quay")

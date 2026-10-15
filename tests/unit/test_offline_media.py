@@ -561,6 +561,7 @@ def test_suggest_renamed_source_finds_a_structurally_similar_offline_share(tmp_p
     assert suggestion["name"] == "Old NAS"
 
 
+@pytest.mark.slow
 def test_suggest_renamed_source_stays_quiet_for_unrelated_shares(tmp_path):
     """Assist, never assume: two shares sharing nothing meaningful must not
     be offered as a match."""

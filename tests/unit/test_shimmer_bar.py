@@ -93,6 +93,7 @@ def test_the_text_reads_on_the_fill_in_both_themes() -> None:
     assert start.isValid() and end.isValid()
 
 
+@pytest.mark.slow
 def test_the_indexing_page_and_the_rail_use_it(qtbot) -> None:
     from app.ui.indexing_view import IndexingView
     from app.ui.widgets.indexing_bar import GlidingBar

@@ -87,6 +87,7 @@ def _view(qtbot):
     return view
 
 
+@pytest.mark.slow
 def test_the_panel_is_hidden_until_something_has_timed_out(qtbot) -> None:
     from app.ui.widgets.indexing_layout import paint_totals
 
@@ -116,6 +117,7 @@ def test_the_panel_is_hidden_until_something_has_timed_out(qtbot) -> None:
     assert panel.isHidden() and panel.button_for("pdf") is None
 
 
+@pytest.mark.slow
 def test_a_press_asks_for_that_type_with_the_number_in_the_box(qtbot) -> None:
     view = _view(qtbot)
     panel = view.timed_out
@@ -133,6 +135,7 @@ def test_a_press_asks_for_that_type_with_the_number_in_the_box(qtbot) -> None:
     assert asked == [("pdf", 4.0), ("", 10.0)]
 
 
+@pytest.mark.slow
 def test_new_counts_update_the_rows_in_place(qtbot) -> None:
     view = _view(qtbot)
     panel = view.timed_out

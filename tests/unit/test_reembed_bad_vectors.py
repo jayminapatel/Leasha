@@ -93,6 +93,7 @@ def test_check_reports_and_changes_nothing(stores, capsys) -> None:
         assert len(vectors.bad_vectors()) == 1
 
 
+@pytest.mark.slow
 def test_bad_embeds_the_whole_file_again_and_leaves_no_empty_vector(stores, monkeypatch) -> None:
     from app.cli import index as cli_index
 

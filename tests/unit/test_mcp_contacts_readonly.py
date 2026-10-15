@@ -232,6 +232,7 @@ def test_the_module_imports_no_write_method_of_the_hub_or_the_accounts():
 
 # -- 8c: no secret in any answer ---------------------------------------------
 
+@pytest.mark.slow
 def test_no_tool_answers_with_a_secret_from_the_keyring_or_the_settings(world):
     from app.accounts.secrets import SecretStore, account_key, client_secret_key
     from app.accounts.store import AccountStore

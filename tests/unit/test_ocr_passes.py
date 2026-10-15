@@ -273,6 +273,7 @@ def test_an_archive_held_by_the_text_pass_is_read_by_the_images_pass(tmp_path, c
     assert image.status == FileStatus.INDEXED
 
 
+@pytest.mark.slow
 def test_an_images_pass_reads_an_archive_already_recorded_as_done(tmp_path, corpus):
     """The owner's index as it stands: the record was written before the fix.
     The images pass reads the held photos anyway - no repair needed."""
@@ -294,6 +295,7 @@ def test_an_images_pass_reads_an_archive_already_recorded_as_done(tmp_path, corp
     assert image.status == FileStatus.INDEXED and stats.indexed == 1
 
 
+@pytest.mark.slow
 def test_a_with_the_run_pass_reads_an_archive_whose_photos_are_still_held(tmp_path, corpus):
     """Not only the images pass: while anything is waiting, no run trusts a
     record that says the folder is done - "with the run" included."""

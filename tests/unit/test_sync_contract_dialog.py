@@ -28,6 +28,7 @@ def _opened(c):
     return opened
 
 
+@pytest.mark.slow
 def test_a_refusal_in_the_progress_opens_its_contact(ctx, qtbot):      # noqa: F811
     c, sched, _calls = ctx
     opened = _opened(c)

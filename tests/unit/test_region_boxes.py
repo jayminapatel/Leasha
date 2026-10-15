@@ -46,6 +46,7 @@ def test_the_country_box_keeps_any_word_typed(qtbot) -> None:
     assert box.findText("United Kingdom") >= 0
 
 
+@pytest.mark.slow
 def test_the_country_lists_import_no_phone_library() -> None:
     """2026-10-14, the lag monitor: the window held 2 s importing `phonenumbers/geodata` while a
     contact was shown (23:46; 10:45 in the contact editor) - `regions()` worked the list out of

@@ -405,6 +405,7 @@ def test_a_scoped_count_under_the_sample_is_still_exact(store) -> None:
     assert all(row.exact for row in rows)
 
 
+@pytest.mark.slow
 def test_a_count_taken_from_a_spent_sample_says_it_is_not_exact(
     tmp_path
 ) -> None:

@@ -223,6 +223,7 @@ def test_an_untouched_archive_costs_no_extraction(tmp_path, corpus):
     assert opened["count"] == 0, "an unchanged archive was opened and re-read"
 
 
+@pytest.mark.slow
 def test_a_changed_archive_is_re_read(tmp_path, corpus):
     """The other half. Skipping is only safe if a real change is still caught."""
     db = tmp_path / "index.db"
@@ -244,6 +245,7 @@ def test_a_changed_archive_is_re_read(tmp_path, corpus):
     assert second.indexed == 0
 
 
+@pytest.mark.slow
 def test_only_the_changed_messages_inside_an_archive_are_re_indexed(tmp_path, corpus):
     """The whole point of per-message rows.
 
@@ -308,6 +310,7 @@ def test_an_extractor_that_forgets_virtual_path_does_not_lose_documents(tmp_path
         base.REGISTRY.pop(".careless", None)
 
 
+@pytest.mark.slow
 def test_a_touched_but_identical_file_is_not_re_indexed(tmp_path, corpus):
     """robocopy, a restore from backup and cloud sync all reset mtime.
 

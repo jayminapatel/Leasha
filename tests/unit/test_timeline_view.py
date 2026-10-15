@@ -89,6 +89,7 @@ def june(qtbot, tmp_path):
 # Year -> month, and any two dates
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_picker_lists_the_years_that_have_anything_and_says_how_much(june):
     view, _ids, _store = june
     labels = [view.picker.year_box.itemText(i) for i in range(view.picker.year_box.count())]
@@ -97,6 +98,7 @@ def test_the_picker_lists_the_years_that_have_anything_and_says_how_much(june):
     assert view.summary.text() == "6 items from 2015 to 2019."
 
 
+@pytest.mark.slow
 def test_choosing_a_year_shows_the_whole_year_and_only_months_with_something_are_offered(qtbot, june):
     view, ids, _store = june
     view.picker.year_box.setCurrentIndex(0)                       # 2015
@@ -109,6 +111,7 @@ def test_choosing_a_year_shows_the_whole_year_and_only_months_with_something_are
     assert "4 items" in view.picker.month_buttons[6].toolTip()
 
 
+@pytest.mark.slow
 def test_a_month_shows_everything_from_it_oldest_first_across_every_source(qtbot, june):
     r"""The order's acceptance sentence: "June 2015" is a place you can go."""
     view, ids, _store = june
@@ -123,6 +126,7 @@ def test_a_month_shows_everything_from_it_oldest_first_across_every_source(qtbot
     assert view.status.text() == "4 items - that is everything from this period."
 
 
+@pytest.mark.slow
 def test_any_two_dates_reach_the_same_items_as_the_month(qtbot, june):
     view, ids, _store = june
     view.picker.range_from.setText("2015-06-01")
@@ -179,6 +183,7 @@ def test_the_kind_box_narrows_the_month_and_is_remembered(qtbot, june):
 # Offline items, folding, opening
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_an_item_on_a_drive_in_a_drawer_is_there_with_its_badge_and_says_it_is_not_plugged_in(qtbot, june):
     view, ids, _store = june
     view.browse(Period.month(2015, 6))
@@ -194,6 +199,7 @@ def test_an_item_on_a_drive_in_a_drawer_is_there_with_its_badge_and_says_it_is_n
     assert view.list.picture_for(offline) is None                 # no path to read: never decoded
 
 
+@pytest.mark.slow
 def test_a_row_says_how_its_date_was_arrived_at(qtbot, june):
     view, ids, _store = june
     view.browse(Period.month(2015, 6))
@@ -223,6 +229,7 @@ def test_enter_and_double_click_open_the_row_they_are_on(qtbot, june):
     assert hasattr(opened[0], "volume_id") and hasattr(opened[0], "relative_path")   # what the opener reads
 
 
+@pytest.mark.slow
 def test_the_arrow_keys_move_along_a_band_of_photographs(qtbot, tmp_path):
     with SqliteStore(tmp_path / "t.db") as store:
         for i in range(3):
@@ -259,6 +266,7 @@ def _burst_store(tmp_path, count=12):
     return store
 
 
+@pytest.mark.slow
 def test_a_burst_is_one_line_that_can_be_taken_apart_without_losing_the_place(qtbot, tmp_path):
     store = _burst_store(tmp_path)
     view = TimelineView(store)
@@ -281,6 +289,7 @@ def test_a_burst_is_one_line_that_can_be_taken_apart_without_losing_the_place(qt
     store.close()
 
 
+@pytest.mark.slow
 def test_turning_grouping_off_shows_every_photograph_separately(qtbot, tmp_path):
     store = _burst_store(tmp_path, count=6)
     view = TimelineView(store)
@@ -464,6 +473,7 @@ def test_the_timeline_has_no_search_box_of_its_own(june):
     assert not [b for b in boxes if "search" in (b.placeholderText() + b.accessibleName()).lower()]
 
 
+@pytest.mark.slow
 def test_the_list_can_be_read_by_a_screen_reader(qtbot, june):
     view, _ids, _store = june
     view.browse(Period.month(2015, 6))
