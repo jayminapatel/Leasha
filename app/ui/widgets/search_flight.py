@@ -134,7 +134,16 @@ class SearchFlight(QObject):
         self.bar.hide()
 
     def _ended(self, generation: int) -> None:
-        """A search answered (finished, not early) or failed."""
+        """A search answered (finished, not early) or failed.
+
+        2026-10-15: a search can answer after its page is gone - the worker's signals
+        outlive the page, and these connections are lambdas, which Qt does not drop
+        with the page. Then the timer and the bar are deleted, and this says nothing.
+        """
+        from app.ui import qtsip
+
+        if qtsip.isdeleted(self) or qtsip.isdeleted(self._busy_timer) or qtsip.isdeleted(self.bar):
+            return
         if busy_ends(generation, self._latest, early=False):
             self._hide_busy()
 

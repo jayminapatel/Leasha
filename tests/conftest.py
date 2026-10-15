@@ -166,6 +166,30 @@ def pytest_configure(config):
     config.stash[_BASETEMP_RUN_DIR] = run_dir
 
 
+def pytest_unconfigure(config):
+    """A run that cannot end says why, in five minutes, not in CI's ninety.
+
+    2026-10-15, CI on `main` (67729b3): every test had run and the failures were
+    listed, then the process never ended - the summary line sat unwritten in the
+    pipe's buffer while something in the interpreter's shut-down waited, until the
+    job's 90-minute limit cancelled it with no clue. Flush what was said, then arm
+    faulthandler: if the process is still here in five minutes, every thread's
+    stack is written to stderr and the process ends.
+    """
+    import faulthandler
+    import sys
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:                            # noqa: BLE001 - a closed stream
+            pass
+    try:
+        faulthandler.dump_traceback_later(300, exit=True)
+    except Exception:                                # noqa: BLE001 - no stderr to write to
+        pass
+
+
 @pytest.hookimpl(trylast=True)
 def pytest_sessionfinish(session, exitstatus):
     """A green run removes its own `run-<pid>` folder; a red one keeps it.

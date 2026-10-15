@@ -69,6 +69,14 @@ jobs:
           venv\Scripts\python.exe -m pip install -r requirements.txt
           venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 
+      # 2026-10-15: a fresh checkout has no bytecode, so the first import of every module
+      # compiled it - 39 of the Contacts page's 133 ms first visit, measured on the laptop -
+      # and the timing tests (test_navigation_is_instant) measured the compiler, not the
+      # window. The installed app has its bytecode; so does the suite now.
+      - name: Compile the app to bytecode
+        run: |
+          venv\Scripts\python.exe -m compileall -q app
+
       - name: Run the suite (offscreen Qt, excluding e2e/jvm)
         env:
           QT_QPA_PLATFORM: offscreen
@@ -125,6 +133,10 @@ jobs:
           venv/bin/python -m pip install --upgrade pip
           venv/bin/python -m pip install -r requirements.txt
           venv/bin/python -m pip install -r requirements-dev.txt
+
+      - name: Compile the app to bytecode
+        run: |
+          venv/bin/python -m compileall -q app
 
       - name: Run the suite (offscreen Qt, excluding e2e/jvm/slow)
         env:
