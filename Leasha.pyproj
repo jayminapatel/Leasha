@@ -1589,7 +1589,9 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include=".env.example" />
-    <Content Include=".github\workflows\ci.yml" />
+    <Content Include=".github\workflows\mac-run.yml" />
+    <Content Include=".github\workflows\windows-jvm-run.yml" />
+    <Content Include=".github\workflows\windows-run.yml" />
     <Content Include=".vscode\extensions.json" />
     <Content Include=".vscode\launch.json" />
     <Content Include=".vscode\settings.json" />
