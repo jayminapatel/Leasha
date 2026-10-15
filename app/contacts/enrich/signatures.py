@@ -26,6 +26,7 @@ title offered is worse than none.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass, field
 from email.utils import parseaddr
@@ -226,7 +227,7 @@ def _offer(cid: int, card: Card, a: Agreed, region: str, update_from: float) -> 
     and the agreement is not strong enough to offer a change)."""
     kind = a.slot.split(":", 1)[0]
     extra = dict(when=a.reading.when, seen=a.seen, first_seen=a.first_seen, history=a.history,
-                 block=list(a.reading.block))
+                 block=list(a.reading.block), opens=str(getattr(a.reading.row, "path", "") or ""))
     receipt = _receipt(a)
     if kind in ("title", "company", "department"):
         now = card.get(kind).strip()
@@ -269,5 +270,23 @@ def signature_proposals(store: Any, cid: int, card: Card, *, region: str = phone
         owner = learn_owner(store, owner_emails, region=region, read_original=read_original)
     read = read_signatures(store, cid, card, region=region, rows=rows, since=since, owner=owner,
                            read_original=read_original)
+    _fill_paths(store, read.readings)
     return proposals_from(cid, card, read.readings, region=region, update_from=update_from)
 
+
+def _fill_paths(store: Any, readings: Sequence[Reading]) -> None:
+    """Each reading's message with its indexed path, for `Proposal.opens`, when its row came without one -
+    `rows` handed in by a caller (the measuring command) rather than read here. One query for all of them,
+    never one a proposal; a row that is not a `MailRow` is left as it is."""
+    missing = [r for r in readings if isinstance(r.row, base.MailRow) and not r.row.path]
+    if not missing:
+        return
+    ids = sorted({int(r.row.file_id) for r in missing})
+    try:
+        found = {int(i): str(p or "") for i, p in store.conn.execute(
+            f"SELECT id, path FROM files WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()}
+    except Exception:                                    # noqa: BLE001 - nothing to open is not a failure
+        return
+    for r in missing:
+        if found.get(int(r.row.file_id)):
+            r.row = dataclasses.replace(r.row, path=found[int(r.row.file_id)])

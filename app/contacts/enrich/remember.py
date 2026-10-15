@@ -114,15 +114,35 @@ def keep(store: Any, kind: str, key: str, found: list[Proposal]) -> None:
         if p.is_photo:
             if isinstance(p.new, Photo) and _save_photo(store, p.new):
                 items.append({"k": "photo", "sha": p.new.sha, "mime": p.new.mime, "r": p.receipt,
-                              "c": p.confidence})
+                              "c": p.confidence, **_opens(p)})
             continue
         item = {"k": p.field_kind, "l": p.field_label, "n": str(p.new), "r": p.receipt, "c": p.confidence,
-                "d": dict(p.data)}
+                "d": dict(p.data), **_opens(p)}
         # A value with an "@" in it could be an address; it is not worth keeping one in index_state for.
         if "@" in json.dumps(item):
             continue
         items.append(item)
     store.set_state(result_key(kind, key), json.dumps({"v": _VERSION, "found": items}, separators=(",", ":")))
+
+
+def _opens(p: Proposal) -> dict:
+    """`{"o": opens}` to keep with an answer (owner, 2026-10-15: a remembered suggestion opens where it came
+    from too), or nothing. Never an address: an `opens` with an "@" in it (a `mailto:`) is not kept, in the
+    same spirit as the keys - the answer itself is still kept, without it."""
+    o = str(getattr(p, "opens", "") or "")
+    return {"o": o} if o and "@" not in o else {}
+
+
+def _opens_again(it: dict, kind: str, key: str, receipt: str) -> str:
+    """Where a kept answer opens. One kept before `opens` existed has no "o": a logo's is its company's home
+    page (what a new logo carries, `logo.home_page`), any other's its receipt when that is a bare https
+    address (Gravatar's profile page), else nothing."""
+    o = str(it.get("o") or "")
+    if o:
+        return o
+    if kind == "logo" and key:
+        return f"https://{key}/"
+    return receipt if receipt.startswith("https://") and " " not in receipt else ""
 
 
 def _read(store: Any, kind: str, key: str) -> Optional[dict]:
@@ -161,10 +181,12 @@ def offer_again(store: Any, kind: str, key: str, cid: int, card: Card, region: s
                 continue
             photo = _load_photo(store, str(it.get("sha") or ""), str(it.get("mime") or "image/png"))
             if photo is not None:
-                out.append(Proposal(cid, "photo", "", "", photo, kind, receipt, conf))
+                out.append(Proposal(cid, "photo", "", "", photo, kind, receipt, conf,
+                                    opens=_opens_again(it, kind, key, receipt)))
             continue
         p = Proposal(cid, k, str(it.get("l") or ""), "", str(it.get("n") or ""), kind, receipt, conf,
-                     data={str(a): str(b) for a, b in (it.get("d") or {}).items()})
+                     data={str(a): str(b) for a, b in (it.get("d") or {}).items()},
+                     opens=_opens_again(it, kind, key, receipt))
         if p.is_scalar:
             if card.get(k).strip() == str(p.new).strip():
                 continue

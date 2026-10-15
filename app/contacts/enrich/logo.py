@@ -33,7 +33,7 @@ from app.contacts.card import Card
 from app.contacts.enrich.base import MAX_IMAGE_BYTES, Proposal, normalise_image
 from app.contacts.enrich.company import company_guess, registrable_name, work_domains
 
-__all__ = ["company_domain", "usable_domain", "logo_proposals", "CONFIDENCE"]
+__all__ = ["company_domain", "usable_domain", "logo_proposals", "CONFIDENCE", "home_page"]
 
 #: How sure a logo is: at Hide below's default (0.5, order 1s D4), so it is shown but never starts ticked.
 #: It was 0.4 - under that default - so every logo found was hidden: 150 of them on the owner's index, with
@@ -113,6 +113,12 @@ def company_domain(card: Card) -> str:
     return ""
 
 
+def home_page(domain: str) -> str:
+    """Where a logo can be checked (`Proposal.opens`, owner 2026-10-15): the company's home page, not the
+    icon file - the page shows whose site it is, a favicon on its own shows a few pixels."""
+    return f"https://{domain}/" if domain else ""
+
+
 def _family(domain: str) -> set[str]:
     bare = domain[4:] if domain.startswith("www.") else domain
     return {bare, "www." + bare}
@@ -151,7 +157,7 @@ def logo_proposals(transport: Transport, allowed: AllowedHosts, cid: int, card: 
         for url in icon_urls:
             photo = _icon(get(url))
             if photo is not None:
-                return [Proposal(cid, "photo", "", "", photo, "logo", url, CONFIDENCE)]
+                return [Proposal(cid, "photo", "", "", photo, "logo", url, CONFIDENCE, opens=home_page(domain))]
         page = get(f"https://{domain}/")
         if page is not None and page.status == 200:
             for href in _icon_links(page.body[:MAX_PAGE_BYTES].decode("utf-8", "replace"), f"https://{domain}/"):
@@ -159,7 +165,7 @@ def logo_proposals(transport: Transport, allowed: AllowedHosts, cid: int, card: 
                     continue
                 photo = _icon(get(href))
                 if photo is not None:
-                    return [Proposal(cid, "photo", "", "", photo, "logo", href, CONFIDENCE)]
+                    return [Proposal(cid, "photo", "", "", photo, "logo", href, CONFIDENCE, opens=home_page(domain))]
         return []
     finally:
         for h in registered:

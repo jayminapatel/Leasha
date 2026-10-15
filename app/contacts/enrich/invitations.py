@@ -131,7 +131,7 @@ def calendar_proposals(hub: Any, cid: int, card: Card, *, since: Optional[int] =
     receipt = (f.receipt
                + (f" (and {more} more invitation{'s' if more != 1 else ''})" if more else ""))
     parts = _split_name(spelling[key])
-    return [Proposal(cid, part, "", "", value, "calendar", receipt, round(conf, 2), when=f.mtime)
+    return [Proposal(cid, part, "", "", value, "calendar", receipt, round(conf, 2), when=f.mtime, opens=f.shown)
             for part, value in parts.items()]
 
 

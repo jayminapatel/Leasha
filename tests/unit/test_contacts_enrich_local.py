@@ -251,6 +251,29 @@ def test_colleagues_are_grouped_by_company(hub):
     assert len(pairs) == 1 and sorted(pairs[0]) == [a, b, c]
 
 
+def test_a_signature_suggestion_opens_the_message_it_was_read_from(hub):
+    """Owner, 2026-10-15: "double click should open source, else how do i check?" - `opens` is the
+    message's indexed path, fetched with its row (`base.PATH_SQL`), and filled in one query when a caller
+    hands in rows without it."""
+    cid = ann(hub)
+    fid = seed(hub, "Ann Lee <ann@acme-widgets.co.uk>", SIGNED, subject="Q3 figures", sent=epoch(2026, 9, 1))
+    path = hub.store.conn.execute("SELECT path FROM files WHERE id = ?", (fid,)).fetchone()[0]
+    props = signatures.signature_proposals(hub.store, cid, hub.get_card(cid))
+    assert props and {p.opens for p in props} == {path}
+    from app.contacts.enrich.base import MailRow, mail_from
+    assert [r.path for r in mail_from(hub.store, ["ann@acme-widgets.co.uk"])] == [path]
+    bare = [MailRow(r.file_id, r.subject, r.sender, r.recipients, r.sent_at)
+            for r in mail_from(hub.store, ["ann@acme-widgets.co.uk"])]
+    assert bare[0].path == ""                                            # a caller's row without it
+    again = signatures.signature_proposals(hub.store, cid, hub.get_card(cid), rows=bare)
+    assert again and {p.opens for p in again} == {path}
+
+
+def test_a_company_guessed_from_a_domain_has_nothing_to_open(hub):
+    cid = hub.create(Card(scalars={"given": "A"}, fields=[Field("email", "a@acme-widgets.co.uk", "work")]))
+    assert [p.opens for p in company_mod.company_proposals(cid, hub.get_card(cid))] == [""]
+
+
 # ---- 7c faces ----------------------------------------------------------------------
 
 def _photo_with_faces(hub, tmp_path, pile, boxes):
@@ -281,6 +304,7 @@ def test_a_photo_is_proposed_from_the_linked_persons_best_face(hub, tmp_path):
     props = enrich_selection(hub, AccountSettings(), [cid], sources=["face"])
     assert len(props) == 1 and props[0].field_kind == "photo" and props[0].source == "face"
     assert path.name in props[0].receipt and "Ann Lee" in props[0].receipt
+    assert props[0].opens == str(path)                                  # the photo it was cut from (2026-10-15)
     im = Image.open(io.BytesIO(props[0].new.data))
     assert im.size == (256, 256) and props[0].new.mime == "image/jpeg"
     assert hub.get_card(cid).photo is None                              # proposed, not applied

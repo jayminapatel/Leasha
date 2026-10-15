@@ -592,3 +592,41 @@ def test_the_listing_is_kept_per_database_file_not_per_object(tmp_path):
     finally:
         one.close()
         two.close()
+
+
+# ---------------------------------------------------------------- where a suggestion opens (owner, 2026-10-15)
+# "double click should open source, else how do i check?" - each proposal names the indexed path the Enrich
+# window hands `workers.open_row_async(store, Place(opens))`: the file, or for an attachment its own indexed
+# path, which the open route copies out read-only.
+
+def test_a_vcard_or_invitation_on_disk_opens_its_own_file(hub, tmp_path):
+    vcf = put(hub, tmp_path / "avery.vcf", CARD)
+    ics = put(hub, tmp_path / "a.ics", INVITE)
+    known = person(hub, email="avery.quill@northwind.example")
+    nameless = person(hub, email="rowan@vale.example")
+    props = enrich_selection(hub, AccountSettings(**ANY_AGE), [known, nameless], sources=["vcard", "calendar"])
+    assert {p.source for p in props} == {"vcard", "calendar"}
+    for p in props:
+        assert p.opens == str(vcf if p.source == "vcard" else ics)
+        assert hub.store.conn.execute("SELECT 1 FROM files WHERE path = ?", (p.opens,)).fetchone()
+
+
+def test_an_attachment_opens_at_its_own_indexed_path_not_its_message(hub):
+    fid = attach(hub, "avery.vcf", CARD, sent=epoch(2026, 8, 14))
+    attach(hub, "invite.ics", INVITE, sent=epoch(2026, 9, 9))
+    cid = person(hub, email="avery.quill@northwind.example")
+    nameless = person(hub, email="rowan@vale.example")
+    props = enrich_selection(hub, AccountSettings(**ANY_AGE), [cid, nameless], sources=["vcard", "calendar"])
+    vpath = hub.store.conn.execute("SELECT path FROM files WHERE id = ?", (fid,)).fetchone()[0]
+    assert {p.opens for p in props if p.source == "vcard"} == {vpath}
+    assert all(p.opens.endswith("/attachments/invite.ics") for p in props if p.source == "calendar")
+    assert {p.source for p in props} == {"vcard", "calendar"}
+
+
+def test_a_linkedin_suggestion_opens_the_export(hub, tmp_path):
+    p = tmp_path / "Connections.csv"
+    p.write_text(EXPORT, encoding="utf-8")
+    cid = person(hub, email="rowan@vale.example")
+    props = enrich_selection(hub, AccountSettings(enrich_linkedin_file=str(p), **ANY_AGE), [cid],
+                             sources=["linkedin"])
+    assert props and all(x.opens == str(p) for x in props)

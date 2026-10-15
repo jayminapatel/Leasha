@@ -18,7 +18,7 @@ from app.contacts.card import Card
 from app.contacts.enrich.base import Proposal
 
 __all__ = ["company_guess", "company_proposals", "group_by_company", "company_key", "registrable_name",
-           "work_domains", "agrees_with_domain", "LEGAL_SUFFIX"]
+           "work_domains", "agrees_with_domain", "LEGAL_SUFFIX", "split_suffix"]
 
 # A small standalone copy, used only when app.contacts.cleanup cannot be imported.
 _FALLBACK_FREE = frozenset({
@@ -97,6 +97,17 @@ def registrable_name(domain: str) -> str:
     Order 1s 6d compares sites by this, so `acme-widgets.com` and `acme-widgets.co.uk` are one company
     but `other-site.net` is not."""
     return _registrable((domain or "").strip().lower())[0]
+
+
+def split_suffix(domain: str) -> tuple[str, str]:
+    """A domain as (what comes before its public ending, the ending): `mail.acme.co.uk` -> ("mail.acme",
+    "co.uk"), by the same rule as `registrable_name`. ("", "") for a single word."""
+    d = (domain or "").strip().lower().strip(".")
+    name, reg = _registrable(d)
+    if not name:
+        return "", ""
+    suffix = reg[len(name) + 1:]
+    return d[:-len(suffix) - 1], suffix
 
 
 def work_domains(card: Card) -> list[str]:

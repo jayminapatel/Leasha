@@ -40,6 +40,7 @@ from app.accounts.http import AllowedHosts, UrllibTransport
 from app.contacts.card import Card
 from app.contacts.enrich import company, faces, gravatar, logo, remember, signatures, wikidata
 from app.contacts.enrich import documents, invitations, linkedin, vcards       # order 1s section 5
+from app.contacts.enrich import corrections                                    # owner, 2026-10-15
 from app.contacts.enrich.base import GuardedTransport, Proposal, emails_of, has_mail_before, window_start
 from app.contacts.enrich.base import drop_declined   # order 1s D5, apart so the line above merges cleanly
 from app.contacts.enrich.base import PHOTO_RANK, photo_rank                    # option A, 2026-10-15
@@ -56,7 +57,7 @@ __all__ = ["REPEAT_DAYS", "LOCAL_SOURCES", "INTERNET_SOURCES", "SWITCHES", "enri
 #: `AccountSettings.enrich_repeat_days` (order 1s 6b), which is what a run uses.
 REPEAT_DAYS = 90
 
-LOCAL_SOURCES = ("signature", "company", "face", "vcard", "linkedin", "calendar", "document")
+LOCAL_SOURCES = ("signature", "company", "face", "vcard", "linkedin", "calendar", "document", "correction")
 INTERNET_SOURCES = ("gravatar", "logo", "wikidata")
 
 #: source -> the `AccountSettings` switch that turns it on.
@@ -64,10 +65,10 @@ SWITCHES = {
     "signature": "enrich_signatures", "company": "enrich_company", "face": "enrich_faces",
     "history": "enrich_history", "suggest": "enrich_suggest",
     "vcard": "enrich_vcards", "linkedin": "enrich_linkedin", "calendar": "enrich_calendar",
-    "document": "enrich_documents",
+    "document": "enrich_documents", "correction": "enrich_corrections",
     "gravatar": "enrich_gravatar", "logo": "enrich_logo", "wikidata": "enrich_wikidata",
 }
-_DEFAULT_ON = {"signature", "company", "face", "history", "suggest", "vcard", "linkedin", "calendar"}
+_DEFAULT_ON = {"signature", "company", "face", "history", "suggest", "vcard", "linkedin", "calendar", "correction"}
 
 
 def _on(settings: Any, source: str) -> bool:
@@ -146,7 +147,7 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
                    sources: Optional[Iterable[str]] = None, notes: Optional[list[str]] = None,
                    owner_emails: Iterable[str] = (), _net: Optional[_Net] = None, _wiki: Optional[dict] = None,
                    _skipped: Optional[dict] = None, _owner: Optional[dict] = None,
-                   _unreached: Optional[dict] = None) -> list[Proposal]:
+                   _unreached: Optional[dict] = None, _book: Optional[dict] = None) -> list[Proposal]:
     """Proposals for one contact from every source that is switched on. Applies nothing.
 
     `owner_emails` are the owner's own addresses (`owner_addresses`): the signature reader never offers
@@ -158,7 +159,10 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
 
     `_unreached` collects, for a whole run, the sources and logo domains that could not be reached, so the run
     says so once (`unreached_notes`) rather than once a contact, and a domain that failed is not asked again for
-    a colleague in the same run. Without it each failure is a note of its own."""
+    a colleague in the same run. Without it each failure is a note of its own.
+
+    `_book` holds, for a whole run, the book-wide email-domain counts the corrections source needs and each
+    domain's answer (owner, 2026-10-15) - one query a run, not one a contact. Without it they are read here."""
     row = hub.get_row(contact_id)
     card = hub.get_card(contact_id)
     if row is None or card is None or row.deleted_at is not None:
@@ -217,6 +221,12 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
         out += invitations.calendar_proposals(hub, contact_id, card, since=window_of(settings))
     if "document" in wanted and _on(settings, "document"):
         out += documents.document_proposals(store, contact_id, card)
+    if "correction" in wanted and _on(settings, "correction"):
+        book = _book if _book is not None else {}
+        if "domains" not in book:
+            book["domains"] = corrections.domain_counts(store)
+        out += corrections.correction_proposals(store, contact_id, card, book["domains"], region=hub.region,
+                                                memo=book.setdefault("near", {}))
 
     days = repeat_days(settings)
     if "gravatar" in wanted and _on(settings, "gravatar") and emails_of(card):
@@ -362,6 +372,7 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
     skipped: dict = {}
     owner: dict = {}
     unreached: dict = {}
+    book: dict = {}
     out: list[Proposal] = []
     wanted = list(sources) if sources is not None else None
     ids = list(dict.fromkeys(int(c) for c in contact_ids))
@@ -373,7 +384,7 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
                 break
             out += enrich_contact(hub, settings, cid, transport=transport, clock=clock, force=force,
                                   sources=wanted, notes=notes, owner_emails=owner_emails, _net=net, _wiki=wiki,
-                                  _skipped=skipped, _owner=owner, _unreached=unreached)
+                                  _skipped=skipped, _owner=owner, _unreached=unreached, _book=book)
             if on_progress is not None:
                 on_progress({"done": done + 1, "total": len(ids), "found": len(out)})
     out = drop_declined(hub.store, out, region=hub.region)        # order 1s D5: never offered again

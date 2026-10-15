@@ -814,3 +814,60 @@ def test_a_photo_enrichment_did_not_put_there_is_never_replaced(hub):
     assert photo_rank(hub.store, cid, hub.get_card(cid)) == KEPT_PHOTO
     clock.t += DAY
     assert _pictures(enrich_selection(hub, s, [cid], transport=Boom(), clock=clock)) == []
+
+
+# ---- where a suggestion opens (owner, 2026-10-15) ----------------------------------------------
+
+def _opens(props):
+    return {(p.source, p.field_kind): p.opens for p in props}
+
+
+def test_each_internet_suggestion_opens_the_page_it_can_be_checked_on_and_so_does_its_kept_answer(hub):
+    """"double click should open source, else how do i check?" Gravatar opens the profile page (its
+    receipt), a logo the company's home page - not the icon file - and Wikidata the entity's page, bare,
+    without the words the receipt adds. An answer offered again from memory opens the same place."""
+    cid = person(hub, email="ann@acme-widgets.co.uk", company="Acme Ltd")
+    s = AccountSettings(**LOCAL_OFF, **ON)
+    clock = Clock()
+    first = enrich_selection(hub, s, [cid], transport=_all_three(), clock=clock)
+    profile = f"https://www.gravatar.com/{gravatar.email_hash('ann@acme-widgets.co.uk')}"
+    wiki = "https://www.wikidata.org/wiki/Q1"
+    want = {("gravatar", "photo"): profile, ("gravatar", "url"): profile,
+            ("logo", "photo"): "https://acme-widgets.co.uk/",
+            ("wikidata", "url"): wiki, ("wikidata", "address"): wiki, ("wikidata", "custom"): wiki}
+    assert _opens(first) == want
+    assert [p.receipt for p in first if p.source == "logo"] == ["https://acme-widgets.co.uk/favicon.ico"]
+    clock.t += DAY
+    again = enrich_selection(hub, s, [cid], transport=Boom(), clock=clock)
+    assert _opens(again) == want
+
+
+def test_an_answer_kept_before_opens_existed_opens_its_bare_receipt_or_home_page_else_nothing(hub):
+    from app.contacts.enrich import remember
+
+    cid = person(hub, email="ann@acme-widgets.co.uk")
+    card = hub.get_card(cid)
+    old = {"v": 1, "found": [{"k": "url", "l": "Blog", "n": "https://ann.example/", "r": "https://www.gravatar.com/abc",
+                              "c": 0.5, "d": {}},
+                             {"k": "custom", "l": "x", "n": "y", "r": "a page (with words)", "c": 0.5, "d": {}}]}
+    hub.store.set_state(remember.result_key("gravatar", "abc"), json.dumps(old))
+    got = remember.offer_again(hub.store, "gravatar", "abc", cid, card, "GB")
+    assert [(p.field_kind, p.opens) for p in got] == [("url", "https://www.gravatar.com/abc"), ("custom", "")]
+    hub.store.set_state(remember.result_key("logo", "acme-widgets.co.uk"),
+                        json.dumps({"v": 1, "found": [{"k": "custom", "l": "x", "n": "z", "r": "r", "c": 0.5}]}))
+    assert [p.opens for p in remember.offer_again(hub.store, "logo", "acme-widgets.co.uk", cid, card, "GB")] == [
+        "https://acme-widgets.co.uk/"]
+
+
+def test_an_opens_with_an_address_in_it_is_never_kept(hub):
+    from app.contacts.enrich import remember
+    from app.contacts.enrich.base import Proposal
+
+    cid = person(hub, email="ann@acme-widgets.co.uk")
+    p = Proposal(cid, "url", "Blog", "", "https://ann.example/", "gravatar", "https://www.gravatar.com/abc", 0.5,
+                 opens="mailto:ann@acme-widgets.co.uk")
+    remember.keep(hub.store, "gravatar", "abc", [p])
+    raw = hub.store.get_state(remember.result_key("gravatar", "abc"))
+    assert "@" not in raw and "mailto" not in raw
+    got = remember.offer_again(hub.store, "gravatar", "abc", cid, hub.get_card(cid), "GB")
+    assert [(x.new, x.opens) for x in got] == [("https://ann.example/", "https://www.gravatar.com/abc")]

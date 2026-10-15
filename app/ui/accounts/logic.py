@@ -74,6 +74,10 @@ ENRICH_LOCAL_MORE = (
      "Org charts, contracts and scanned business cards. Less reliable, so off, and never ticked for you."),
     ("enrich_read_originals", "Read the original messages again (slower)",
      "When the index cut a signature, open the newest few messages from the person again, read-only."),
+    # Owner, 2026-10-15: misread values belong in the review, never fixed by hand; names are left alone.
+    ("enrich_corrections", "Fix misread addresses",
+     "Offer fixes for email and web addresses that were plainly misread - a near-miss of a domain many "
+     "contacts use, or words run on after .com. Never names; never ticked for you."),
 )
 
 #: Order 1s: the choices beside the switches. (AccountSettings field, label, [(value, words)], hint).
