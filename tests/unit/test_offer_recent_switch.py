@@ -88,6 +88,7 @@ def test_the_switch_is_read_from_settings_or_the_dictionary(given, offered):
     assert offer_recent(given) is offered
 
 
+@pytest.mark.slow
 def test_the_search_tab_hides_them_and_brings_them_back(qapp):
     r"""The real Search tab over a real history. Off: its empty box offers no
     recent searches. On again: they come back without a restart."""
