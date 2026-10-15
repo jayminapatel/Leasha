@@ -131,3 +131,14 @@ def test_a_picture_too_big_for_qt_is_read_smaller_not_left_blank(tmp_path, monke
     finally:
         QImageReader.setAllocationLimit(before)
     assert image is not None and (image.width(), image.height()) == (400, 240)
+
+
+def test_a_file_that_is_gone_is_not_tried_as_too_big(tmp_path, monkeypatch):
+    """2026-10-15: every missing picture went on to `_decode_too_big` and was logged as
+    "could not read the large picture" - 1,709 of them in one look at the Photos page."""
+    import app.ui.preview_loader as loader
+
+    tried = []
+    monkeypatch.setattr(loader, "_decode_too_big", lambda path: tried.append(path))
+    assert loader.decode_image(str(tmp_path / "gone.png")) is None
+    assert tried == []
