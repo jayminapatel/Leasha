@@ -136,9 +136,13 @@ def _read(store: Any, kind: str, key: str) -> Optional[dict]:
     return data if isinstance(data, dict) and data.get("v") == _VERSION else None
 
 
-def offer_again(store: Any, kind: str, key: str, cid: int, card: Card, region: str) -> Optional[list[Proposal]]:
+def offer_again(store: Any, kind: str, key: str, cid: int, card: Card, region: str,
+                confidence: Optional[float] = None) -> Optional[list[Proposal]]:
     """The kept answer as proposals for this contact, less what its card already holds. None: nothing kept
-    (a visit from before 6a, or one whose record is unreadable) - the caller offers nothing, as before."""
+    (a visit from before 6a, or one whose record is unreadable) - the caller offers nothing, as before.
+
+    `confidence`, when given, is the source's sureness now, used instead of the one kept: a kept answer
+    carries the sureness of the day it was found, and the logo's rose from 0.4 to 0.5 (2026-10-15)."""
     data = _read(store, kind, key)
     if data is None:
         return None
@@ -148,7 +152,7 @@ def offer_again(store: Any, kind: str, key: str, cid: int, card: Card, region: s
         if not isinstance(it, dict):
             continue
         k = str(it.get("k") or "")
-        conf = float(it.get("c") or 0.5)
+        conf = float(confidence) if confidence is not None else float(it.get("c") or 0.5)
         receipt = str(it.get("r") or "")
         if not receipt:
             continue                                     # a value with no receipt is not offered (order 1s)

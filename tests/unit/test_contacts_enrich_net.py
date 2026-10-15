@@ -734,3 +734,26 @@ def test_one_unreachable_site_keeps_its_own_sentence_and_one_contact_alone_still
     notes: list[str] = []
     enrich_contact(hub, _logo_settings(), cid, transport=Down(), notes=notes)
     assert notes == ["acme-widgets.co.uk could not be reached."]
+
+
+def test_a_logo_is_shown_at_the_default_hide_below_whether_new_or_remembered(hub):
+    """2026-10-15: a logo was 0.4 sure, under Hide below's default 0.5, so the window hid every one (150 on
+    the owner's index) and showed only what mail gave. A kept answer from before carries 0.4 too; it is
+    offered at the logo's sureness now. Shown, never started ticked."""
+    from app.contacts.enrich import remember
+    from app.ui.contacts_tools.enrich_rows import layout, starts_ticked
+    s = AccountSettings(**LOCAL_OFF, enrich_logo=True)
+    cid = person(hub, email="ann@acme-widgets.co.uk")
+    clock = Clock()
+    fake = Fake(("https://acme-widgets.co.uk/favicon.ico", HttpResponse(200, body=png())))
+    first = enrich_selection(hub, s, [cid], transport=fake, clock=clock)
+    assert [p.confidence for p in first] == [logo.CONFIDENCE]
+    assert layout(first, set(), s.enrich_hide_below)[1] == 0                  # nothing hidden
+    assert not starts_ticked(first[0], s.enrich_tick_from)
+    key = remember.result_key("logo", "acme-widgets.co.uk")                   # as kept before the change
+    hub.store.set_state(key, hub.store.get_state(key).replace('"c":0.5', '"c":0.4'))
+    assert '"c":0.4' in hub.store.get_state(key)
+    clock.t += DAY
+    again = enrich_selection(hub, s, [cid], transport=Boom(), clock=clock)
+    assert [(p.source, p.confidence) for p in again] == [("logo", logo.CONFIDENCE)]
+    assert layout(again, set(), s.enrich_hide_below)[1] == 0

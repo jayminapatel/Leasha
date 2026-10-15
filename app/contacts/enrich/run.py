@@ -245,7 +245,8 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
             except AppErrorException:
                 unreached("logo", f"{domain} could not be reached.", domain)
         elif domain:
-            out += remember.offer_again(store, "logo", domain, contact_id, card, hub.region) or []
+            out += remember.offer_again(store, "logo", domain, contact_id, card, hub.region,
+                                        confidence=logo.CONFIDENCE) or []
             skip("logo")
     if "wikidata" in wanted and _on(settings, "wikidata"):
         term = wikidata.company_term(card)
