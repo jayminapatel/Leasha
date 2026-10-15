@@ -105,6 +105,11 @@ class Proposal:
     #: Order 1s 9b: the signature block the value was read from - the receipt's own message's block, so the
     #: precision sample prints the block the value is in. Empty for every source but the signature reader.
     block: list = field(default_factory=list, repr=False, compare=False)
+    #: Where the value can be seen for oneself (owner, 2026-10-15: "double click should open source, else how
+    #: do i check?"): a web address (https://...), or an indexed path - a file, an attachment, or a message
+    #: (`files.path`, `account://...`, `pst://...`) - that `workers.open_row_async(store, Place(opens))` opens.
+    #: "" when there is nothing to open (the company guessed from an email domain).
+    opens: str = field(default="", compare=False)
 
     @property
     def is_scalar(self) -> bool:
