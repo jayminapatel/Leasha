@@ -515,6 +515,7 @@ def test_a_case_only_rename_replaces_the_row_and_does_not_add_a_second(
     assert third == second, "and a further run changes nothing"
 
 
+@pytest.mark.slow
 def test_a_file_that_is_not_renamed_is_never_taken_for_its_own_old_spelling(
         renamed_by_case, tmp_path):
     """The other side of the rule: an ordinary second run, with a new file
@@ -537,6 +538,7 @@ def _paths(store) -> list[str]:
     return sorted(str(r.path) for r in store.iter_files())
 
 
+@pytest.mark.slow
 def test_a_folder_renamed_by_case_only_takes_its_files_rows_with_it(
         renamed_by_case, tmp_path):
     from app.storage.sqlite_store import SqliteStore

@@ -39,6 +39,7 @@ def test_an_idle_bar_runs_no_timer(qtbot) -> None:
     assert not bar.animating()
 
 
+@pytest.mark.slow
 def test_a_busy_bar_moves_by_itself(qtbot) -> None:
     bar = _bar(qtbot)
     bar.setRange(0, 0)

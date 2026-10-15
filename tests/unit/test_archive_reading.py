@@ -437,6 +437,7 @@ def indexed(tmp_path):
         yield store, corpus, stats
 
 
+@pytest.mark.slow
 def test_a_members_contents_are_searchable(indexed):
     r"""**The whole point of §3**, and the assertion that would have caught
     both bugs found writing it.
@@ -496,6 +497,7 @@ def test_the_archive_itself_keeps_a_row(indexed):
     assert row is not None and row["source_kind"] == "archive"
 
 
+@pytest.mark.slow
 def test_a_second_run_reads_nothing_again(indexed):
     """§4.5: the archive's own row carries mtime and size, so an unchanged
     archive costs one `stat` rather than every member."""

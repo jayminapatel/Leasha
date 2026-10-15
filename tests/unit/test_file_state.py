@@ -245,6 +245,7 @@ def test_the_index_summary_carries_the_funnel(store) -> None:
 # The funnel on the Indexing page
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_funnel_is_at_the_top_of_the_indexing_page(qtbot, store) -> None:
     from app.ui.indexing_view import IndexingView
     from app.ui.tasks import read_index_summary

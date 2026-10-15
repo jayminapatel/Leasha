@@ -50,6 +50,7 @@ def _picked(world, page, cid):
 
 # -- 1. the read view ---------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_pick_shows_the_read_view_not_the_editor(world):
     cid = world.add(card("Ann", "Lee", email="ann@x.example", phone="07700900123", company="Acme Ltd",
                          title="Buyer", notes="Met at the fair"))
@@ -70,6 +71,7 @@ def test_a_pick_shows_the_read_view_not_the_editor(world):
     assert not page.reader.details.findChildren(QPlainTextEdit)
 
 
+@pytest.mark.slow
 def test_edit_switches_to_the_editor_and_save_or_cancel_come_back(world):
     cid = world.add(card("Ann", "Lee", email="ann@x.example"))
     page = _picked(world, world.page(), cid)
@@ -94,6 +96,7 @@ def test_the_index_and_enrichment_panels_sit_under_the_read_view(world):
     assert not page.editor.isAncestorOf(page.editor.index_panel)
 
 
+@pytest.mark.slow
 def test_a_new_contact_still_opens_the_editor(world):
     world.add(card("Ann", "Lee"))
     page = world.page()
@@ -102,6 +105,7 @@ def test_a_new_contact_still_opens_the_editor(world):
     assert page.right.currentWidget() is page.editor and page.editor.cid is None
 
 
+@pytest.mark.slow
 def test_in_the_bin_the_read_view_has_no_edit(world):
     cid = world.add(card("Ann", "Lee"))
     world.hub.delete(cid)
@@ -118,6 +122,7 @@ def test_in_the_bin_the_read_view_has_no_edit(world):
 
 # -- 2. tokens and the button system ---------------------------------------------------
 
+@pytest.mark.slow
 def test_the_edit_button_is_a_system_button_with_a_tooltip(world):
     page = world.page()
     edit = page.reader.edit_button
@@ -151,6 +156,7 @@ def test_contacts_names_no_colour_of_its_own():
     assert not found, found
 
 
+@pytest.mark.slow
 def test_the_read_view_follows_a_theme_change(world):
     from app.ui.theme import PALETTES, Theme
 
@@ -202,6 +208,7 @@ def _menu(page, monkeypatch):
     return shown["menu"]
 
 
+@pytest.mark.slow
 def test_the_right_click_menu_is_the_builders(world, monkeypatch):
     from app.ui.widgets import menus
 
@@ -219,6 +226,7 @@ def test_the_right_click_menu_is_the_builders(world, monkeypatch):
     assert page.right.currentWidget() is page.editor
 
 
+@pytest.mark.slow
 def test_several_picked_have_no_edit_line_and_the_bin_offers_restore(world, monkeypatch):
     a, b = world.add(card("Ann", "Lee")), world.add(card("Bob", "Bell"))
     page = world.page()
@@ -252,6 +260,7 @@ def test_contacts_builds_no_right_click_menu_by_hand():
     assert not offenders, offenders
 
 
+@pytest.mark.slow
 def test_the_lists_answer_the_one_list_behaviour(world):
     a = world.add(card("Ann", "Lee", email="ann@x.example"))
     b = world.add(card("Bob", "Bell", email="bob@x.example"))
@@ -276,6 +285,7 @@ def test_the_lists_answer_the_one_list_behaviour(world):
     assert asked == ["delete"]
 
 
+@pytest.mark.slow
 def test_enter_edits_once(world):
     cid = world.add(card("Ann", "Lee"))
     page = _picked(world, world.page(), cid)

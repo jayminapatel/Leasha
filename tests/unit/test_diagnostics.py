@@ -64,6 +64,7 @@ def test_bundle_contains_the_expected_parts(temp_env: Path, project_root: Path) 
         assert "diagnostic summary" in summary
 
 
+@pytest.mark.slow
 def test_bundle_does_not_nest_previous_bundles(temp_env: Path, project_root: Path, no_doctor) -> None:
     settings = load_settings(temp_env)
     build_bundle(settings, project_root)

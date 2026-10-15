@@ -118,6 +118,7 @@ def test_a_write_that_raises_is_a_skipped_file_not_a_dead_run(tmp_path, monkeypa
         assert failed and failed[0].status == "FAILED"
 
 
+@pytest.mark.slow
 def test_a_lone_surrogate_in_a_document_is_indexed_through_the_whole_pipeline(tmp_path,
                                                                            monkeypatch):
     """Belt and braces: with the store boundary doing its job, the document is
@@ -134,6 +135,7 @@ def test_a_lone_surrogate_in_a_document_is_indexed_through_the_whole_pipeline(tm
         assert texts and all(REPLACEMENT in t and LONE not in t for t in texts)
 
 
+@pytest.mark.slow
 def test_even_the_skip_row_failing_does_not_end_the_run(tmp_path, monkeypatch):
     """The last line of defence: the store refuses the document *and* refuses to
     record it as skipped. Logged in full, the file keeps its status, the other

@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -70,6 +71,7 @@ def _python_files(folder: Path) -> list[Path]:
     return [p for p in folder.rglob("*.py") if "__pycache__" not in p.parts]
 
 
+@pytest.mark.slow
 def test_no_test_styles_the_whole_application():
     offenders = []
     for path in _python_files(ROOT / "tests"):
@@ -86,6 +88,7 @@ def test_no_test_styles_the_whole_application():
         "module's docstring. Style the widget under test instead:\n  " + "\n  ".join(offenders))
 
 
+@pytest.mark.slow
 def test_no_application_code_styles_the_whole_application():
     offenders = []
     for path in _python_files(ROOT / "app"):

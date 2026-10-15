@@ -302,6 +302,7 @@ def test_a_store_can_be_reopened_after_closing(tmp_path):
         store.close()
 
 
+@pytest.mark.slow
 def test_concurrent_writers_serialise_rather_than_collide(store):
     """Every write lands. WAL allows one writer, and the lock queues the rest."""
     threads = [

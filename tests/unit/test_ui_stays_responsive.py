@@ -548,6 +548,7 @@ def _view():
     return IndexingView()
 
 
+@pytest.mark.slow
 def test_progress_ticks_are_repainted_at_a_limited_rate():
     pytest.importorskip("PySide6")
     view = _view()
@@ -561,6 +562,7 @@ def test_progress_ticks_are_repainted_at_a_limited_rate():
     assert painted == [0]
 
 
+@pytest.mark.slow
 def test_a_pause_is_never_dropped_by_the_limiter():
     pytest.importorskip("PySide6")
     view = _view()
@@ -573,6 +575,7 @@ def test_a_pause_is_never_dropped_by_the_limiter():
     assert painted == [False, True], "the tick that explains a stopped bar always paints"
 
 
+@pytest.mark.slow
 def test_progress_paints_again_once_the_interval_has_passed():
     pytest.importorskip("PySide6")
     from app.ui import indexing_view

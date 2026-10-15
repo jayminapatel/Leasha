@@ -76,6 +76,7 @@ def real(store, folder: Path, name: str, body: bytes, *, mtime: int | None = Non
 
 # -- what is offered ---------------------------------------------------------------
 
+@pytest.mark.slow
 def test_copies_are_offered_only_between_files_on_this_computer(store, tmp_path):
     a = real(store, tmp_path / "Pictures", "a.jpg", b"same bytes", mtime=1 * NS)
     b = real(store, tmp_path / "Downloads", "a (1).jpg", b"same bytes", mtime=2 * NS)
@@ -144,6 +145,7 @@ def test_leasha_picks_the_copy_not_in_downloads_then_the_oldest(store, tmp_path)
     assert keep.keeper(tset, "newest").path == str(kept)
 
 
+@pytest.mark.slow
 def test_leasha_keeps_the_photo_with_more_pixels(store, tmp_path):
     from PIL import Image
 

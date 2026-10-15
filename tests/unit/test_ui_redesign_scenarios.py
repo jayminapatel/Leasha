@@ -190,6 +190,7 @@ def test_the_last_page_survives_a_relaunch(relaunch, qtbot):
 # 9b - the rail, by mouse, once per switch
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_click_on_every_rail_button_switches_once_and_only_once(gui_mainwindow, qtbot):
     app, window, store, engine = gui_mainwindow
     _front(app, window, qtbot)
@@ -240,6 +241,7 @@ def test_the_pill_opens_indexing_from_the_keyboard(gui_mainwindow, qtbot):
     _goto(window, "Search")
 
 
+@pytest.mark.slow
 def test_the_rail_is_walked_with_the_arrow_keys_and_stops_at_its_ends(gui_mainwindow, qtbot):
     app, window, store, engine = gui_mainwindow
     _front(app, window, qtbot)
@@ -457,6 +459,7 @@ def _type_and_let_it_answer(qtbot, app, view, text: str) -> None:
         view.searched.disconnect(heard)
 
 
+@pytest.mark.slow
 def test_the_search_page_start_to_finish_with_the_keyboard_alone(
         gui_mainwindow, quokkas, qtbot, monkeypatch):
     import app.ui.shell as shell
@@ -1188,6 +1191,7 @@ def test_the_pinned_panel_takes_no_room_until_something_is_pinned(
     view.input.clear()
 
 
+@pytest.mark.slow
 def test_escape_closes_the_find_bar_first_and_the_box_only_on_the_second_press(
         gui_mainwindow, quokkas, qtbot):
     """Decision (c): with the preview's find bar open, Escape is "close the find

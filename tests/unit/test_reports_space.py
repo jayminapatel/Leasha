@@ -157,6 +157,7 @@ def test_content_that_exists_twice_is_not_unique_to_either_source(tmp_path):
         assert find_source_uniqueness(store) == []
 
 
+@pytest.mark.slow
 def test_content_on_exactly_one_volume_counts_toward_that_volume(tmp_path):
     with SqliteStore(tmp_path / "i.db") as store:
         volume_id = store.upsert_volume(

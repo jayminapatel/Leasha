@@ -304,6 +304,7 @@ def test_choosing_a_category_opens_it_at_its_top(pages):
     assert nav.page(other).isVisibleTo(settings_view)
 
 
+@pytest.mark.slow
 def test_the_filter_box_stays_above_the_scroll_and_still_filters(pages):
     """The filter box is outside the scroll area, so it is always in view, and
     filtering still shows every matching category inside it."""

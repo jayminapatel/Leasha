@@ -361,6 +361,7 @@ def test_the_file_menu_is_built_by_the_builder_with_an_icon_on_every_line(qapp) 
         < words.index("Copy path") < words.index("Pin")
 
 
+@pytest.mark.slow
 def test_every_written_menu_line_has_an_icon_before_anyone_right_clicks() -> None:
     """2026-10-14: People's "Seen once" pile raised `ValueError` on every
     right-click - "Look through these faces…" had no icon, and the builder

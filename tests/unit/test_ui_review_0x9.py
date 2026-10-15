@@ -397,6 +397,7 @@ def test_the_suggested_searches_and_filter_chips_are_round_not_square(gui_mainwi
         gui_pump(app, 4)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("size", [(1100, 760), (760, 560)])
 def test_every_settings_category_name_is_shown_whole(gui_mainwindow, qtbot, size):
     r"""**Before:** the Settings sidebar was squeezed to its 120-pixel floor by

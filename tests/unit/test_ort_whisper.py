@@ -485,6 +485,7 @@ def _speech(tmp_path: Path) -> Path:
     return target
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(whisper.resolve_size("base", [MODEL_CACHE]) is None,
                     reason="no onnx-community/whisper-base export in the model cache")
 def test_the_real_base_model_transcribes_real_speech(tmp_path):

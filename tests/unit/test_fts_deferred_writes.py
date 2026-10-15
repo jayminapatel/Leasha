@@ -185,6 +185,7 @@ def _segments(store: SqliteStore, fts: str) -> int:
 # --- the same index ---------------------------------------------------------
 
 
+@pytest.mark.slow
 @needs_the_switch
 def test_both_ways_of_writing_give_the_same_index_and_the_same_searches(tmp_path, monkeypatch):
     old = _built(tmp_path / "old.db", defer=False, monkeypatch=monkeypatch)
@@ -220,6 +221,7 @@ def test_the_check_used_here_notices_an_index_out_of_step(tmp_path):
 # --- why: one piece per batch, not one per row ------------------------------
 
 
+@pytest.mark.slow
 @needs_the_switch
 def test_a_batch_writes_each_index_once(tmp_path):
     """The cause, pinned. Written by the triggers, every row became its own

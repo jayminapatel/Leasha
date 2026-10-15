@@ -306,6 +306,7 @@ def test_every_button_has_an_icon_a_tooltip_and_a_name(make_box, qtbot):
     qtbot.waitUntil(lambda: not box.busy, timeout=10_000)
 
 
+@pytest.mark.slow
 def test_the_box_is_first_on_models_and_ai(monkeypatch, qtbot, tmp_path):
     _install(monkeypatch, FakeEngine())
     from app.core.config import load_settings

@@ -367,6 +367,7 @@ def test_enrich_accept_all_and_a_result_with_its_own_apply(world, qtbot, monkeyp
     assert seen == [["Acme", "Buyer"]] and dlg.tree.topLevelItemCount() == 0
 
 
+@pytest.mark.slow
 def test_every_control_in_the_file_dialogs_has_a_name_and_a_tooltip(world, qtbot):
     _qr_world(world)
     world.ctx.enrich = lambda: []

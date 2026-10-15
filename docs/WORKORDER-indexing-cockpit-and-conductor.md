@@ -1,6 +1,6 @@
 # Work order (Parallel threads): the indexing cockpit, nothing silent, and one conductor for every thread
 
-**Doc version:** 1.2 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 1.3 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 **Thread:** Four parallel threads - lanes (`app/index/live_progress.py`, `pipeline.py`), the cockpit
 (`app/ui/indexing_view.py`, `app/ui/widgets/`, `app/ui/presenter/`), the found faults (Files and Photos side
 lists, file kinds, icons), and the conductor (`app/index/conductor.py`, `pipeline.py`), which starts on top of
@@ -111,6 +111,7 @@ The owner saw one thread busy, three idle, and thousands of photos with no faces
 
 *Note 2026-10-15 (owner): GitHub CI runs only when started by hand and the full local suite is the only gate
 (`CLAUDE.md`), so "CI green on `main`" in 7a is met by a green local suite on `main`.*
+*Note 2026-10-15, later: still open. Three full local runs on `main` with #97 and #98 merged were not green - `test_navigation_is_instant` (Contacts first visit 440-735 ms > 400 ms, red on `main` before them too), `test_slow_markers_truthful` (which tests cross 1 s moves with each run's load: 177 marked, then 108 others listed), `test_chat_tab_qt` title timing once, and one native crash (0xC0000005) in a part while `test_one_unwritable_document.py` ran (passes alone 3 of 3). Each is a follow-up of its own; see `HANDOFF.md`.*
 - [ ] **7a** The full unit suite once, combined, on the merged branch; CI green on `main`.
 - [x] **7b** `HANDOFF.md`, `docs/ORDER_REGISTER.md`, `CHANGELOG.md` and the user guide's Indexing section say
   what is true afterwards.

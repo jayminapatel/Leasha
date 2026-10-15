@@ -201,6 +201,7 @@ def test_the_page_lists_filters_and_searches(world):
     assert [page.model.row_at(i).display_name for i in range(page.model.rowCount())] == ["Bob Bell"]
 
 
+@pytest.mark.slow
 def test_single_account_is_a_filter_a_count_and_a_column(world):
     only = world.add(card("Solo", "One"), kept=[world.a_home])
     world.add(card("Both", "Two"), kept=[world.a_home, world.a_work])
@@ -225,6 +226,7 @@ def test_the_rows_are_the_hubs_and_show_their_chips(world):
     assert page.model.data(page.model.index(0, 5)) == "Home Google, Work"
 
 
+@pytest.mark.slow
 def test_every_control_has_an_accessible_name_and_every_icon_only_one_a_tooltip(world):
     cid = world.add(card("Ann", "Lee", email="a@x.example", phone="07700900123"), kept=[world.a_home])
     other = world.add(card("Bob", "Bell"))
@@ -259,6 +261,7 @@ def test_every_control_has_an_accessible_name_and_every_icon_only_one_a_tooltip(
     assert other
 
 
+@pytest.mark.slow
 def test_the_view_toggle_is_remembered(world):
     from app.ui.state_writes import pool
 
@@ -347,6 +350,7 @@ def test_a_save_that_changes_nothing_writes_no_journal_entry(world):
     assert len(world.hub.history(cid)) == before
 
 
+@pytest.mark.slow
 def test_rows_reorder_and_the_main_one_is_exclusive(world):
     cid = world.add(Card(scalars={"given": "Ann"}, fields=[Field("email", "a@x.example", "work"),
                                                            Field("email", "b@x.example", "home")]))
@@ -444,6 +448,7 @@ def test_from_my_photos_is_a_stub_that_uses_the_hosts_hook_when_there_is_one(wor
 
 
 # --------------------------------------------------------------------------- kept in (D4)
+@pytest.mark.slow
 def test_adding_an_account_is_immediate_and_needs_no_question(world):
     cid = world.add(card("Ann", "Lee"), kept=[world.a_home])
     page = world.page()
@@ -455,6 +460,7 @@ def test_adding_an_account_is_immediate_and_needs_no_question(world):
     assert world.hub.history(cid)[0].action == "kept_in"
 
 
+@pytest.mark.slow
 def test_removing_an_account_asks_and_only_then_acts(world):
     cid = world.add(card("Ann", "Lee"), kept=[world.a_home, world.a_work])
     for acct in (world.a_home, world.a_work):                     # both accounts hold it already
@@ -673,6 +679,7 @@ def test_emptying_the_bin_says_what_is_still_waiting_to_leave_an_account(world):
 
 
 # ----------------------------------------------------------------------------- sidebar
+@pytest.mark.slow
 def test_smart_groups_are_created_edited_and_deleted_from_rules(world):
     from app.ui.contacts.smart import SmartDialog
 
@@ -787,6 +794,7 @@ def test_the_menus_reach_contacts(gui_mainwindow):
 
 
 # ------------------------------------------------------------------- quick actions, theme
+@pytest.mark.slow
 def test_the_right_click_menu_copies_and_offers_the_tools(world, monkeypatch):
     from PySide6.QtGui import QGuiApplication
 

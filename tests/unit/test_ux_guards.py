@@ -92,6 +92,7 @@ def test_the_question_guard_would_notice_a_yes_no_box() -> None:
     assert _YES.search("box.setStandardButtons(QMessageBox.StandardButton.Yes)")
 
 
+@pytest.mark.slow
 def test_no_question_is_asked_outside_confirm() -> None:
     """Review DS-1: every question goes through `confirm(parent, title, text, verb)`."""
     offenders = []
@@ -232,6 +233,7 @@ def _off_scale(source: str, rel: str = "") -> list[int]:
     return found
 
 
+@pytest.mark.slow
 def test_every_allowed_geometry_is_still_in_the_tree() -> None:
     """A stale entry would let the next gap with the same text through unseen."""
     calls = set()
@@ -248,6 +250,7 @@ def test_the_ceiling_counts_a_mixed_call() -> None:
     assert _off_scale("row.setContentsMargins(SPACE_S, 0, SPACE_S, 0)\n") == []
 
 
+@pytest.mark.slow
 def test_gaps_off_the_scale_never_grow() -> None:
     found = [f"{_rel(p)}:{line}" for p in _files()
              for line in _off_scale(p.read_text(encoding="utf-8"), _rel(p))]
@@ -290,6 +293,7 @@ def test_the_box_guard_would_notice_an_ok_cancel_row() -> None:
     assert _raw_boxes("b = QDialogButtonBox()\n") == []
 
 
+@pytest.mark.slow
 def test_no_dialog_builds_its_own_ok_cancel_row() -> None:
     offenders = [f"{_rel(p)}:{line}" for p in _files()
                  if _rel(p) not in RAW_BOX_OK and _rel(p) != "widgets/dialog_frame.py"

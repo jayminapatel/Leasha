@@ -105,6 +105,7 @@ def _this_index_in_front(view, qtbot) -> None:
     qtbot.wait(50)
 
 
+@pytest.mark.slow
 def test_no_line_in_this_index_lies_on_another(qtbot) -> None:
     view = _view(qtbot)
     _this_index_in_front(view, qtbot)
@@ -120,6 +121,7 @@ def test_no_line_in_this_index_lies_on_another(qtbot) -> None:
             assert not box.intersects(other), f"{text!r} lies on {other_text!r}"
 
 
+@pytest.mark.slow
 def test_the_cockpit_reads_top_to_bottom(qtbot) -> None:
     """2026-10-14, the owner: *"That should be the cockpit for indexing"*. The
     two columns of 2026-10-05 (the run on the left, the index on the right -
@@ -140,6 +142,7 @@ def test_the_cockpit_reads_top_to_bottom(qtbot) -> None:
     assert _in_view(view, view.controls).left() > _in_view(view, view.headline).left()
 
 
+@pytest.mark.slow
 def test_everything_a_run_needs_is_on_one_screen(qtbot) -> None:
     view = _view(qtbot)
     for name in ("controls", "workers_panel", "resources", "cockpit_tabs", "run_log"):
@@ -149,6 +152,7 @@ def test_everything_a_run_needs_is_on_one_screen(qtbot) -> None:
     assert _in_view(view, view.stats_box).top() < view.height()
 
 
+@pytest.mark.slow
 def test_the_shelf_needs_no_more_height_than_the_owners_window(qtbot) -> None:
     """**The measure that matches the fault.** A test window simply grows to
     what the page asks for, so nothing there is ever crushed; a maximised

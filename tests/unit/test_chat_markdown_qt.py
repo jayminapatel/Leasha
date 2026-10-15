@@ -590,6 +590,7 @@ def test_a_finished_segment_keeps_its_selection_and_scroll(body):
     assert view.textCursor().selectedText() == selected == "some"
 
 
+@pytest.mark.slow
 def test_a_long_run_is_chunked_and_streams_as_appends(body, qtbot):
     para = "Sentence with **bold** and a marker [1] that runs on and on. " * 6
     text = "\n\n".join(f"## Part {i}\n\n{para}\n\n- one {i}\n- two {i}" for i in range(8))

@@ -30,6 +30,7 @@ from tools import nightly, nightly_probe                          # noqa: E402
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_the_corpus_has_exactly_the_files_asked_for_and_each_is_unique(tmp_path):
     made = ensure_scale_corpus(tmp_path / "scale", 40)
     files = sorted((tmp_path / "scale").glob("doc-*.txt"))

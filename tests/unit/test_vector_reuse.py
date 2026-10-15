@@ -120,6 +120,7 @@ def test_copies_of_an_embedded_file_take_its_vectors_and_never_reach_the_model(t
         assert set(_flags(db, tmp_path / "docs" / folder / "report.txt")) == {1}
 
 
+@pytest.mark.slow
 def test_a_file_that_differs_is_embedded_as_before(tmp_path):
     root = tmp_path / "docs"
     root.mkdir()
@@ -153,6 +154,7 @@ def test_off_with_embed_repeated_passages_once(tmp_path):
     assert stats.vectors_reused == 0
 
 
+@pytest.mark.slow
 def test_a_drawing_is_found_by_its_words_even_with_spreadsheets_by_meaning_on(tmp_path):
     root = tmp_path / "docs"
     root.mkdir()
@@ -171,6 +173,7 @@ def test_a_drawing_is_found_by_its_words_even_with_spreadsheets_by_meaning_on(tm
     assert hits >= 1, "the drawing is not findable by its words"
 
 
+@pytest.mark.slow
 def test_drawing_passages_already_waiting_leave_the_queue_at_the_next_run(tmp_path):
     root = tmp_path / "docs"
     root.mkdir()
@@ -190,6 +193,7 @@ def test_drawing_passages_already_waiting_leave_the_queue_at_the_next_run(tmp_pa
     assert not any("T-101" in text for text in sent)
 
 
+@pytest.mark.slow
 def test_switching_spreadsheets_to_meaning_does_not_release_the_drawings(tmp_path):
     root = tmp_path / "docs"
     root.mkdir()

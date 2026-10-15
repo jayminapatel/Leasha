@@ -228,6 +228,7 @@ def test_a_failing_progress_callback_never_costs_the_run(tmp_path: Path) -> None
 # The page
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_page_bar_goes_busy_in_a_phase_and_comes_back(qtbot) -> None:
     pytest.importorskip("PySide6")
     from app.ui.indexing_view import IndexingView

@@ -203,6 +203,7 @@ def test_a_shape_learned_later_lays_the_rows_out_again(browser, qapp):
     assert abs(after[0] / after[1] - 3.5) < 0.1
 
 
+@pytest.mark.slow
 def test_the_aspect_choice_is_offered_and_remembered(qapp, tmp_path):
     from PySide6.QtWidgets import QMenu
 

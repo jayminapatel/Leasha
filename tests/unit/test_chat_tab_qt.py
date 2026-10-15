@@ -677,6 +677,7 @@ def test_the_reader_who_scrolled_up_is_not_pulled_back_down_by_new_text(chat):
     assert c.view.bubbles.follows_newest()
 
 
+@pytest.mark.slow
 def test_a_reader_at_the_bottom_follows_the_newest_text(chat):
     c = chat
     for i in range(14):

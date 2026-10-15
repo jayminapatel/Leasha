@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.180 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 7.181 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-15, midday - #97 and #98 on `main`; order 1v's 7a still open (owner: "merge PR #97 and PR #98 ... then close 7a", then "do recommended").** Both merged as merge commits (`2a43582`, `68e0817`), so the hashes cited below stay on `main`. GitHub Actions lists only Windows Run, Mac Run and Windows JVM Run, plus CodeQL and Dependency Graph (repository security settings; the owner's to switch off). **Fixed on `chore/slow-marks-and-7a`:** `Leasha.pyproj` still named the deleted `ci.yml` (#98's miss; `test_vs_project` red on `main`); `test_contact_import_match` read the wall clock through the fakes and lost its name lookup under load; the wheel-glide test now waits for the glide to land; the 177 tests a quiet run measured over 1 s are marked `slow`. **Why 7a is not ticked** - three full runs, none green: `test_navigation_is_instant` (Contacts first visit 440-735 ms > 400 ms, red on `main` before these PRs; about 126 ms of it is building the page on the window's thread - the editor 50 ms, 178 icon renders 36 ms); `test_slow_markers_truthful` (the set of tests over 1 s moves with each run's load - after 177 were marked, a 3-part run listed 108 others; marking again would only move the line); `test_chat_tab_qt::test_the_title_is_asked_once_the_model_has_been_idle` once; and one part died with 0xC0000005 while `test_one_unwritable_document.py` ran (it passes alone 3 of 3; cause UNCONFIRMED). **Next:** each of the four is proposed as its own session. **Now untrue in the UX-survey and indexing-cockpit handovers to this thread:** nothing beyond 7a's state above.
 
 **2026-10-15 - Enrich: logos were hidden; the best picture wins; tests run on this laptop (on `main`, `36e024b`..`78afe4d`).** The owner: "I don't see any pictures etc enrichment from internet, only from mails". Measured read-only on `D:\LeashaIndex\Data`: all three internet switches on; kept answers held 150 logos, 4 Gravatar photos, Wikidata facts for 50 companies - but a logo was 0.4 sure and Hide below's default is 0.5, so every logo was hidden. **Built:** `logo.CONFIDENCE` = 0.5 (shown, never pre-ticked); a kept answer is offered at the source's sureness now (`remember.offer_again(confidence=)`). **Option A (owner's choice):** `base.PHOTO_RANK` face 3 > Gravatar 2 > logo 1; a source that outranks the photo enrichment put on a card may offer over it (as an update, never ticked); a photo from anywhere else is never replaced (`KEPT_PHOTO`, proved by the hash in `index_state` `enrich:photo:<id>`); of several photos ticked the best-ranked is written. Ambiguous Wikidata facts stay at 0.4, hidden by default (owner may lower Hide below). **Rule:** `CLAUDE.md` 1.11 - tests run on this laptop. **The suite:** the first full run starved (4 GB free, one process) and hit the hour limit at 73%; the rest ran green; a second full run (another session's run alongside, 1,951 s) had 2 failures, `test_navigation_is_instant` and `test_shimmer_bar`, both passing twice alone on the branch and on `main`, and the first also failing on `main` once - timing tests under load, not this change. `logs/suite/durations.json` from runs under load lists 297 unmarked tests over 1 s; `test_slow_markers_truthful` reads it - judge it only after a quiet run. **UNVERIFIED in the real window:** logos in the Enrich window and the picture order; the app's checkout was on another session's branch, so it does not have this until it takes `main`.
 
@@ -1519,7 +1521,6 @@ where they disagree, this is newer.** On branch `fix/search-surfaces-2026-10-01`
 not yet merged to `main` at the time of writing:
 
 *Note, 2026-10-01: merged to `main` (fast-forward to `39beda4`) and pushed, on the owner's word.*
-
 
 - **Meaning-based search went quiet in a long-open window** (`924f854`). A window opened before
   an index run created the vector table answered every search keyword-only until restarted -

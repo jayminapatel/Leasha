@@ -40,6 +40,7 @@ def _index(window, title):
     return [window.rail.tabText(i) for i in range(window.rail.count())].index(title)
 
 
+@pytest.mark.slow
 def test_a_hidden_page_leaves_the_rail_and_the_numbered_order(rail):
     _app, window, store = rail
     from app.ui.widgets import rail_order

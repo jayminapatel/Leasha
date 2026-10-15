@@ -92,6 +92,7 @@ def test_a_killed_run_is_recognised_as_not_finished(tmp_path, corpus, locks) -> 
     assert before - 1 <= found["stopped_at"] <= time.time()
 
 
+@pytest.mark.slow
 def test_a_clean_stop_is_not_reported_as_interrupted(tmp_path, corpus, locks) -> None:
     """The Stop button, `request_stop` from another process and the disk guard
     all end here: the run returns, the lock is released, the record comes down."""

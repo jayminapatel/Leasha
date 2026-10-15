@@ -87,6 +87,7 @@ def _bare(store):
 
 # --- 5b: the run's end side by side ------------------------------------------------
 
+@pytest.mark.slow
 def test_the_end_passes_run_side_by_side_and_each_photo_keeps_its_order(store, monkeypatch):
     from app.extract import ocr
 

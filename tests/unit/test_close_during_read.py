@@ -202,6 +202,7 @@ def test_close_still_closes_every_threads_connection(tmp_path):
             t.join()
 
 
+@pytest.mark.slow
 def test_a_reader_whose_connection_was_retired_gets_the_shutdown_error(tmp_path):
     store = SqliteStore(tmp_path / "x.db").connect()
     cursor = store.conn.execute(
@@ -214,6 +215,7 @@ def test_a_reader_whose_connection_was_retired_gets_the_shutdown_error(tmp_path)
     assert "was closed while a worker was using it" in caught.value.error.details
 
 
+@pytest.mark.slow
 def test_the_store_opens_again_after_close(tmp_path):
     store = SqliteStore(tmp_path / "x.db").connect()
     store.close()

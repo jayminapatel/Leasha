@@ -229,6 +229,7 @@ def test_closing_with_no_child_running_does_nothing() -> None:
     assert end_all_children() == 0
 
 
+@pytest.mark.slow
 def test_the_child_notices_when_its_window_is_gone(tmp_path) -> None:
     """The pipe is the lifeline: closing the window's end ends the child."""
     run = _run("exit_on_eof", tmp_path)

@@ -132,6 +132,7 @@ def test_any_two_dates_reach_the_same_items_as_the_month(qtbot, june):
     assert {e.file_id for e in entries(view)} == {ids["photo"], ids["offline"], ids["letter"], ids["mail"]}
 
 
+@pytest.mark.slow
 def test_a_range_can_be_open_ended(qtbot, june):
     view, ids, _store = june
     view.picker.range_from.setText("2019")
@@ -140,6 +141,7 @@ def test_a_range_can_be_open_ended(qtbot, june):
     assert [e.file_id for e in entries(view)] == [ids["later_photo"]]
 
 
+@pytest.mark.slow
 def test_something_that_is_not_a_date_is_said_plainly_and_changes_nothing(qtbot, june):
     view, _ids, _store = june
     view.picker.year_box.setCurrentIndex(0)
@@ -300,6 +302,7 @@ def test_turning_grouping_off_shows_every_photograph_separately(qtbot, tmp_path)
 # Thumbnails: decoded on a worker, and a missing one is a placeholder
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_real_photograph_gets_its_thumbnail_and_a_missing_one_keeps_its_placeholder(qtbot, tmp_path):
     from PIL import Image
 
@@ -427,6 +430,7 @@ def test_the_window_keeps_answering_while_a_dense_month_loads_and_scrolls(qtbot,
     store.close()
 
 
+@pytest.mark.slow
 def test_a_page_that_arrives_after_another_month_was_picked_is_dropped(qtbot, tmp_path):
     with SqliteStore(tmp_path / "t.db") as store:
         add_file(store, r"D:\may.txt", mtime=noon(2015, 5, 5))

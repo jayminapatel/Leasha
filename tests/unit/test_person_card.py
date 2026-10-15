@@ -323,6 +323,7 @@ def test_results_are_identical_with_and_without_a_matching_contact(search_world,
     assert with_card.status.text() == base_status
 
 
+@pytest.mark.slow
 def test_a_card_adds_no_search_work_and_little_time(search_world):
     """Offscreen, keyword-only: the contact read runs beside the search on its own worker. The
     budget is generous because a CI box is noisy; the point is that it is not *added* to the search."""

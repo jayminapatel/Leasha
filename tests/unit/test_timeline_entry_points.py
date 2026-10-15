@@ -108,6 +108,7 @@ def dated_window(gui_mainwindow, qtbot):
     return app, window, store, ids
 
 
+@pytest.mark.slow
 def test_choosing_it_on_a_search_result_opens_the_month_that_file_is_really_from(dated_window, qtbot, monkeypatch):
     r"""A photograph's row carries its copy date (2019); the timeline opens at the
     month the camera says (June 2015)."""
@@ -218,6 +219,7 @@ def test_a_left_click_on_the_strip_still_only_filters_the_search(dated_window, q
 # And out again: opening what the timeline shows
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_opening_an_item_on_a_drive_that_is_not_plugged_in_says_what_to_do(dated_window, qtbot, monkeypatch):
     r"""The shell's own opener resolves a catalogued file through the drive's
     *current* mount point and says so when it is not there."""

@@ -102,6 +102,7 @@ def test_no_cloud_flags_means_nothing_opted_in(captured_config):
     assert config.walk.cloud_content_roots == frozenset()
 
 
+@pytest.mark.slow
 def test_the_default_cap_comes_from_settings_when_not_overridden(captured_config):
     tmp_path, corpus = captured_config
 

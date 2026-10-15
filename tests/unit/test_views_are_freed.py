@@ -124,6 +124,7 @@ def no_collector():
             gc.enable()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("which", sorted(BUILDERS))
 def test_a_view_that_is_let_go_is_freed_by_its_reference_count(
         _qt_application, store, no_collector, which) -> None:
@@ -143,6 +144,7 @@ def test_a_view_that_is_let_go_is_freed_by_its_reference_count(
     assert timers and all(sip.isdeleted(timer) for timer in timers)
 
 
+@pytest.mark.slow
 def test_a_code_view_that_ran_a_history_search_is_still_freed(
         _qt_application, store, no_collector, monkeypatch) -> None:
     """The history search adds an Esc shortcut the view holds, and a worker
@@ -220,6 +222,7 @@ def test_a_dead_view_leaves_nothing_in_the_registry_after_the_next_view(
     del other
 
 
+@pytest.mark.slow
 def test_the_header_menu_still_opens_the_view_menu(_qt_application, store) -> None:
     """What the `self`-capturing lambdas did must still happen: a right-click
     on a column heading asks the View button for its menu, at that point."""
@@ -236,6 +239,7 @@ def test_the_header_menu_still_opens_the_view_menu(_qt_application, store) -> No
         del view
 
 
+@pytest.mark.slow
 def test_typing_still_starts_the_debounce(_qt_application, store) -> None:
     for which in ("files", "mail", "code"):
         view = BUILDERS[which](store)

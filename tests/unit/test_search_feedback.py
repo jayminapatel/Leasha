@@ -166,6 +166,7 @@ def test_the_busy_line_shows_after_the_delay_and_goes_on_the_finished_answer(vie
     assert _settle(lambda: not view.flight.busy())
 
 
+@pytest.mark.slow
 def test_a_stale_answer_does_not_end_the_newer_searchs_busy_line(view, qtbot):
     first, second = Gate(1), Gate(2)
     view.flight.launch(first)

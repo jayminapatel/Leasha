@@ -103,6 +103,7 @@ def _settings_view(settings, store):
 # §1a / §2a: the categories exist, in order, and nothing is orphaned
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_settings_has_five_categories_in_order(settings_and_store):
     """Five shelves, then Accounts (order 1k 6l, 2026-10-11) as the sixth."""
     from app.ui.settings_view import (
@@ -119,6 +120,7 @@ def test_settings_has_five_categories_in_order(settings_and_store):
     ]
 
 
+@pytest.mark.slow
 def test_every_original_box_lands_inside_some_category(settings_and_store):
     """None of the twelve original group boxes are left outside the nav -
     "new boxes join the category that reads right; none are left orphaned"
@@ -137,6 +139,7 @@ def test_every_original_box_lands_inside_some_category(settings_and_store):
         assert found, f"{widget!r} is not inside any Settings category"
 
 
+@pytest.mark.slow
 def test_theme_lives_under_appearance(settings_and_store):
     """§0's settled decision #2: theme relocates to Appearance. The control
     itself already moved out of the indexing panel (tuning order 4c-4); what

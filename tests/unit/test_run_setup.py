@@ -255,6 +255,7 @@ def test_a_command_line_text_pass_makes_its_next_run_the_images_pass(
     assert passes == ["text", "1", "images", "", "text", "1"]
 
 
+@pytest.mark.slow
 def test_a_run_over_other_folders_neither_reads_nor_records_the_images_pass(
         capsys, after_run_env, tmp_path) -> None:
     """2026-10-04, code review: a command-line run over one folder read the

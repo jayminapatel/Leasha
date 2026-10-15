@@ -66,6 +66,7 @@ def _saved(world, change, read):
     return read(q), svc.settings()
 
 
+@pytest.mark.slow
 def test_schedules_and_same_for_all_save_and_reload(world):
     from app.accounts.store import ScheduleSetting
     svc, page = world
@@ -198,6 +199,7 @@ def test_a_bad_region_is_put_back(world):
     assert p.globals.phone_region.text() == "GB" and svc.settings().phone_region == "GB"
 
 
+@pytest.mark.slow
 def test_default_account_saves_and_reloads(world):
     svc, page = world
     a = svc.accounts.add("carddav", "a@x.com", "Home")

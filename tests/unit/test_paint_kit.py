@@ -208,6 +208,7 @@ def _paints_selection_without_the_kit(source: str) -> list[int]:
     return found
 
 
+@pytest.mark.slow
 def test_every_painted_selection_goes_through_the_kit():
     loose = []
     for path in sorted(UI.rglob("*.py")):
@@ -404,6 +405,7 @@ def _pixel_sizes(source: str) -> list[int]:
             if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "setPixelSize"]
 
 
+@pytest.mark.slow
 def test_no_font_is_sized_in_pixels():
     """Pixels ignore the text-size setting; the guide says points (`paint_kit.points_for_pixels`)."""
     loose = [f"{p.relative_to(UI).as_posix()}:{line}" for p in sorted(UI.rglob("*.py"))

@@ -216,6 +216,7 @@ def test_the_summary_carries_the_stages(corpus: Path, tmp_path: Path) -> None:
     store.close()
 
 
+@pytest.mark.slow
 def test_a_second_run_reports_its_own_time_not_the_first_ones(
     corpus: Path, tmp_path: Path
 ) -> None:

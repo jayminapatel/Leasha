@@ -59,6 +59,7 @@ def test_the_walker_reads_the_file_once_and_counts_the_junction(tmp_path):
     assert config.stat_failures.get(JUNCTION_SKIPPED) == 1
 
 
+@pytest.mark.slow
 def test_the_walker_follows_the_junction_when_asked_to_follow_links(tmp_path):
     """`follow_symlinks=True` is the owner opting in to linked trees; a junction
     then counts as one. It is still finite only because the path limit ends it,

@@ -151,6 +151,7 @@ def test_a_run_stopped_inside_an_archive_is_shown_until_one_finishes_it(
         assert read_index_summary(store)["part_read"] == []
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_the_indexing_page_shows_both_rows_apart(qtbot, tmp_path) -> None:
     from PySide6.QtCore import QThreadPool

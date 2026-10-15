@@ -37,8 +37,11 @@ def _link_count(world, name):
 
 def test_the_same_email_in_two_accounts_is_one_contact_with_two_links(world):
     g, m = world.account("Google"), world.account("Work")
-    world.servers[g].add(person("Ann", "Lee", email="ann@x.example"))
-    world.servers[m].add(person("A.", "Lee", email="ANN@x.example", phone=MOBILE))
+    # 2026-10-15: fixed edit times. The fakes stamp the wall clock, so under a loaded full run
+    # "A. Lee" was a few milliseconds newer, won the name by newest-wins, and the lookup of
+    # "Ann Lee" below found nothing (StopIteration); alone, both landed in one millisecond.
+    world.servers[g].add(person("Ann", "Lee", email="ann@x.example"), edited_at=2_000.0)
+    world.servers[m].add(person("A.", "Lee", email="ANN@x.example", phone=MOBILE), edited_at=1_000.0)
     world.sync()
     assert world.hub.count() == 1
     assert _link_count(world, "Ann Lee") == sorted([g, m])

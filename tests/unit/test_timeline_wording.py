@@ -139,6 +139,7 @@ def built(qtbot, tmp_path):
     store.close()
 
 
+@pytest.mark.slow
 def test_every_label_tooltip_and_placeholder_on_the_reports_page_and_timeline_passes(built):
     strings = _visible_strings(built)
     for n, entry in enumerate(built.list.entries()):
@@ -154,6 +155,7 @@ def _ancestors(widget):
         widget = widget.parentWidget()
 
 
+@pytest.mark.slow
 def test_every_control_on_the_timeline_says_what_pressing_it_does(built):
     r"""Runtime tooltip-effect: not merely present, but a sentence about an effect."""
     timeline = built.timeline

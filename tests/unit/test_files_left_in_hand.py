@@ -72,6 +72,7 @@ def _run(store: SqliteStore, root: Path):
     return pipeline, pipeline.run()
 
 
+@pytest.mark.slow
 def test_a_note_left_by_a_dead_run_marks_the_file_failed_and_leaves_it_unread(tmp_path):
     root = _corpus(tmp_path)
     db = tmp_path / "i.db"
