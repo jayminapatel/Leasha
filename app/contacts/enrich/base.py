@@ -38,10 +38,34 @@ __all__ = [
     "Proposal", "ApplyResult", "apply_proposals", "GuardedTransport", "normalise_image",
     "address_of", "emails_of", "recipients_of", "MailRow", "mail_from", "mail_with", "body_text",
     "format_day", "SOURCE_PREFIX", "proposal_key", "drop_declined",
+    "PHOTO_RANK", "KEPT_PHOTO", "photo_rank", "photo_state_key",
 ]
 
 #: `contact_sources.source` of an accepted value is this plus the proposal's `source`.
 SOURCE_PREFIX = "enrichment:"
+
+#: Which picture wins (owner, 2026-10-15, "option A"): the person's own face from the photos, then their
+#: Gravatar, then the company's logo. A better picture may replace one enrichment put on the card; a worse
+#: one never does. Before, any photo on the card stopped every source, so a logo accepted first kept out
+#: the face named later, and which of two ticked photos won was the order the sources happened to run in.
+PHOTO_RANK = {"face": 3, "gravatar": 2, "logo": 1}
+#: The rank of a photo enrichment did not put there (synced, imported, typed): no source replaces it.
+KEPT_PHOTO = 100
+
+
+def photo_state_key(cid: int) -> str:
+    """`index_state` key: which source put the card's photo there, and the photo's hash ("logo:<sha>")."""
+    return f"enrich:photo:{int(cid)}"
+
+
+def photo_rank(store: Any, cid: int, card: Card) -> int:
+    """The rank of the photo the card holds now: 0 for none, a `PHOTO_RANK` for one enrichment put there
+    and still unchanged, else `KEPT_PHOTO`. The hash is what proves it: a photo changed since (by a sync, by
+    hand) is the person's own and is kept."""
+    if card.photo is None:
+        return 0
+    kind, _, sha = (store.get_state(photo_state_key(cid)) or "").partition(":")
+    return PHOTO_RANK[kind] if kind in PHOTO_RANK and sha == card.photo.sha else KEPT_PHOTO
 
 
 @dataclass
@@ -145,6 +169,9 @@ def apply_proposals(hub: Any, proposals: Sequence[Proposal], accepted_indexes: I
             continue
         taken: set[str] = set()
         done: list[int] = []
+        # Of several photos ticked for one contact, the best-ranked is the one written (option A); the
+        # sort is stable, so every other row keeps its order.
+        idxs.sort(key=lambda j: -PHOTO_RANK.get(proposals[j].source, 0) if proposals[j].is_photo else 0)
         for i in idxs:
             p = proposals[i]
             slot = "photo" if p.is_photo else (f"s:{p.field_kind}" if p.is_scalar else "")
@@ -173,6 +200,9 @@ def apply_proposals(hub: Any, proposals: Sequence[Proposal], accepted_indexes: I
             _fix_sources(hub, cid, SOURCE_PREFIX + kind, before_max,
                          {proposal_key(proposals[i], hub.region) for i in group},
                          [proposals[i] for i in group if proposals[i].is_photo])
+        for i in done:
+            if proposals[i].is_photo:                    # remembered so a better picture may replace it later
+                hub.store.set_state(photo_state_key(cid), f"{proposals[i].source}:{proposals[i].new.sha}")
         result.applied.extend(done)
         result.changed_contacts.append(cid)
     result.applied.sort()

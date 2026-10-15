@@ -32,6 +32,7 @@ the length of one logo call, the company's own domain. The default transport is
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from typing import Any, Callable, Iterable, Optional
 
@@ -41,6 +42,7 @@ from app.contacts.enrich import company, faces, gravatar, logo, remember, signat
 from app.contacts.enrich import documents, invitations, linkedin, vcards       # order 1s section 5
 from app.contacts.enrich.base import GuardedTransport, Proposal, emails_of, has_mail_before, window_start
 from app.contacts.enrich.base import drop_declined   # order 1s D5, apart so the line above merges cleanly
+from app.contacts.enrich.base import PHOTO_RANK, photo_rank                    # option A, 2026-10-15
 from app.contacts.enrich.history import History, contact_history
 from app.contacts.enrich.owner import learn_owner, owner_messages
 from app.contacts.enrich.suggest import DEFAULT_MIN_COUNT, SuggestedContact, suggest_contacts
@@ -183,6 +185,17 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
         if _skipped is not None:
             _skipped[kind] = _skipped.get(kind, 0) + 1
 
+    # Option A: a picture source sees the card as having no photo when it outranks the one there, so a face
+    # can replace a logo enrichment put on the card - never the other way, never a photo of the person's own.
+    held = photo_rank(store, contact_id, card)
+
+    def seen_by(kind: str) -> Card:
+        if card.photo is None or held >= PHOTO_RANK[kind]:
+            return card
+        view = card.copy()
+        view.photo = None
+        return view
+
     if "signature" in wanted and _on(settings, "signature"):
         originals = bool(getattr(settings, "enrich_read_originals", False))
         memo = _owner if _owner is not None else {}
@@ -195,7 +208,7 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
     if "company" in wanted and _on(settings, "company"):
         out += company.company_proposals(contact_id, card)
     if "face" in wanted and _on(settings, "face"):
-        out += faces.face_proposals(store, contact_id, card)
+        out += faces.face_proposals(store, contact_id, seen_by("face"))
     if "vcard" in wanted and _on(settings, "vcard"):
         out += vcards.vcard_proposals(hub, contact_id, card, region=hub.region, since=window_of(settings))
     if "linkedin" in wanted and _on(settings, "linkedin") and getattr(settings, "enrich_linkedin_file", ""):
@@ -215,9 +228,10 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
             k = gravatar.email_hash(e)
             if not force and _recent(store, "gravatar", k, now, days):
                 asked_all = False
-                found += remember.offer_again(store, "gravatar", k, contact_id, card, hub.region) or []
+                found += remember.offer_again(store, "gravatar", k, contact_id, seen_by("gravatar"),
+                                              hub.region) or []
                 continue
-            one = card.copy()
+            one = seen_by("gravatar").copy()
             one.fields = [f for f in one.fields if f.kind != "email" or f.value.strip().lower() == e]
             if any(p.is_photo for p in found):           # one photo is enough: do not ask for a second
                 one.photo = next(p.new for p in found if p.is_photo)
@@ -238,14 +252,14 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
             pass                                          # failed for a colleague a moment ago in this run
         elif domain and (force or not _recent(store, "logo", domain, now, days)):
             try:
-                got = logo.logo_proposals(net.transport, net.allowed, contact_id, card)
+                got = logo.logo_proposals(net.transport, net.allowed, contact_id, seen_by("logo"))
                 out += got
                 _remember(store, "logo", domain, now)
                 remember.keep(store, "logo", domain, got)
             except AppErrorException:
                 unreached("logo", f"{domain} could not be reached.", domain)
         elif domain:
-            out += remember.offer_again(store, "logo", domain, contact_id, card, hub.region,
+            out += remember.offer_again(store, "logo", domain, contact_id, seen_by("logo"), hub.region,
                                         confidence=logo.CONFIDENCE) or []
             skip("logo")
     if "wikidata" in wanted and _on(settings, "wikidata"):
@@ -269,6 +283,8 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
                     cache[key] = facts
                     out += wikidata.proposals_from_facts(contact_id, card, facts)
                 skip("wikidata")
+    if card.photo is not None:                            # a picture offered over the one there is a change (3k)
+        out = [dataclasses.replace(p, update=True, old="(a photo)") if p.is_photo else p for p in out]
     return out
 
 
