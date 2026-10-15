@@ -27,6 +27,15 @@ from app.ui.widgets.page_frame import PageFrame
 __all__ = ["ContactsView"]
 
 
+def _import_page() -> bool:
+    """`ContactsView.warm`'s work, on a pool thread: the imports `ensure_built` makes, and nothing else."""
+    import app.ui.contacts.page  # noqa: F401, PLC0415 - the import is the work
+    from app.ui.widgets.icons import preload  # noqa: PLC0415
+
+    preload()
+    return True
+
+
 class ContactsView(QWidget):
     error = Signal(object)
     notice = Signal(str)
@@ -62,6 +71,24 @@ class ContactsView(QWidget):
         self.page.notice.connect(self.notice.emit)
         self._layout.addWidget(self.page)
         return self.page
+
+    def warm(self) -> Any:
+        """Import the page's code on a worker, so the first visit does not (2026-10-15). **Worker.**
+
+        Importing `app.ui.contacts.page` and the 25 modules it brings was 150-250 ms on the window's
+        thread at the first click on Contacts, measured in `gui_mainwindow` - most of that visit, which
+        `test_navigation_is_instant.py` holds to 400 ms. An import builds no widget and opens no store,
+        so it may run on a pool thread; Python's import lock makes a click that lands first wait for it,
+        never import it twice. The window calls this from `_start_background_work`, with the other
+        warm-ups. Returns the worker, or None when the page is already built.
+        """
+        if self.page is not None:
+            return None
+        from PySide6.QtCore import QThreadPool
+
+        from app.ui.workers import CallableWorker, run
+
+        return run(QThreadPool.globalInstance(), CallableWorker(_import_page, component="ui.contacts.warm"))
 
     @property
     def hub(self) -> Any:

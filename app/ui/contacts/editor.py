@@ -70,9 +70,14 @@ class ContactEditor(QWidget):
     dirty_changed = Signal(bool)
     error = Signal(object)
 
-    def __init__(self, parent: Optional[QWidget] = None, *, own_panels: bool = True) -> None:
+    def __init__(self, parent: Optional[QWidget] = None, *, own_panels: bool = True,
+                 enrich_panel: Optional[EnrichPanel] = None, index_panel: Optional[IndexPanel] = None) -> None:
         """`own_panels=False`: the enrichment and "From your index" panels are made and driven here
         but laid out by the page, under the read view (`reader.ContactReader.add_panels`)."""
+        # 2026-10-15: `enrich_panel` / `index_panel` - the page may make the two panels itself and lend
+        # them, because it builds this editor only when it is first needed (`ContactsPage.editor`) while
+        # the read view shows the panels from the start. Lent panels report errors to their maker, so
+        # they are not wired to `error` here a second time.
         super().__init__(parent)
         self.cid: Optional[int] = None
         self.region = "GB"
@@ -215,11 +220,13 @@ class ContactEditor(QWidget):
         col.addWidget(self._section("tag", "Tags"))
         col.addWidget(self.tags)
         # Order 1s 7c, 7e: enrich this contact, and the suggestions turned down for it.
-        self.enrich_panel = EnrichPanel()
-        self.enrich_panel.error.connect(self.error)
+        self.enrich_panel = enrich_panel if enrich_panel is not None else EnrichPanel()
+        if enrich_panel is None:
+            self.enrich_panel.error.connect(self.error)
         # 6f: the mail, files and photos the index holds about this person.
-        self.index_panel = IndexPanel()
-        self.index_panel.error.connect(self.error)
+        self.index_panel = index_panel if index_panel is not None else IndexPanel()
+        if index_panel is None:
+            self.index_panel.error.connect(self.error)
         if own_panels:
             col.addWidget(self.enrich_panel)
             col.addWidget(self.index_panel)
