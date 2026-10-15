@@ -152,6 +152,7 @@ def test_the_grid_is_offered_when_most_rows_are_pictures():
 # MS-1: the busy line
 # ---------------------------------------------------------------------------
 
+@pytest.mark.timing
 def test_the_busy_line_shows_after_the_delay_and_goes_on_the_finished_answer(view, qtbot):
     view._generation = 1
     worker = view.flight.launch(Gate(1))

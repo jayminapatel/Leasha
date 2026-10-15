@@ -33,7 +33,9 @@ from app.ui.contacts import loader, openers
 from app.ui.contacts.bulkbar import BulkBar
 from app.ui.contacts.delegates import CARD_SIZE, CardDelegate, ChipsDelegate, NameDelegate
 from app.ui.contacts.editor import ContactEditor, SaveRequest
+from app.ui.contacts.enrich_panel import EnrichPanel
 from app.ui.contacts.history import HistoryPanel
+from app.ui.contacts.index_panel import IndexPanel
 from app.ui.contacts.logic import (COLUMNS, STATE_SORT, STATE_VIEW, TAG_COLOURS, Entry, build_entries,
                                     filter_for, parse_sort, describe_entry)
 from app.ui.contacts.model import ContactModel
@@ -97,26 +99,38 @@ class ContactsPage(QWidget):
             self.views.addWidget(w)
         self.cards.setSelectionModel(self.table.selectionModel())
 
-        self.editor = ContactEditor(own_panels=False)
+        # 2026-10-15: **the editor is built when it is first needed** (`editor`, below): a contact picked,
+        # Ctrl+N, Edit. It was the largest part of this page's first visit - 70-90 ms of widgets on the
+        # window's thread, measured in `gui_mainwindow`, for a pane nobody sees until a contact is picked
+        # (`test_navigation_is_instant.py`). Until then `_editor` is None and the page answers for it as
+        # an empty, disabled editor would. The two panels it drives are made here, because the read view
+        # shows them from the start, and lent to it when it is built.
+        self._editor: Optional[ContactEditor] = None
+        self._editor_setup: Optional[tuple] = None        # the last `_landed`'s names and `configure` args
+        self._colours: Optional[dict[str, str]] = None    # the last `retint`'s, for an editor built later
+        self.enrich_panel = EnrichPanel()
+        self.enrich_panel.error.connect(self.error.emit)
+        self.index_panel = IndexPanel()
+        self.index_panel.error.connect(self.error.emit)
         self.reader = ContactReader()
         # The mail, files and photos about this person, and enrichment, are read with the contact:
         # under the read view. The editor still fills and clears them.
-        self.reader.add_panels(self.editor.enrich_panel, self.editor.index_panel)
-        self.editor.index_panel.configure(hub)
+        self.reader.add_panels(self.enrich_panel, self.index_panel)
+        self.index_panel.configure(hub)
         # IA-6: "See all photos" / "See mail from them" - the window opens the page.
-        self.editor.index_panel.photos_requested.connect(
+        self.index_panel.photos_requested.connect(
             lambda box: (self._hook("show_photos_for") or (lambda _b: None))(box))
-        self.editor.index_panel.mail_requested.connect(
+        self.index_panel.mail_requested.connect(
             lambda box: (self._hook("show_mail_for") or (lambda _b: None))(box))
-        self.editor.enrich_panel.configure(hub)
-        self.editor.enrich_panel.enrich_requested.connect(self.enrich_one)
+        self.enrich_panel.configure(hub)
+        self.enrich_panel.enrich_requested.connect(self.enrich_one)
         self.history = HistoryPanel()
         self.placeholder = QLabel("Pick a contact to see it here.\nPress Ctrl+N for a new one.")
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder.setObjectName("resultsSummary")
         self.placeholder.setAccessibleName("No contact picked")
         self.right = QStackedWidget()
-        for w in (self.placeholder, self.reader, self.editor, self.history):
+        for w in (self.placeholder, self.reader, self.history):    # the editor goes in between when built
             self.right.addWidget(w)
 
         centre = QWidget()
@@ -242,7 +256,37 @@ class ContactsPage(QWidget):
         sb.tag_delete.connect(self._tag_delete)
         sb.group_rename.connect(self._group_rename)
         self.bulk.action.connect(self._bulk)
-        ed = self.editor
+        self.history.undo_requested.connect(self._undo_entry)
+
+    # ------------------------------------------------------------- the editor, built when needed
+    @property
+    def editor(self) -> ContactEditor:
+        """The editor, built and wired the first time anything asks for it (2026-10-15, see `__init__`)."""
+        if self._editor is None:
+            ed = ContactEditor(own_panels=False, enrich_panel=self.enrich_panel, index_panel=self.index_panel)
+            self._editor = ed
+            self._wire_editor(ed)
+            if self._colours is not None and self._colours != theme_colours():
+                ed.retint(self._colours)
+            if self._editor_setup is not None:
+                names, configure = self._editor_setup
+                ed.set_account_names(names)
+                ed.configure(*configure)
+            self.right.insertWidget(self.right.indexOf(self.history), ed)
+        return self._editor
+
+    def editor_built(self) -> bool:
+        return self._editor is not None
+
+    def _editor_dirty(self) -> bool:
+        """`editor.is_dirty()` without building it: an editor not yet built has nothing typed in it."""
+        return self._editor is not None and self._editor.is_dirty()
+
+    def _save_if_dirty(self) -> None:
+        if self._editor is not None:
+            self._editor.save_if_dirty()
+
+    def _wire_editor(self, ed: ContactEditor) -> None:
         ed.save_requested.connect(self._save)
         ed.cancel_requested.connect(self._cancel)
         ed.acknowledge_requested.connect(self._acknowledge)
@@ -252,7 +296,6 @@ class ContactsPage(QWidget):
         ed.resolve_requested.connect(self._resolve_conflict)
         ed.person_photo_requested.connect(self._person_photo)
         ed.error.connect(self.error.emit)
-        self.history.undo_requested.connect(self._undo_entry)
 
     def _shortcuts(self) -> None:
         def key(seq: str, slot: Callable, widget: Optional[QWidget] = None,
@@ -266,7 +309,7 @@ class ContactsPage(QWidget):
             key("/", self.toolbar.focus_filter),
             key("Ctrl+N", self.new_contact),
             key("Ctrl+Z", self.undo_last),
-            key("Ctrl+S", self.editor.save_if_dirty),
+            key("Ctrl+S", self._save_if_dirty),
             key("Ctrl+A", self.select_all, self.table, Qt.ShortcutContext.WidgetShortcut),
         ]
 
@@ -307,7 +350,9 @@ class ContactsPage(QWidget):
         for d in (self.name_delegate, self.chips_delegate, self.card_delegate):
             d.retint(colours)
         self.sidebar.retint(colours)
-        self.editor.retint(colours)
+        self._colours = dict(colours)
+        if self._editor is not None:
+            self._editor.retint(colours)
         self.reader.retint(colours)
         retint_tools(self, colours)
         self.toolbar.retint(colours)
@@ -360,13 +405,16 @@ class ContactsPage(QWidget):
             if snap.region:
                 self.hub.region = snap.region
             self.model.set_accounts(snap.accounts)
-            self.editor.set_account_names({a.id: (a.name or a.address) for a in snap.accounts})
             self.model.set_tag_colours(snap.tags)
             self.sidebar.set_entries(build_entries(snap.counts, snap.groups, snap.tags, snap.accounts,
                                                     snap.smarts, snap.account_counts))
             writable = [a for a in snap.accounts if a.syncs_contacts]
-            self.editor.configure(writable, [g[1] for g in snap.groups], snap.tags, self.hub.region,
-                                  self._hook("pick_photo_from_person") is not None)
+            self._editor_setup = ({a.id: (a.name or a.address) for a in snap.accounts},
+                                  (writable, [g[1] for g in snap.groups], snap.tags, self.hub.region,
+                                   self._hook("pick_photo_from_person") is not None))
+            if self._editor is not None:
+                self._editor.set_account_names(self._editor_setup[0])
+                self._editor.configure(*self._editor_setup[1])
             self.bulk.set_choices([g[1] for g in snap.groups], [t[1] for t in snap.tags], writable)
         elif self._snap is not None:
             self._snap.rows = snap.rows
@@ -424,7 +472,7 @@ class ContactsPage(QWidget):
 
     def show_contact(self, cid: int) -> None:
         """Search's "Open contact": the full list, this contact picked and its editor in front."""
-        if self.editor.is_dirty() and not self._confirm_discard():
+        if self._editor_dirty() and not self._confirm_discard():
             return
         self._creating = False
         self.toolbar.history_button.setChecked(False)
@@ -453,8 +501,9 @@ class ContactsPage(QWidget):
         if self._creating and not ids:
             return
         if len(ids) == 1:
-            if self.editor.cid != ids[0] or not self.editor.isEnabled():
-                if self.editor.is_dirty() and not self._confirm_discard():
+            ed = self._editor
+            if ed is None or ed.cid != ids[0] or not ed.isEnabled():
+                if self._editor_dirty() and not self._confirm_discard():
                     return
                 self._creating = False
                 self._open(ids[0])
@@ -463,8 +512,9 @@ class ContactsPage(QWidget):
             self.placeholder.setText(f"{len(ids)} contacts picked.\nUse the bar above the list.")
             self.right.setCurrentWidget(self.placeholder)
         else:
-            if not self._creating and not self.editor.is_dirty():
-                self.editor.clear()
+            if not self._creating and not self._editor_dirty():
+                if self._editor is not None:
+                    self._editor.clear()
                 self.reader.clear()
                 self.history.clear()
                 self.placeholder.setText("Pick a contact to see it here.\nPress Ctrl+N for a new one.")
@@ -494,17 +544,17 @@ class ContactsPage(QWidget):
 
     def edit_current(self) -> None:
         """Edit, F2, Enter: the contact on show goes from the read view to the editor."""
-        if self.editor.isEnabled() and self._entry.kind != "bin":
+        if self._editor is not None and self._editor.isEnabled() and self._entry.kind != "bin":
             self.right.setCurrentWidget(self.editor)
             self.toolbar.history_button.setChecked(False)
             self.editor.focus_first()
 
     def is_editing(self) -> bool:
-        return self.right.currentWidget() is self.editor
+        return self._editor is not None and self.right.currentWidget() is self._editor
 
     def _show_contact_pane(self) -> None:
         """The read view, unless a new contact or unsaved edits are in the editor, or it needs a decision."""
-        if self._creating or self.editor.is_dirty() or self.editor.needs_attention():
+        if self._creating or self._editor_dirty() or (self._editor is not None and self._editor.needs_attention()):
             self.right.setCurrentWidget(self.editor)
         elif self.reader.cid is not None:
             self.right.setCurrentWidget(self.reader)
@@ -518,7 +568,7 @@ class ContactsPage(QWidget):
         quick.copy_picked(self)
 
     def _picked(self, entry: Entry) -> None:
-        if self.editor.is_dirty() and not self._confirm_discard():
+        if self._editor_dirty() and not self._confirm_discard():
             self.sidebar.select_key(self._entry.key, emit=False)
             return
         self._entry = entry
@@ -535,7 +585,8 @@ class ContactsPage(QWidget):
             if gen != self._detail_gen:
                 return
             if d is None:
-                self.editor.clear()
+                if self._editor is not None:
+                    self._editor.clear()
                 self.reader.clear()
                 return
             self.editor.show_detail(d)
@@ -557,7 +608,7 @@ class ContactsPage(QWidget):
         loader.run_task(self, lambda: loader.load_detail(hub, cid, accounts), done)
 
     def new_contact(self) -> None:
-        if self.editor.is_dirty() and not self._confirm_discard():
+        if self._editor_dirty() and not self._confirm_discard():
             return
         default = self._snap.default_account_id if self._snap is not None else None
         self._creating = True
@@ -711,7 +762,7 @@ class ContactsPage(QWidget):
                 self.history.clear("Pick one contact to see its history." if not ids else
                                    "History shows one contact at a time.")
                 self.right.setCurrentWidget(self.history)
-        elif self.editor.isEnabled():
+        elif self._editor is not None and self._editor.isEnabled():
             self._show_contact_pane()
         else:
             self.right.setCurrentWidget(self.placeholder)

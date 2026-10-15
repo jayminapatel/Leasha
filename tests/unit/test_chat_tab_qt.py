@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QWidget  # noqa: E402
 
 import html
 import re
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -58,6 +59,12 @@ def _wait(qtbot, condition, timeout=5000):
     qtbot.waitUntil(condition, timeout=timeout)
 
 
+#: 2026-10-15: the ceiling for a wait that includes the title's idle pause and its worker.
+#: Generous on purpose - a wait returns as soon as its condition holds, so only a
+#: genuinely stuck run pays it.
+_LOADED_MS = 30_000
+
+
 @pytest.fixture()
 def chat(gui_mainwindow, qtbot, monkeypatch):
     """The Chat tab, reset to a fresh conversation with a fake engine."""
@@ -71,6 +78,11 @@ def chat(gui_mainwindow, qtbot, monkeypatch):
     _wait(qtbot, lambda: ctl._ask is None and not getattr(ctl, "_saving", False)
           and not getattr(ctl, "_pending", None))
     gui_pump(app)
+    # 2026-10-15: no title, and no idle pause counting towards one, crosses into this test
+    # from the one before - the controller is the module's, not the test's.
+    if getattr(ctl, "_title_timer", None) is not None:
+        ctl._title_timer.stop()
+    ctl._title_pending = None
     fake = FakeChatEngine()
     backend = FakeSessionBackend()
     ctl._sessions = ChatSessions(backend)
@@ -365,22 +377,38 @@ class _TitlingEngine(FakeChatEngine):
     def __init__(self) -> None:
         super().__init__()
         self.order: list[str] = []
+        #: 2026-10-15: when each answer returned and when the title was asked
+        #: (`time.monotonic()`), so a test can measure the pause between them.
+        self.answered_at: list[float] = []
+        self.titled_at: list[float] = []
 
     def ask(self, question, history, emit, should_stop, scope=None, style=None, removed=None):
         # The same keywords as the base: `supported_kwargs` hands over only these.
         self.order.append("ask:" + question)
-        return super().ask(question, history, emit, should_stop, scope=scope, style=style,
-                           removed=removed)
+        try:
+            return super().ask(question, history, emit, should_stop, scope=scope, style=style,
+                               removed=removed)
+        finally:
+            self.answered_at.append(time.monotonic())
 
     def title(self, question, answer=""):
         self.order.append("title")
+        self.titled_at.append(time.monotonic())
         return "The deposit chat"
 
 
 @pytest.mark.slow
-def test_a_second_question_asked_at_once_starts_before_the_title(chat):
+def test_a_second_question_asked_at_once_starts_before_the_title(chat, monkeypatch):
     """Work order model-sequencing 3c: the title is asked only once the model is idle,
-    so it never stands in front of the next question behind the model's lock."""
+    so it never stands in front of the next question behind the model's lock.
+
+    2026-10-15: "at once" here is `answered` (which waits for the save on a worker) and
+    `ask`; in a loaded run those two can take longer than the product's 1.5 s pause, and
+    the title then rightly goes first. The pause is lengthened for this test so that "at
+    once" stays at once on a busy machine; what is checked is unchanged."""
+    from app.ui.controllers import chat_controller
+
+    monkeypatch.setattr(chat_controller, "TITLE_IDLE_MS", 5000)
     c = chat
     titling = _TitlingEngine()
     c.ctl.engine_factory = lambda: titling
@@ -389,26 +417,60 @@ def test_a_second_question_asked_at_once_starts_before_the_title(chat):
     answered(c)
     ask(c, "And when is it returned?")                  # at once, before the idle pause ends
     answered(c)
-    _wait(c.qtbot, lambda: "title" in titling.order)
+    _wait(c.qtbot, lambda: "title" in titling.order, timeout=_LOADED_MS)
 
     assert titling.order == ["ask:What did we agree with the landlord about the deposit?",
                              "ask:And when is it returned?", "title"]
-    _wait(c.qtbot, lambda: c.ctl.session.title == "The deposit chat")
+    _wait(c.qtbot, lambda: c.ctl.session.title == "The deposit chat", timeout=_LOADED_MS)
 
 
 @pytest.mark.slow
 def test_the_title_is_asked_once_the_model_has_been_idle(chat):
+    """2026-10-15: this used to assert that no title had been asked by the time `answered`
+    returned. `answered` also waits for the conversation's save, on a worker; in a loaded
+    full run that save took longer than `TITLE_IDLE_MS`, the title had rightly been asked
+    by then, and the test failed with nothing wrong. It now measures the pause itself:
+    from the answer returning on its worker to the title being asked, which is at least
+    `TITLE_IDLE_MS` however busy the machine is (load only lengthens it). The waits have
+    a generous ceiling for the same reason."""
+    from app.ui.controllers import chat_controller
+
     c = chat
     titling = _TitlingEngine()
     c.ctl.engine_factory = lambda: titling
     c.ctl.engine = None
     ask(c, "What did we agree with the landlord about the deposit?")
     answered(c)
-    assert "title" not in titling.order                 # not the instant the reply ended
-    _wait(c.qtbot, lambda: "title" in titling.order)
+    _wait(c.qtbot, lambda: "title" in titling.order, timeout=_LOADED_MS)
+    assert titling.order == ["ask:What did we agree with the landlord about the deposit?",
+                             "title"]
+    # Not the instant the reply ended: after the idle pause. A Qt coarse timer may fire up
+    # to 5% early, so the floor allows 10%.
+    paused_ms = (titling.titled_at[0] - titling.answered_at[0]) * 1000
+    assert paused_ms >= chat_controller.TITLE_IDLE_MS * 0.9, (
+        f"the title was asked {paused_ms:.0f} ms after the answer, before the model had been "
+        f"idle for {chat_controller.TITLE_IDLE_MS} ms")
+    _wait(c.qtbot, lambda: c.ctl.session.title == "The deposit chat", timeout=_LOADED_MS)
     assert titling.order.count("title") == 1
-    _wait(c.qtbot, lambda: c.ctl.session.title == "The deposit chat")
     assert c.ctl._title_pending is None
+
+
+def test_a_second_answer_restarts_the_titles_idle_pause_rather_than_adding_one(chat):
+    """2026-10-15: each answer started a title timer of its own, so the first could fire a
+    few milliseconds after a later answer ended - and one left over fired into the next
+    test's conversation (a title 63 ms after its answer, in a full run). One timer now."""
+    c = chat
+    c.ctl._title_pending = None                  # the timer may fire; it then asks nothing
+    c.ctl._arm_title()
+    first = c.ctl._title_timer
+    c.ctl._arm_title()
+    second = c.ctl._title_timer
+    assert second is not first and second.isActive()
+    try:
+        assert not first.isActive(), "the first answer's pause still counts"
+    except RuntimeError:
+        pass                                      # deleted already: stopped, and gone
+    second.stop()
 
 
 @pytest.mark.slow

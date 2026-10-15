@@ -110,6 +110,7 @@ def test_the_fixture_has_the_structure_the_measurement_claims(scale_store) -> No
     assert space.find_near_duplicate_photo_groups(store), "planted variants were not found"
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 @pytest.mark.parametrize("label, query", [
     ("generated_at", report_generated_at),
@@ -129,6 +130,7 @@ def test_each_space_report_query_stays_under_its_floor(scale_store, label, query
         f"read idx_files_content_hash - check EXPLAIN QUERY PLAN first.")
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_the_whole_snapshot_stays_under_its_floor(scale_store) -> None:
     from app.ui.reports_view import _report_snapshot

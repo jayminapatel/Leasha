@@ -67,6 +67,7 @@ def test_drain_waits_for_a_run_in_the_index_pool(qapp):
     assert pool.activeThreadCount() == 0
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_drain_gives_up_at_the_index_grace_and_says_so(qapp, caplog):
     from app.ui.shell import MainWindow

@@ -69,6 +69,7 @@ def _ms(since: float) -> float:
     return (time.perf_counter() - since) * 1000
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_ten_thousand_rows_are_read_on_a_worker_and_land_without_a_stall(big):
     store, hub, accounts = big.store, big.hub, big.accounts
@@ -125,6 +126,7 @@ def test_ten_thousand_rows_are_read_on_a_worker_and_land_without_a_stall(big):
     big.page = page
 
 
+@pytest.mark.timing
 def test_both_views_paint_and_scroll_ten_thousand_rows(big):
     page = big.page
     page.set_view("list", remember=False)

@@ -42,7 +42,22 @@ merges the parts into `logs/suite/durations.json` after the run. The next run pl
 longest-first into the emptiest part, so the parts finish together instead of the wall time
 being whatever the slowest alphabetical third needs - on 2026-10-08 that was 23 minutes
 against a 17-minute fastest part. With no measurements yet the files are cut into contiguous
-alphabetical groups as before. `--affected` runs only the test files that can see a change
+alphabetical groups as before.
+
+**The `timing` tests run last, on their own (2026-10-15, the owner).** A test marked
+`timing` asserts a wall-clock budget of about a second or less - a page that must open
+within 400 ms, a stall no longer than 0.3 s. Measured while three other parts load the
+machine, such a budget measures the load: they passed alone and failed in full runs. The
+parallel parts leave them out (`and not timing`), and once those have finished one more
+process runs `and timing` over only the files that have any (`timing_files`), reported as
+the timing part.
+
+**Which tests are slow (2026-10-15).** The same file keeps each test's last three times
+(`HISTORY_RUNS`). A test is judged on the lowest of them, once it has two
+(`JUDGED_AFTER_RUNS`), and `--audit-markers` and the slow-marker guard
+(`tests/unit/test_slow_markers_truthful.py`) both judge that way: load only adds time, so
+one busy run cannot make a quick test look slow, and a new test that really is slow is
+caught after its second run. `--affected` runs only the test files that can see a change
 (`scripts/suite_affected.py` says how that is decided, and the runner prints what it chose);
 the whole suite stays the release gate.
 
@@ -63,7 +78,9 @@ again, look for whatever just walked all widgets, not at the test named in the t
 
 Exit code 0 only when every process finished and nothing failed. A process
 that died is reported as **CRASHED**, with the last test file it had started -
-that file is the place to start looking - and counts as a failure.
+that file is the place to start looking - and every thread's stack at the moment
+it died, which `tests/conftest.py` has `faulthandler` write to the part's own
+`crash<N>.txt` (2026-10-15) - and counts as a failure.
 """
 
 from __future__ import annotations
@@ -130,8 +147,23 @@ DEFAULT_PART_TIMEOUT = 3600
 #: How often the runner looks at its parts. A module constant so a test can shorten it.
 POLL_SECONDS = 1.0
 
-#: Tests at or over this are listed by `--audit-markers` when not marked `slow`.
+#: Tests at or over this are listed by `--audit-markers` when not marked `slow`, and fail
+#: `tests/unit/test_slow_markers_truthful.py` - one number for both.
 SLOW_SECONDS = 1.0
+
+#: 2026-10-15: how many of a test's most recent measured times are kept, and how many it
+#: needs before it is judged slow or not. A test is judged on the LOWEST of its kept times.
+#: Load only ever adds time - a test cannot run faster than its own work - so the lowest of
+#: a few runs is the closest thing to the test's real cost, and one loaded run cannot make
+#: a quick test look slow. Replayed over this laptop's full runs of 14-15 October (the
+#: parts' own files, against the marks as they stand after #99): judged on one run, 0 to
+#: 186 unmarked tests crossed a second, a different set each time; on the lowest of two,
+#: two loaded runs back to back still left 35; on the lowest of three, none. Three runs
+#: that are all heavily loaded can still flag a test - on 12 October two suites run at
+#: once did - so the guard is read after a run on a quiet machine. A new test that really
+#: is slow has two times over the line after its second run, and is caught then.
+HISTORY_RUNS = 3
+JUDGED_AFTER_RUNS = 2
 
 
 def find_files(explicit: list[str]) -> list[str]:
@@ -185,24 +217,84 @@ def load_durations(path: Path = DURATIONS_FILE) -> dict:
 def merge_durations(previous: dict, parts: list[dict]) -> dict:
     """The previous measurements updated by this run's parts.
 
-    A file that ran this time takes its new number and drops its old slow tests; a file
-    that did not run (a crashed part, an `--affected` run) keeps what it had.
+    Files: a file that ran this time takes its new number; one that did not (a crashed
+    part, an `--affected` run) keeps what it had.
+
+    Tests: each test that ran has this run's time added to its history, which keeps the
+    last `HISTORY_RUNS` times, and takes its `slow` mark from this run. A test that did not
+    run keeps its history untouched - its file did not run, or it was deselected (`--quick`
+    deselects `slow`, `gui` and `qt`), which says nothing about how long it takes. A test
+    whose file ran and which was neither run nor deselected no longer exists (renamed or
+    deleted) and is dropped. Measurements from before the history (2026-10-15: a
+    `slow_tests` map with one time each) are not carried over: one time cannot be judged.
     """
     files = dict(previous.get("files", {}))
-    slow = dict(previous.get("slow_tests", {}))
+    tests = {name: dict(entry) for name, entry in previous.get("tests", {}).items()
+             if isinstance(entry, dict)}
     for part in parts:
         ran = set(part.get("files", {}))
         files.update(part.get("files", {}))
-        slow = {name: entry for name, entry in slow.items() if name.split("::", 1)[0] not in ran}
-        slow.update(part.get("slow_tests", {}))
-    return {"written": time.strftime("%Y-%m-%dT%H:%M:%S"), "files": files, "slow_tests": slow}
+        measured = part.get("tests", {})
+        set_aside = set(part.get("deselected", []))
+        for name in [n for n in tests if n not in measured and n not in set_aside
+                     and n.split("::", 1)[0] in ran]:
+            del tests[name]
+        for name, now in measured.items():
+            runs = [*recent_runs(tests.get(name, {})), round(float(now.get("seconds", 0.0)), 3)]
+            tests[name] = {"runs": runs[-HISTORY_RUNS:], "marked": bool(now.get("marked"))}
+    return {"written": time.strftime("%Y-%m-%dT%H:%M:%S"), "files": files, "tests": tests}
+
+
+def dumps_durations(measurements: dict) -> str:
+    """The measurements as JSON, one test to a line: thousands of tests stay readable and
+    the file stays a size that loads in a moment."""
+    tests = measurements.get("tests") or {}
+    rest = {k: v for k, v in measurements.items() if k != "tests"}
+    if not tests:
+        return json.dumps(rest, indent=1)
+    rows = ",\n".join(f"  {json.dumps(name)}: {json.dumps(entry)}"
+                      for name, entry in sorted(tests.items()))
+    head = json.dumps(rest, indent=1)[:-2] + ",\n" if rest else "{\n"
+    return head + ' "tests": {\n' + rows + "\n }\n}"
+
+
+def recent_runs(entry: dict) -> list[float]:
+    """A test's kept times, oldest first - at most `HISTORY_RUNS` of them."""
+    runs = entry.get("runs") if isinstance(entry, dict) else None
+    if not isinstance(runs, list):
+        return []
+    return [float(seconds) for seconds in runs][-HISTORY_RUNS:]
+
+
+def judged_seconds(entry: dict) -> float | None:
+    """What a test is judged on: the lowest of its kept times, or `None` while it has fewer
+    than `JUDGED_AFTER_RUNS` of them. `--audit-markers` and the slow-marker guard both
+    judge through this, so they cannot disagree."""
+    runs = recent_runs(entry)
+    if len(runs) < JUDGED_AFTER_RUNS:
+        return None
+    return min(runs)
 
 
 def unmarked_slow(measurements: dict) -> list[tuple[str, float]]:
-    """Tests at or over `SLOW_SECONDS` without the `slow` mark, slowest first."""
-    found = [(name, float(entry.get("seconds", 0.0)))
-             for name, entry in measurements.get("slow_tests", {}).items()
-             if not entry.get("marked") and float(entry.get("seconds", 0.0)) >= SLOW_SECONDS]
+    """Tests judged at or over `SLOW_SECONDS` without the `slow` mark, slowest first."""
+    found = []
+    for name, entry in measurements.get("tests", {}).items():
+        seconds = judged_seconds(entry)
+        if seconds is not None and seconds >= SLOW_SECONDS and not entry.get("marked"):
+            found.append((name, seconds))
+    return sorted(found, key=lambda pair: (-pair[1], pair[0]))
+
+
+def awaiting_judgement(measurements: dict) -> list[tuple[str, float]]:
+    """Unmarked tests over `SLOW_SECONDS` in their latest run that have too few runs to be
+    judged yet (new, or measured once since the history began), slowest first."""
+    found = []
+    for name, entry in measurements.get("tests", {}).items():
+        runs = recent_runs(entry)
+        if runs and len(runs) < JUDGED_AFTER_RUNS and runs[-1] >= SLOW_SECONDS \
+                and not entry.get("marked"):
+            found.append((name, runs[-1]))
     return sorted(found, key=lambda pair: (-pair[1], pair[0]))
 
 
@@ -218,9 +310,14 @@ def describe_measurements(measurements: dict, limit: int = 10) -> str:
     slow = unmarked_slow(measurements)
     if slow:
         lines.append(f"{len(slow)} test(s) over {SLOW_SECONDS:.0f}s not marked `slow` "
-                     f"(the marker's own definition); the slowest:")
+                     f"(the marker's own definition), judged on the lowest of each one's "
+                     f"last {HISTORY_RUNS} runs; the slowest:")
         for name, seconds in slow[:limit]:
             lines.append(f"  {seconds:7.1f}s  {name}")
+    waiting = awaiting_judgement(measurements)
+    if waiting:
+        lines.append(f"{len(waiting)} more unmarked test(s) over {SLOW_SECONDS:.0f}s in their "
+                     f"only measured run so far - judged once they have {JUDGED_AFTER_RUNS}")
     return "\n".join(lines)
 
 
@@ -265,6 +362,26 @@ TIMEOUT_MARK = "+ Timeout +"
 LAST_LINE = re.compile(r"^=+ .* in [\d.]+s.*=+\s*$", re.MULTILINE)
 
 
+#: The mark a `timing` test carries in its source (`pytest.mark.timing`).
+TIMING_MARK = re.compile(r"\bmark\.timing\b")
+
+
+def timing_files(files: list[str]) -> list[str]:
+    """The test files with a `timing` test - the last pass runs only these, on its own.
+
+    2026-10-15: read from the source rather than by collecting, which takes ~50 s over the
+    whole tree. A file that cannot be read is left out, never a reason to stop the run."""
+    found = []
+    for name in files:
+        try:
+            text = (ROOT / name).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if TIMING_MARK.search(text):
+            found.append(name)
+    return found
+
+
 def part_died(code: int, log_text: str) -> bool:
     """Did this process stop before it finished its files?
 
@@ -306,6 +423,19 @@ def kill_tree(process) -> None:
         process.kill()
     except Exception:                                      # noqa: BLE001 - already gone
         pass
+
+
+def _crash_stacks(path: Path, limit: int = 120) -> str:
+    """The stacks `faulthandler` wrote when a part died, indented, at most `limit` lines; "" if none.
+
+    2026-10-15: a part died with 0xC0000005 and said nothing about where. `tests/conftest.py`
+    now points `faulthandler` at this file for every test; this reads it back."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+    lines = text.splitlines()[:limit]
+    return "\n".join("      " + line for line in lines)
 
 
 def _wait_all(running: list, deadline: float) -> dict[int, tuple[int | None, bool]]:
@@ -355,7 +485,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="where the measured durations are kept (default logs/suite/)")
     parser.add_argument("--audit-markers", action="store_true",
                         help="print the slowest files and the tests over a second not marked "
-                             "`slow`, from the stored measurements, and run nothing")
+                             f"`slow` (the lowest of each one's last {HISTORY_RUNS} runs), from "
+                             "the stored measurements, and run nothing")
     args = parser.parse_args(argv)
 
     measurements = load_durations(args.durations)
@@ -389,8 +520,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.quick:
         print(f"quick: deselecting `{QUICK_DESELECT}` - a sanity pass, not a gate", flush=True)
 
-    running = []
-    for number, group in enumerate(groups):
+    tier = TIERS["quick"] if args.quick else PROJECT_DESELECT
+    timed = timing_files(files)
+
+    def start(number: int, group: list[str], marker: str) -> tuple:
         log = work / f"part{number}.txt"
         handle = open(log, "w", encoding="utf-8", errors="replace")
         # 2026-10-05: `-v` undoes the project's `addopts = -q`, which dropped the
@@ -407,17 +540,30 @@ def main(argv: list[str] | None = None) -> int:
         command = [sys.executable, "-m", "pytest", *group, "-v", "-rfE",
                    "-p", "no:cacheprovider", "-p", "scripts.suite_durations",
                    f"--timeout={args.timeout}",
-                   f"--basetemp={work / f'tmp{number}'}"]
-        if args.quick:
-            command += ["-m", TIERS["quick"]]
+                   f"--basetemp={work / f'tmp{number}'}", "-m", marker]
         env = dict(os.environ)
         env["LEASHA_SUITE_DURATIONS"] = str(work / f"durations{number}.json")
+        # 2026-10-15: a native crash's stacks, for every thread (`tests/conftest.py`,
+        # `_native_crashes_are_always_reported`) - printed below if this part dies.
+        env["LEASHA_SUITE_CRASH_LOG"] = str(work / f"crash{number}.txt")
         extra = {} if sys.platform == "win32" else {"start_new_session": True}
         process = subprocess.Popen(command, cwd=ROOT, stdout=handle,
                                    stderr=subprocess.STDOUT, env=env, **extra)
-        running.append((number, group, log, handle, process))
+        return (number, group, log, handle, process)
 
+    # The parallel parts leave out the `timing` tests: a wall-clock budget measured while
+    # three other parts load the machine measures the load (2026-10-15, the owner's choice).
+    running = [start(number, group, f"{tier} and not timing")
+               for number, group in enumerate(groups)]
     outcomes = _wait_all(running, started + args.part_timeout)
+    # Then the `timing` tests, alone: one process, only the files that have any.
+    timing_number = None
+    if timed:
+        timing_number = len(groups)
+        print(f"timing: {len(timed)} files with `timing` tests, run on their own", flush=True)
+        alone = [start(timing_number, timed, f"{tier} and timing")]
+        outcomes.update(_wait_all(alone, time.time() + args.part_timeout))
+        running += alone
 
     failures: set[str] = set()
     crashed = 0
@@ -446,7 +592,8 @@ def main(argv: list[str] | None = None) -> int:
                   f"with its process tree. Last file it started: {last_file}. Its later tests "
                   f"did NOT run.", flush=True)
         elif not part_died(code, text):
-            print(f"  part {number}: finished ({tally or 'nothing passed or failed'}) - "
+            alone = " (timing, on its own)" if number == timing_number else ""
+            print(f"  part {number}{alone}: finished ({tally or 'nothing passed or failed'}) - "
                   f"{len(group)} files", flush=True)
         elif code in NORMAL_EXITS:
             # 2026-10-05: an ordinary exit code and no summary line. pytest-timeout
@@ -465,13 +612,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  part {number}: CRASHED, exit {code} (0x{code & 0xFFFFFFFF:X}) - the "
                   f"process died. Last file it started: {last_file}. Its later tests did "
                   f"NOT run.", flush=True)
+            stacks = _crash_stacks(work / f"crash{number}.txt")
+            if stacks:
+                print(f"    where it died (every thread, innermost first):\n{stacks}", flush=True)
 
     if measured_parts:
         merged = merge_durations(measurements, measured_parts)
         try:
             args.durations.parent.mkdir(parents=True, exist_ok=True)
             tmp = args.durations.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(merged, indent=1), encoding="utf-8")
+            tmp.write_text(dumps_durations(merged), encoding="utf-8")
             tmp.replace(args.durations)
         except OSError as exc:
             print(f"(could not write {args.durations}: {exc})", flush=True)

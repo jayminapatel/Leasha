@@ -116,13 +116,33 @@ def test_the_plugin_writes_what_each_file_cost_and_which_slow_tests_are_unmarked
         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=300)
     assert result.returncode == 0, result.stdout + result.stderr
     data = json.loads(out.read_text(encoding="utf-8"))
-    assert set(data) >= {"written", "files", "slow_tests"}
+    assert set(data) >= {"written", "files", "slow_tests", "tests", "deselected"}
     (name, seconds), = data["files"].items()
     assert name.endswith("test_plug.py") and seconds >= 2.0
     slow = {k.split("::")[1]: v for k, v in data["slow_tests"].items()}
     assert slow["test_marked"]["marked"] is True
     assert slow["test_unmarked"]["marked"] is False
     assert "test_fast" not in slow
+    # 2026-10-15: every test's time, fast ones too, for the history the guard judges on.
+    every = {k.split("::")[1]: v for k, v in data["tests"].items()}
+    assert set(every) == {"test_fast", "test_marked", "test_unmarked"}
+    assert every["test_fast"]["seconds"] < 1.0 and every["test_marked"]["marked"] is True
+    assert data["deselected"] == []
+
+
+def test_the_plugin_lists_what_was_deselected_and_not_what_ran(tmp_path):
+    """`--quick` deselects `slow`, `gui` and `qt`; the runner must not take those for deleted."""
+    plugin = _load("suite_durations")
+    recorder = plugin.Recorder(tmp_path / "d.json")
+    item = type("Item", (), {})
+    gone, ran = item(), item()
+    gone.nodeid, ran.nodeid = "t.py::test_slow", "t.py::test_quick"
+    recorder.pytest_deselected([gone])
+    recorder.add("t.py::test_quick", 0.25)
+    payload = recorder.payload()
+    assert payload["deselected"] == ["t.py::test_slow"]
+    assert payload["tests"] == {"t.py::test_quick": {"seconds": 0.25, "marked": False}}
+    assert payload["slow_tests"] == {}
 
 
 def test_without_the_variable_the_plugin_registers_nothing(monkeypatch):
@@ -142,27 +162,84 @@ def test_without_the_variable_the_plugin_registers_nothing(monkeypatch):
     assert registered == []
 
 
+def _part(files: dict, tests: dict, deselected=()) -> dict:
+    """One part as the plugin writes it: `tests` maps a test to its seconds."""
+    return {"files": files, "deselected": list(deselected),
+            "tests": {name: {"seconds": seconds, "marked": False}
+                      for name, seconds in tests.items()}}
+
+
 def test_merging_keeps_a_file_that_did_not_run_and_replaces_one_that_did():
     previous = {"files": {"a.py": 10.0, "b.py": 20.0},
-                "slow_tests": {"a.py::old": {"seconds": 3.0, "marked": False},
-                               "b.py::kept": {"seconds": 2.0, "marked": True}}}
-    part = {"files": {"a.py": 4.0}, "slow_tests": {"a.py::new": {"seconds": 1.5, "marked": False}}}
+                "tests": {"a.py::old": {"runs": [3.0], "marked": False},
+                          "a.py::stays": {"runs": [1.5, 1.4], "marked": False},
+                          "b.py::kept": {"runs": [2.0], "marked": True}}}
+    part = _part({"a.py": 4.0}, {"a.py::new": 1.5, "a.py::stays": 0.4})
     merged = run_suite.merge_durations(previous, [part])
     assert merged["files"] == {"a.py": 4.0, "b.py": 20.0}
-    assert set(merged["slow_tests"]) == {"a.py::new", "b.py::kept"}, (
-        "a.py ran again, so its old slow test goes; b.py did not, so its stays")
+    assert set(merged["tests"]) == {"a.py::new", "a.py::stays", "b.py::kept"}, (
+        "a.py ran again without `old`, so it is gone; b.py did not run, so its test stays")
+    assert merged["tests"]["a.py::stays"]["runs"] == [1.5, 1.4, 0.4]
+    assert merged["tests"]["a.py::new"]["runs"] == [1.5]
+    assert merged["tests"]["b.py::kept"] == {"runs": [2.0], "marked": True}
     assert merged["written"]
+
+
+def test_each_test_keeps_only_its_last_few_times():
+    history: dict = {}
+    for seconds in (5.0, 0.1, 0.2, 0.3):
+        history = run_suite.merge_durations(history, [_part({"a.py": seconds},
+                                                             {"a.py::t": seconds})])
+    assert history["tests"]["a.py::t"]["runs"] == [0.1, 0.2, 0.3]
+    assert run_suite.HISTORY_RUNS == 3
+
+
+def test_a_deselected_test_keeps_its_history():
+    """A `--quick` run leaves out what is marked `slow`, `gui` or `qt`; that is not a
+    deletion, and it is not a time either."""
+    previous = {"files": {"a.py": 9.0},
+                "tests": {"a.py::qt_one": {"runs": [1.2, 1.3], "marked": False}}}
+    part = _part({"a.py": 0.5}, {"a.py::plain": 0.5}, deselected=["a.py::qt_one"])
+    merged = run_suite.merge_durations(previous, [part])
+    assert merged["tests"]["a.py::qt_one"]["runs"] == [1.2, 1.3]
+
+
+def test_measurements_from_before_the_history_are_not_judged():
+    """2026-10-15: the old file has `slow_tests` with one time each. One time is exactly
+    what the history exists not to trust, so nothing in it is judged and the next merge
+    does not carry it over."""
+    legacy = {"files": {"a.py": 9.0},
+              "slow_tests": {"a.py::t": {"seconds": 4.0, "marked": False}}}
+    assert run_suite.unmarked_slow(legacy) == []
+    merged = run_suite.merge_durations(legacy, [_part({"a.py": 9.0}, {"a.py::t": 4.0})])
+    assert "slow_tests" not in merged and merged["tests"]["a.py::t"]["runs"] == [4.0]
+
+
+def test_the_stored_file_reads_back_as_written(tmp_path):
+    merged = run_suite.merge_durations({}, [_part({"a.py": 1.0, "b.py": 2.0},
+                                                  {"a.py::t": 1.0, "b.py::u[x-1]": 2.0})])
+    text = run_suite.dumps_durations(merged)
+    assert json.loads(text) == merged
+    assert text.count("\n") >= len(merged["tests"]) + 4, "one test to a line, not one line"
+    assert json.loads(run_suite.dumps_durations({"files": {}})) == {"files": {}}
+    assert json.loads(run_suite.dumps_durations({"tests": {"a::t": {"runs": [1.0]}}})) == {
+        "tests": {"a::t": {"runs": [1.0]}}}
 
 
 def test_unmarked_slow_tests_are_listed_slowest_first_and_the_marked_are_not():
     measurements = {"files": {"x.py": 30.0, "y.py": 1.0},
-                    "slow_tests": {"x.py::a": {"seconds": 2.0, "marked": False},
-                                   "x.py::b": {"seconds": 5.0, "marked": False},
-                                   "x.py::c": {"seconds": 9.0, "marked": True}}}
+                    "tests": {"x.py::a": {"runs": [2.0, 2.5], "marked": False},
+                              "x.py::b": {"runs": [6.0, 5.0], "marked": False},
+                              "x.py::c": {"runs": [9.0, 9.0], "marked": True},
+                              "x.py::d": {"runs": [0.5, 9.0], "marked": False},
+                              "x.py::e": {"runs": [3.0], "marked": False}}}
     assert run_suite.unmarked_slow(measurements) == [("x.py::b", 5.0), ("x.py::a", 2.0)]
+    assert run_suite.awaiting_judgement(measurements) == [("x.py::e", 3.0)]
     text = run_suite.describe_measurements(measurements)
     assert "slowest 2 of 2 test files" in text and "x.py" in text
     assert "2 test(s) over 1s not marked `slow`" in text
+    assert "lowest of each one's last 3 runs" in text
+    assert "1 more unmarked test(s) over 1s in their only measured run so far" in text
     assert run_suite.describe_measurements({}) == "no measurements yet"
 
 
@@ -232,13 +309,18 @@ def test_every_part_loads_the_durations_plugin_and_is_told_where_to_write(tmp_pa
 
 def test_what_the_parts_measured_is_merged_and_reported_after_the_run(tmp_path, monkeypatch,
                                                                      capsys):
-    measured = {"files": {"tests/unit/test_ok.py": 12.5},
-                "slow_tests": {"tests/unit/test_ok.py::test_fine": {"seconds": 1.2,
-                                                                    "marked": False}}}
+    # 2026-10-15: the test was over a second last time too, so this run's time is its
+    # second and it is judged now.
+    (tmp_path / "durations.json").write_text(json.dumps(
+        {"files": {"tests/unit/test_ok.py": 11.0},
+         "tests": {"tests/unit/test_ok.py::test_fine": {"runs": [1.4], "marked": False}}}),
+        encoding="utf-8")
+    measured = _part({"tests/unit/test_ok.py": 12.5}, {"tests/unit/test_ok.py::test_fine": 1.2})
     part, _ = _part_class(GREEN, 0, durations=measured)
     assert _run_main(monkeypatch, tmp_path, part, ["-j", "1"]) == 0
     stored = json.loads((tmp_path / "durations.json").read_text(encoding="utf-8"))
     assert stored["files"] == {"tests/unit/test_ok.py": 12.5}
+    assert stored["tests"]["tests/unit/test_ok.py::test_fine"]["runs"] == [1.4, 1.2]
     out = capsys.readouterr().out
     assert "slowest 1 of 1 test files" in out
     assert "1 test(s) over 1s not marked `slow`" in out
@@ -331,11 +413,16 @@ def test_quick_repeats_the_projects_own_deselection_rather_than_replacing_it(tmp
         "the runner's copy of the project's `-m` has drifted from pyproject.toml")
 
 
-def test_without_quick_no_marker_expression_is_passed(tmp_path, monkeypatch):
+def test_without_quick_the_projects_own_deselection_is_passed_with_timing_left_out(
+        tmp_path, monkeypatch):
+    # 2026-10-15: was "no marker expression is passed" - the project's `addopts` decided.
+    # The parallel parts now leave the `timing` tests to a pass of their own, and a second
+    # `-m` replaces `addopts`' rather than adding to it, so the deselection is repeated.
     part, seen = _part_class(GREEN, 0)
     assert _run_main(monkeypatch, tmp_path, part, ["-j", "1"]) == 0
-    (command, _), = seen
-    assert "-m" not in command[command.index("pytest") + 1:]
+    command = seen[0][0]
+    options = command[command.index("pytest") + 1:]
+    assert options[options.index("-m") + 1] == f"{run_suite.PROJECT_DESELECT} and not timing"
 
 
 # ---------------------------------------------------------------------------

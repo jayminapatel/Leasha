@@ -145,6 +145,7 @@ def test_a_first_page_costs_a_page_not_a_month(scale) -> None:
         assert cost < FIRST_PAGE_STEPS, f"{label}: {cost:,} steps for one page"
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_a_page_fifteen_years_in_costs_what_the_first_page_does(scale) -> None:
     r"""The bug the measurement found: 2,095,300 steps before the fix."""
@@ -192,6 +193,7 @@ def test_the_picker_count_is_one_scan_and_is_cached_until_something_is_indexed(s
     assert date_of_file(store, 12345) is not None
 
 
+@pytest.mark.timing
 @pytest.mark.slow
 def test_wall_time_floors_and_the_measurement_report(scale, capsys) -> None:
     store, _facts = scale

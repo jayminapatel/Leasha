@@ -56,6 +56,7 @@ markers = [
     "gui: a pytest-qt scenario driving the real MainWindow with keystrokes - offscreen, in the default run (order 0m S1a: this subset must count as RUN, never skipped - the vacuous-skip lesson from the PySide6 draft)",
     "e2e: pywinauto against the packaged, launched app on a real desktop; excluded by default, run with `pytest -m e2e` before a release (order 0m S3a)",
     "qt: constructs a real Qt widget; needs a display (or offscreen platform plugin)",
+    "timing: asserts a wall-clock budget of about a second or less; `scripts/run_suite.py` runs these in a pass of their own after the parallel parts, so the budget is measured on a quiet machine (2026-10-15)",
 ]
 filterwarnings = ["error::DeprecationWarning:app.*"]
 

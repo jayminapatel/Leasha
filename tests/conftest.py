@@ -327,6 +327,46 @@ def _clear_gpu_unreliable_latch() -> Iterator[None]:
     gpu_serialize._reset_for_tests()
 
 
+#: Where a native crash's stacks go for the whole run (`_native_crashes_are_always_reported`).
+#: Not stderr: pytest's fd capture redirects descriptor 2 for the whole session, so a copy
+#: of it is a copy of the capture file, which dies with the process. A file of its own:
+#: `LEASHA_SUITE_CRASH_LOG` when `scripts/run_suite.py` names one per part (it prints it
+#: when that part is CRASHED), else `logs/suite/last-native-crash.txt`.
+_CRASH_STREAM = None
+
+
+def _crash_stream():
+    """The crash file, opened once, truncated at the start of the run."""
+    global _CRASH_STREAM
+    if _CRASH_STREAM is None:
+        named = os.environ.get("LEASHA_SUITE_CRASH_LOG")
+        path = Path(named) if named else Path(__file__).resolve().parents[1] / "logs" / "suite" / "last-native-crash.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _CRASH_STREAM = open(path, "w", encoding="utf-8", buffering=1)
+    return _CRASH_STREAM
+
+
+@pytest.fixture(autouse=True)
+def _native_crashes_are_always_reported() -> Iterator[None]:
+    """`faulthandler` is put back on, for every thread and to the run's own stderr, after
+    every test.
+
+    2026-10-15: a full run's part died with 0xC0000005 and its log held no stack at all.
+    `faulthandler` is process-wide, and tests of the app's own crash reporting end by
+    disabling it or pointing it at a file in their tmp folder (`test_crash_reporting.py`,
+    `test_crash_guard.py` through `crash_guard._release_for_tests`). After the first of
+    them, every later native crash in that process died in silence - and this one did not
+    come back in a 98-file, 2,505-test replay of the same part, so the next occurrence has
+    to say where it was. A test that needs `faulthandler` its own way still has it for its
+    whole length; this only restores it afterwards."""
+    import faulthandler
+
+    stream = _crash_stream()
+    faulthandler.enable(file=stream, all_threads=True)
+    yield
+    faulthandler.enable(file=stream, all_threads=True)
+
+
 @pytest.fixture()
 def temp_env(tmp_path: Path) -> Iterator[Path]:
     """A valid .env pointing at throwaway directories. Yields the .env path."""

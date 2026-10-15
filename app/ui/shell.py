@@ -1124,6 +1124,11 @@ class MainWindow(QMainWindow):
                 self.folder_watch.apply()
             self._warm_translator()
             self._warm_models()
+            # 2026-10-15: the Contacts page's code and the icon files, read on a worker so its first
+            # visit does not (`ContactsView.warm`; `test_navigation_is_instant.py`).
+            contacts_view = getattr(self, "contacts_view", None)
+            if contacts_view is not None:
+                contacts_view.warm()
             self._start_model_choices()
             if settings_view is not None:
                 self._refresh_link_scheme()

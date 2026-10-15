@@ -217,6 +217,8 @@ class ChatController(QObject):
         #: 2026-10-10 (3c): a title waiting for the model to be idle -
         #: `(session, engine, question, answer)`, or `None`. See `_title_when_idle`.
         self._title_pending: Optional[tuple] = None
+        #: 2026-10-15: the one timer counting the idle pause before that title (`_arm_title`).
+        self._title_timer: Any = None
 
     # -- construction ---------------------------------------------------------
     def build(self) -> ChatView:
@@ -1049,7 +1051,7 @@ class ChatController(QObject):
             self.view.focus()
         self._maybe_title(ask.session or self.session)
         if self._title_pending is not None:      # 3c: a title that waited for this answer
-            later(self, TITLE_IDLE_MS, self._title_when_idle)
+            self._arm_title()
         if self._rebuild_after:                  # a model was picked while it answered
             self._rebuild_after = False
             self._drop_engine()
@@ -1084,7 +1086,23 @@ class ChatController(QObject):
         # the person's next question for the model's lock. The engine is the one that
         # answered; a later rebuild (a pick, a Settings change) does not lose it.
         self._title_pending = (session, self.engine, users[0].text, plain_answer_text(last.text))
-        later(self, TITLE_IDLE_MS, self._title_when_idle)
+        self._arm_title()
+
+    def _arm_title(self) -> None:
+        """(Re)start the idle pause before the waiting title: `TITLE_IDLE_MS` from now.
+
+        2026-10-15: one timer, restarted. Each answer used to start a timer of its own, so
+        the first answer's could fire a few milliseconds after a second answer ended - the
+        title then went to a model that had barely been idle - and a timer left over
+        outlived the conversation it was armed for (seen in a full test run: a title asked
+        63 ms after an answer, by the timer of the test before)."""
+        if self._title_timer is not None:
+            try:
+                self._title_timer.stop()
+                self._title_timer.deleteLater()
+            except RuntimeError:                  # already gone with its owner
+                pass
+        self._title_timer = later(self, TITLE_IDLE_MS, self._title_when_idle)
 
     def _title_when_idle(self) -> None:
         """UI thread: ask for the waiting title if the model is idle; otherwise leave it
