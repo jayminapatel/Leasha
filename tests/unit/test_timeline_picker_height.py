@@ -34,7 +34,7 @@ def test_the_last_line_stays_inside_the_picker_in_a_short_window(qtbot, width):
     rows.setMinimumHeight(40)
     layout.addWidget(picker)
     layout.addWidget(rows, 1)
-    page.resize(width, 200)
+    page.resize(width, 110)        # less than the picker's lines and the list together
     page.show()
     qtbot.waitExposed(page)
     qtbot.wait(50)

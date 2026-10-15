@@ -154,6 +154,21 @@ class TimelinePicker(QWidget):
             layout.addLayout(row)
         self._enable_months(None)
 
+    def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        """As tall as the flowing lines need at this width, as a minimum.
+
+        2026-10-15, CI on `main`: a parent layout honours a height-for-width only
+        when it has the room, so on a short page the picker was given 122 px where
+        its wrapped lines needed 154 and its last line (Show) was drawn outside it.
+        The list below scrolls; the picker must not be the one squeezed.
+        """
+        super().resizeEvent(event)
+        layout = self.layout()
+        if layout is not None and layout.hasHeightForWidth():
+            need = layout.totalHeightForWidth(self.width())
+            if need > 0 and need != self.minimumHeight():
+                self.setMinimumHeight(need)
+
     def add_summary(self, label: QWidget) -> None:
         """Put the page's count line at the right end of the first row."""
         self.top_row.addWidget(label, 0, Qt.AlignmentFlag.AlignRight)

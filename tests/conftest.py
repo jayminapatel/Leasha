@@ -179,6 +179,22 @@ def pytest_unconfigure(config):
     import faulthandler
     import sys
 
+    # No process a test started outlives the run. Tests that prove a helper takes
+    # its children with it start `time.sleep(1000)` stand-ins; when one survives it
+    # holds this process's stdout open - 50 were found on the laptop after one
+    # run, and on CI the step waited for them after Python had ended.
+    try:
+        import psutil
+
+        left = psutil.Process().children(recursive=True)
+        for child in left:
+            try:
+                child.kill()
+            except psutil.Error:
+                pass
+        psutil.wait_procs(left, timeout=5)
+    except Exception:                                # noqa: BLE001 - tidying, never the result
+        pass
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.flush()
