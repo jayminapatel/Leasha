@@ -128,6 +128,7 @@ def qapp():
     yield QApplication.instance() or QApplication([])
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("theme_name", [Theme.LIGHT, Theme.DARK])
 def test_the_file_types_status_is_the_themes_colour(qapp, tmp_path, restore_theme, theme_name):
     from PySide6.QtGui import QColor
@@ -146,6 +147,7 @@ def test_the_file_types_status_is_the_themes_colour(qapp, tmp_path, restore_them
         assert item.foreground().color() == QColor(palette[token]), state
 
 
+@pytest.mark.slow
 def test_the_file_types_status_follows_a_theme_switch(qapp, tmp_path, restore_theme):
     """The table is filled once; a theme switch restyles it without a refill."""
     from PySide6.QtCore import QEvent

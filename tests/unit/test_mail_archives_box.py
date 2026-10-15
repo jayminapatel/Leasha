@@ -464,6 +464,7 @@ def test_clearing_an_archive_with_nothing_in_the_index_just_reads_it(qtbot, wind
 
 # -- the settings page ------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_box_sits_under_how_to_read_archives_and_relays_its_signals(qtbot, tmp_path):
     from app.core.config import load_settings
     from app.ui.settings_view import CATEGORY_WHATS_INDEXED, SettingsView

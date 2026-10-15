@@ -276,6 +276,7 @@ def test_a_killed_run_resumes_from_the_cursor_it_wrote(tmp_path, archive, monkey
     assert tree["inbox"].fetched == 0
 
 
+@pytest.mark.slow
 def test_a_changed_archive_is_read_from_the_start(tmp_path, archive, monkeypatch) -> None:
     """Folder numbers describe one tree; after a write they may describe another."""
     install_fake(monkeypatch, build_tree()["root"])
@@ -291,6 +292,7 @@ def test_a_changed_archive_is_read_from_the_start(tmp_path, archive, monkeypatch
     assert cursors(db) == {}
 
 
+@pytest.mark.slow
 def test_an_unreadable_cursor_is_a_read_from_the_top(tmp_path, archive, monkeypatch) -> None:
     install_fake(monkeypatch, build_tree()["root"])
     db = tmp_path / "index.db"

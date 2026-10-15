@@ -102,6 +102,7 @@ def _mouse(widget, kind, global_point):
 # 1. It moves, and opens where it was left
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_dragging_the_top_bar_moves_it_and_it_reopens_there(qapp):
     r"""**The owner's words**: the box "is not moveable window which it should
     be". Pressed on its top bar and dragged, it moves; closed and summoned
@@ -145,6 +146,7 @@ def test_dragging_the_top_bar_moves_it_and_it_reopens_there(qapp):
         store.close()
 
 
+@pytest.mark.slow
 def test_it_can_be_resized_and_has_a_grip_to_do_it(qapp, engine):
     from PySide6.QtWidgets import QSizeGrip
 
@@ -178,6 +180,7 @@ def test_a_place_on_a_screen_that_has_gone_comes_back_on_one_that_is_there():
     assert fit_on_screens(None, []) is None
 
 
+@pytest.mark.slow
 def test_a_saved_place_off_screen_is_clamped_when_the_box_opens(qapp):
     from app.ui.presenter.quick_search import PLACE_KEY, place_text
 
@@ -228,6 +231,7 @@ def test_there_is_a_chip_for_every_type_the_owner_named(qapp, engine):
         assert chip.toolTip() and chip.accessibleName()
 
 
+@pytest.mark.slow
 def test_a_chip_narrows_the_list_and_its_scope_reaches_the_search_call(
         qapp, mixed_engine, monkeypatch):
     r"""A chip filters the answer in hand at once (§5a: no second search for
@@ -410,6 +414,7 @@ def test_the_preview_stays_open_next_time_if_it_was_left_open(qapp):
 # 4. Keys and recent searches
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_each_key_calls_the_right_opener(qapp, mixed_engine, monkeypatch):
     r"""Enter opens (the window's route, through `chosen`), Ctrl+Enter shows
     it in its folder, Ctrl+C copies its path, Ctrl+O opens an email in

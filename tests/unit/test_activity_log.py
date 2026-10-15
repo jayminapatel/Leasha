@@ -370,6 +370,7 @@ def test_a_stopped_run_says_so(tmp_path: Path) -> None:
     assert stats.activity.entries()[-1].text == "stopped"
 
 
+@pytest.mark.slow
 def test_each_run_has_its_own_log(tmp_path: Path) -> None:
     corpus = tmp_path / "docs"
     corpus.mkdir()

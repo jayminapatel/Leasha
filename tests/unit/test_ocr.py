@@ -81,6 +81,7 @@ def test_malformed_rows_are_skipped_not_fatal():
     assert result.text == "good line"
 
 
+@pytest.mark.slow
 def test_no_engine_at_all_returns_empty():
     assert ocr_image("x", engine=None if module._load_engine() is None else lambda _s: None).empty
 

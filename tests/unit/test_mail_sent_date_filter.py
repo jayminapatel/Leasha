@@ -97,6 +97,7 @@ def _subjects(store, query: str) -> set:
         f"SELECT subject FROM messages WHERE file_id IN ({marks})", ids)}
 
 
+@pytest.mark.slow
 def test_a_message_is_found_by_the_year_it_was_sent(indexed):
     """**The owner's report, as a test.** Fails on the code before this fix:
     the 2017 letter carried the archive's mtime and matched no 2017 range."""
@@ -198,6 +199,7 @@ def test_the_sent_date_is_written_as_a_fact_not_a_guess(indexed):
     assert row[0] == SENT_2017 * NS and row[1] == 0
 
 
+@pytest.mark.slow
 def test_the_timeline_still_places_mail_by_its_own_branch_only(indexed):
     """**Nothing else calls a letter a photograph.** The timeline's camera-date
     branch reads `taken_at_ns` but only for `source_kind = 'file'`, and mail

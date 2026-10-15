@@ -1049,6 +1049,7 @@ def test_each_switch_admits_only_its_own_extensions(tmp_path):
     assert ".mp3" in walked and ".mp4" not in walked
 
 
+@pytest.mark.slow
 def test_a_video_goes_through_the_whole_pipeline(tmp_path, tools, frames):
     use_engine(FakeEngine())
     root = _corpus(tmp_path)
@@ -1081,6 +1082,7 @@ def test_a_video_goes_through_the_whole_pipeline(tmp_path, tools, frames):
     assert not any(Path(p).exists() for p in clip.seen[0])
 
 
+@pytest.mark.slow
 def test_a_transcript_passage_is_findable_by_keyword(tmp_path, tools, frames):
     use_engine(FakeEngine())
     root = _corpus(tmp_path)
@@ -1107,6 +1109,7 @@ def test_the_run_finishes_when_the_tools_are_missing_and_the_ledger_names_the_fi
     assert notes.status == FileStatus.INDEXED            # one bad file never halts a run
 
 
+@pytest.mark.slow
 def test_a_text_only_pass_holds_video_like_a_picture_and_the_images_pass_reads_it(tmp_path, tools, frames):
     use_engine(FakeEngine())
     root = _corpus(tmp_path)
@@ -1439,6 +1442,7 @@ def _people(tmp_path, *, on, monkeypatch, detector=None):
     return faces, scanned, calls
 
 
+@pytest.mark.slow
 def test_off_by_default_no_face_code_touches_a_video(tmp_path, tools, frames, monkeypatch):
     faces, scanned, calls = _people(tmp_path, on=False, monkeypatch=monkeypatch,
                                     detector=lambda n: [Detection([1, 0, 0, 0])])

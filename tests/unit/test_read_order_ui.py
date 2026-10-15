@@ -80,6 +80,7 @@ def test_loading_the_list_says_nothing(qtbot) -> None:
     assert heard == [] and box.current_first_folders() == ["/a"]
 
 
+@pytest.mark.slow
 def test_the_settings_page_relays_the_marks(qtbot) -> None:
     """`first_folders_changed` is what the shell saves; `current_first_
     folders` is what the index controller reads at Start."""

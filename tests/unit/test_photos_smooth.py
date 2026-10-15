@@ -202,6 +202,7 @@ def _suggest(store, tmp_path, name, pile):
     return face
 
 
+@pytest.mark.slow
 def test_answering_one_question_leaves_the_others_as_they_are(qapp, store, tmp_path):
     daddy = _person(store, tmp_path, "d.jpg", pile_name="Daddy")
     first = _suggest(store, tmp_path, "s1.jpg", daddy)

@@ -84,6 +84,7 @@ def test_the_quantised_path_agrees_closely_with_the_unquantised_one():
     )
 
 
+@pytest.mark.slow
 def test_a_gpu_choice_never_asks_for_a_quantised_copy(tmp_path, monkeypatch):
     r"""§6h's own refusal, tested at the seam rather than against a real
     graphics card: quantisation buys nothing on a GPU, so

@@ -958,6 +958,7 @@ def test_3b_a_placeholder_that_becomes_hydrated_is_indexed_next_run(tmp_path):
     assert rows[0].status == "INDEXED"
 
 
+@pytest.mark.slow
 def test_3c_dehydration_keeps_content_and_prunes_nothing(tmp_path):
     r"""**3c, the order's own acceptance line**: "dehydrate a fixture ->
     content still searchable, zero rows pruned." `status` must stay
@@ -988,6 +989,7 @@ def test_3c_dehydration_keeps_content_and_prunes_nothing(tmp_path):
     assert stats2.deleted == 0, "dehydration is not deletion - zero rows pruned"
 
 
+@pytest.mark.slow
 def test_3a_mixed_folder_hydrated_and_placeholder_get_different_treatment(tmp_path):
     r"""**§4**: "mixed folder fixture (hydrated + placeholder): per-file
     treatment exactly as 3a." One folder, one file of each kind, in the same

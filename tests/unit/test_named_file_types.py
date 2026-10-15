@@ -152,6 +152,7 @@ def test_the_type_menu_now_offers_them(indexed):
     assert "dockerfile" in offered
 
 
+@pytest.mark.slow
 def test_they_can_actually_be_filtered_for(indexed):
     """A value offered in a menu that matches nothing is how a working filter
     looks broken - so the value and the filter are tested together."""

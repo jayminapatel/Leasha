@@ -157,6 +157,7 @@ class _NoLock:
         return None
 
 
+@pytest.mark.slow
 def test_start_pause_resume_stop_pressed_for_real(qtbot, monkeypatch) -> None:
     """The row moved; pressing its buttons must do exactly what it did.
 
@@ -313,6 +314,7 @@ def test_the_bar_glides_between_two_values(qtbot, monkeypatch) -> None:
     assert seen == sorted(seen), f"it went backwards on the way: {seen}"
 
 
+@pytest.mark.slow
 def test_the_bar_never_goes_backwards_with_the_same_total(qtbot) -> None:
     view = _view(qtbot)
     bar = view.bar

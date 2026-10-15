@@ -93,6 +93,7 @@ def _settings(root):
         mini_search_enabled=True, mini_search_hotkey="Ctrl+Shift+Space")
 
 
+@pytest.mark.slow
 def test_the_settings_boxes_hold_nothing_that_is_not_body_size(themed, tmp_path):
     """Every input and button in the boxes that have text boxes is the same size - so a
     text box added to one of them later cannot be larger or smaller than its neighbours."""

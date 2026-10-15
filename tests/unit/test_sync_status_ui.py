@@ -67,6 +67,7 @@ def _page(svc, pages):
 
 
 # ------------------------------------------------------------------- CS-1 / CS-2: the panel's Allow and Fix
+@pytest.mark.slow
 def test_the_panels_allow_asks_naming_the_held_contacts_and_then_syncs_with_the_brake_off(world, monkeypatch):
     from app.ui.accounts import parts
     store, svc, pages = world
@@ -87,6 +88,7 @@ def test_the_panels_allow_asks_naming_the_held_contacts_and_then_syncs_with_the_
     assert synced == [((aid, "contacts"), {"allow_brake": True})]
 
 
+@pytest.mark.slow
 def test_the_panels_fix_these_resets_the_check_and_syncs(world, monkeypatch):
     store, svc, pages = world
     aid = svc.accounts.add("carddav", "a@x.com", "Home")
@@ -101,6 +103,7 @@ def test_the_panels_fix_these_resets_the_check_and_syncs(world, monkeypatch):
     assert fixed == [aid]
 
 
+@pytest.mark.slow
 def test_the_panel_passes_find_duplicates_on(world):
     store, svc, pages = world
     aid = svc.accounts.add("carddav", "a@x.com", "Home")
@@ -111,6 +114,7 @@ def test_the_panel_passes_find_duplicates_on(world):
     assert seen == ["duplicates"]
 
 
+@pytest.mark.slow
 def test_settings_accounts_has_open_sync_status(world):
     store, svc, pages = world
     p = _page(svc, pages)
@@ -121,6 +125,7 @@ def test_settings_accounts_has_open_sync_status(world):
     assert seen == [1]
 
 
+@pytest.mark.slow
 def test_the_sync_logs_allow_asks_first(world, monkeypatch):
     from app.ui.accounts import parts
     store, svc, pages = world
@@ -281,6 +286,7 @@ def test_the_hub_keeps_each_links_state_apart(tmp_path):
         w.close()
 
 
+@pytest.mark.slow
 def test_the_reader_and_editor_mark_each_account(tmp_path):
     from tests.unit.test_contacts_view_world import World, card, settle
     qt()

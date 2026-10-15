@@ -47,6 +47,7 @@ def ruff_available() -> None:
         pytest.skip("ruff is not installed in this environment")
 
 
+@pytest.mark.slow
 def test_no_undefined_names_anywhere_in_app(ruff_available) -> None:
     r"""F821, over the whole of `app/`.
 

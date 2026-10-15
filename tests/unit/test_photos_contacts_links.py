@@ -106,6 +106,7 @@ def test_an_unlinked_contact_offers_its_mail_only_and_one_with_no_address_nothin
     assert "mail" not in panel.see_buttons
 
 
+@pytest.mark.slow
 def test_the_window_opens_photos_and_mail_on_those_switches(gui_mainwindow):
     from tests.unit.conftest import gui_pump
 

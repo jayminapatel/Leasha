@@ -431,6 +431,7 @@ def test_a_run_report_carries_where_its_time_went(tmp_path) -> None:
     store.close()
 
 
+@pytest.mark.slow
 def test_the_chunker_floor_still_exists() -> None:
     """H9's guard. Named here so §6's speed work cannot quietly remove the
     test that stops the quadratic chunker coming back."""

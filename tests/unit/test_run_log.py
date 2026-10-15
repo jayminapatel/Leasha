@@ -306,6 +306,7 @@ def _page(qtbot, monkeypatch):
     return view, now
 
 
+@pytest.mark.slow
 def test_the_page_has_the_log_on_its_status_shelf(qtbot, monkeypatch) -> None:
     view, _now = _page(qtbot, monkeypatch)
     from app.ui.widgets.run_log import RunLog
@@ -324,6 +325,7 @@ def test_the_page_has_the_log_on_its_status_shelf(qtbot, monkeypatch) -> None:
     assert tabs.widget(NOTICES).isAncestorOf(view.notices)
 
 
+@pytest.mark.slow
 def test_repaints_stay_within_the_throttle_and_drop_no_lines(qtbot, monkeypatch) -> None:
     """Forty ticks in a second, each with a new line: at most a paint per
     quarter-second reaches the log, and every line is there at the end."""

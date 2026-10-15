@@ -187,6 +187,7 @@ def test_a_converted_type_cannot_have_its_reader_changed(qapp):
 
 # --- select all / none -----------------------------------------------------
 
+@pytest.mark.slow
 def test_select_none_then_all_switches_every_shown_type(editor):
     total = len(editor._boxes)
     assert total > 10, "the table should list everything the app reads"
@@ -232,6 +233,7 @@ def test_select_all_says_when_a_filter_narrowed_it(editor):
     assert "current filter" in editor.status.text()
 
 
+@pytest.mark.slow
 def test_select_all_enables_saving_only_when_something_changed(editor):
     editor.set_all(True)
     editor.save_button.setEnabled(False)

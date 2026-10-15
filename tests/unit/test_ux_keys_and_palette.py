@@ -63,6 +63,7 @@ def win(gui_mainwindow, qtbot):
 # IA-1 / MS-11 - the command palette
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_ctrl_k_opens_the_palette_and_enter_goes_to_the_page_chosen(win, qtbot):
     app, window = win
     _goto(window, "Tidy")
@@ -135,6 +136,7 @@ def test_words_that_match_nothing_are_searched_for_on_the_search_page(win, qtbot
     window.search_view.input.clear()
 
 
+@pytest.mark.slow
 def test_a_settings_line_opens_that_category(win):
     app, window = win
     nav = window.settings_view._nav

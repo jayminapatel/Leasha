@@ -185,6 +185,7 @@ def test_a_dialog_that_destroys_puts_enter_on_cancel(qapp) -> None:
             widget.deleteLater()
 
 
+@pytest.mark.slow
 def test_every_question_box_puts_the_verb_on_the_right_too(qapp, monkeypatch) -> None:
     """`confirm` (phase A) is a `QMessageBox`; the sheet's order reaches it as well."""
     from app.ui.widgets import confirm as confirm_module

@@ -157,6 +157,7 @@ def test_a_folder_dropped_into_the_archive_is_caught(tmp_path, corpus):
     assert stats.indexed == 1                      # the new file, and only it
 
 
+@pytest.mark.slow
 def test_recheck_walks_it_in_full(tmp_path, corpus):
     archive, live = corpus
     db = tmp_path / "index.db"

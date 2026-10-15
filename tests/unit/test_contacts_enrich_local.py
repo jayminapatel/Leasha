@@ -270,6 +270,7 @@ def _link(hub, cid, pile, state="accepted"):
         conn.execute("INSERT INTO contact_pile_links (contact_id, pile_id, state) VALUES (?,?,?)", (cid, pile, state))
 
 
+@pytest.mark.slow
 def test_a_photo_is_proposed_from_the_linked_persons_best_face(hub, tmp_path):
     from PIL import Image
     import io
@@ -337,6 +338,7 @@ def test_refresh_last_contacted_is_a_derived_write_with_no_journal(hub):
 
 # ---- 7e suggested contacts --------------------------------------------------------------
 
+@pytest.mark.slow
 def test_frequent_unknown_senders_are_suggested_and_added_only_when_accepted(hub):
     ann(hub)
     for i in range(3):

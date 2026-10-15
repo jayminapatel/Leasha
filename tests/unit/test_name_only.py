@@ -209,6 +209,7 @@ def test_name_only_is_not_indexed_and_not_a_skip():
     assert FileStatus.NAME_ONLY in FileStatus.ALL
 
 
+@pytest.mark.slow
 def test_a_name_only_file_is_findable_by_name(tmp_path):
     """The whole point. `upsert_file` already feeds `files_fts` for anything
     whose `source_kind` is `file`, so this costs nothing extra."""
@@ -231,6 +232,7 @@ def test_a_name_only_file_has_no_chunks_and_cannot_match_content(tmp_path):
         assert store.search_bm25("holiday") == []
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("status", list(FileStatus.ALL))
 def test_every_declared_status_is_actually_writable(status, tmp_path):
     """The CHECK and the constant have to agree. They disagreed for exactly as
@@ -371,6 +373,7 @@ def test_a_name_only_row_never_claims_to_have_content(tmp_path, mixed):
         assert [r["path"] for r in store.search_files_by_name("holiday")]
 
 
+@pytest.mark.slow
 def test_a_file_nothing_can_read_is_never_hashed(tmp_path, mixed, monkeypatch):
     r"""**The promise, stated as a test.** *"Nothing is opened."*
 
@@ -407,6 +410,7 @@ def test_a_file_nothing_can_read_is_never_hashed(tmp_path, mixed, monkeypatch):
     assert "backup.zip" not in hashed
 
 
+@pytest.mark.slow
 def test_a_name_only_row_is_reexamined_once_its_type_becomes_readable(tmp_path):
     r"""The other half of not hashing: **NAME_ONLY must not mean settled.**
 

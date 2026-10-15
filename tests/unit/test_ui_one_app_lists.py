@@ -280,6 +280,7 @@ def test_the_menu_on_a_message_says_message(qapp):
 
 # -- 9. The Contacts question box ------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_contacts_question_says_its_title_once_and_cancel_is_the_default(world, monkeypatch):
     page = world.page()
     seen = {}

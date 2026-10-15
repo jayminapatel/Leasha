@@ -46,6 +46,7 @@ def wait_for_workers(qtbot):
     qtbot.wait(50)
 
 
+@pytest.mark.slow
 def test_the_list_has_the_five_sections_with_icons_and_counts(page):
     view, _store, _files, _bin = page
     entries = view.list.entries()
@@ -100,6 +101,7 @@ def test_nothing_moves_without_a_yes(page, qtbot):
     assert files["spare"].exists() and bin.sent == []
 
 
+@pytest.mark.slow
 def test_a_yes_moves_the_marked_copy_and_history_can_put_it_back(page, qtbot):
     view, _store, files, bin = page
     view.show_kind("copies")
@@ -207,6 +209,7 @@ def test_the_list_tab_shows_every_file_with_the_standard_table_and_view_menu(pag
     assert "2 files in 1 sets" in pane.summary.text() and "1 marked to go" in pane.summary.text()
 
 
+@pytest.mark.slow
 def test_a_tick_in_the_list_marks_that_file_in_its_own_set(page):
     from PySide6.QtCore import Qt
 
@@ -224,6 +227,7 @@ def test_a_tick_in_the_list_marks_that_file_in_its_own_set(page):
     assert view.marks.marked == set()
 
 
+@pytest.mark.slow
 def test_the_list_follows_marks_made_in_the_other_tabs_and_keeps_one_when_asked(page):
     view, _store, files, _bin = page
     pane = _list(view)
@@ -237,6 +241,7 @@ def test_the_list_follows_marks_made_in_the_other_tabs_and_keeps_one_when_asked(
     assert now[str(files["kept"])] == 2 and now[str(files["spare"])] == 0
 
 
+@pytest.mark.slow
 def test_the_list_filters_by_name_or_folder_and_says_how_many(page):
     view, *_ = page
     pane = _list(view)
@@ -248,6 +253,7 @@ def test_the_list_filters_by_name_or_folder_and_says_how_many(page):
     assert not any(pane.results.isRowHidden(r) for r in range(pane.results.rowCount()))
 
 
+@pytest.mark.slow
 def test_the_list_sorts_sizes_as_numbers_and_columns_fit_what_they_hold(page):
     view, *_ = page
     pane = _list(view)
@@ -258,6 +264,7 @@ def test_the_list_sorts_sizes_as_numbers_and_columns_fit_what_they_hold(page):
     assert all(w > 0 for w in widths) and len(set(widths)) > 1             # fitted, not one width for all
 
 
+@pytest.mark.slow
 def test_large_files_and_leftovers_open_on_the_list(page):
     view, *_ = page
     view.show_kind("large")

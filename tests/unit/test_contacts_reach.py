@@ -45,6 +45,7 @@ def doors(monkeypatch):
 
 
 # ------------------------------------------------------------------ 6p / 7: the doors
+@pytest.mark.slow
 def test_the_more_tools_menu_opens_cleanup_enrich_and_duplicates(world, doors):
     cid = world.add(card("Ann", "Lee", email="ann@acme.example"))
     page = world.page()

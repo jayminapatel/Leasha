@@ -159,6 +159,7 @@ def test_an_empty_answer_is_asked_again_after_a_while(store, monkeypatch):
     assert host.calls == ["volcano homework"]
 
 
+@pytest.mark.slow
 def test_a_table_that_cannot_be_counted_is_searched_as_before(store):
     """Unknown is "yes": the lane runs and can say what is wrong itself."""
     pictures, host = _Pictures(broken=True), _VisionHost()

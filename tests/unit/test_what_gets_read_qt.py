@@ -99,6 +99,7 @@ def _gathered(settings, store):
     return box, view
 
 
+@pytest.mark.slow
 def test_the_settings_levers_are_drawn_in_their_places(settings_and_store):
     from app.ui.presenter.coverage import EMAIL, FILES, MEDIA, PICTURES
 
@@ -117,6 +118,7 @@ def test_the_settings_levers_are_drawn_in_their_places(settings_and_store):
     assert blocks[MEDIA].isAncestorOf(moved)
 
 
+@pytest.mark.slow
 def test_a_settings_lever_still_saves_the_way_it_always_did(settings_and_store):
     box, view = _gathered(*settings_and_store)
     saved = []
@@ -125,6 +127,7 @@ def test_a_settings_lever_still_saves_the_way_it_always_did(settings_and_store):
     assert saved and "CAPTION_TRICKLE_ENABLED" in saved[-1]
 
 
+@pytest.mark.slow
 def test_moving_a_settings_lever_rewrites_its_place_sentence(settings_and_store):
     from app.ui.presenter.coverage import EMAIL, FILES, PICTURES
 

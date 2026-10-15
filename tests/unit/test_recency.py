@@ -174,6 +174,7 @@ class _NoModel:
         raise RuntimeError("no embedding model in this test")
 
 
+@pytest.mark.slow
 def test_the_shipped_weight_still_earns_its_place():
     r"""**Recall@1 over the twenty built-in sentences must not fall.**
 

@@ -193,6 +193,7 @@ def test_a_find_answer_leaves_that_s_all_to_its_list():
 
 # -- 6c: the side panel waits to be asked for --------------------------------------
 
+@pytest.mark.slow
 def test_the_side_panel_starts_away_and_a_citation_opens_it_at_preview(view):
     from tests.unit.chat_fakes import AGREEMENT, deposit_turn
 

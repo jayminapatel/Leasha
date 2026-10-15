@@ -141,6 +141,7 @@ def test_updating_a_chunk_updates_the_fts_index(tmp_path: Path) -> None:
 
 # --- 3 ----------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_acceptance_3_delete_cascades_everywhere(tmp_path: Path) -> None:
     store = SqliteStore(tmp_path / "k.db").connect()
     vectors = VectorStore(tmp_path / "vectors", dim=8).connect()

@@ -155,6 +155,7 @@ def test_every_yes_no_button_states_its_effect_in_its_tooltip(qapp, store):
         assert "Daddy" in button.toolTip() or "guess" in button.toolTip().lower()
 
 
+@pytest.mark.slow
 def test_twenty_suggestions_scroll_and_never_widen_the_window(qapp, store):
     """2026-10-05, the owner: "that window is not maximizing or scaling properly
     it is not scrolling on the bottom too". Twenty chips in a plain row made

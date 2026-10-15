@@ -135,6 +135,7 @@ def _tagged(cards):
     return sum(1 for c in cards if any(f.label == "server tag" for f in c.fields))
 
 
+@pytest.mark.slow
 def test_a_run_the_churn_guard_held_can_be_undone_and_the_hold_is_lifted(svc):
     from app.ui.accounts import logic
     home, other, out = _churned(svc)

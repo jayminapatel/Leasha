@@ -55,6 +55,7 @@ def test_visio_and_project_do_not_fight_over_an_extension():
 
 # -- .vsdx: the one we can genuinely read ------------------------------------
 
+@pytest.mark.slow
 def test_shape_text_is_extracted_from_a_modern_visio_file(tmp_path):
     document = list(extract(make_vsdx(tmp_path / "layout.vsdx")))[0]
     assert "Barnsley Dairy HACCP point" in document.text

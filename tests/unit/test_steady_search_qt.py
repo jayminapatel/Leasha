@@ -152,6 +152,7 @@ def card(world):
 QUESTION = "What did we agree with the landlord about the deposit?"
 
 
+@pytest.mark.slow
 def test_the_answer_card_holds_its_place_from_the_first_keystroke(card, qtbot):
     view, card, _fake = card
     view.input.setText(QUESTION)
@@ -333,6 +334,7 @@ def test_choosing_a_sort_leaves_the_spaces_inside_a_quoted_filter_alone():
     assert with_sort('boiler name:"Project  Plan" /newest', "oldest") == 'boiler name:"Project  Plan" /oldest'
 
 
+@pytest.mark.slow
 def test_typing_over_painted_rows_still_holds_a_card_until_the_new_rows(world):
     """A query edited with rows on screen: those rows are still painted until replaced."""
     from app.ui.widgets.person_card import PersonInfo

@@ -57,6 +57,7 @@ def world(tmp_path, monkeypatch):
     return run
 
 
+@pytest.mark.slow
 def test_add_list_status_and_remove(world, capsys):
     assert world("accounts", "add", "carddav", "--address", "me@fast.com", "--name", "Fast",
                  "--server", "carddav.fast.com", "--password-stdin", stdin="s3cret-pw\n") == 0

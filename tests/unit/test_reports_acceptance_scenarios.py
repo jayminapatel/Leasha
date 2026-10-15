@@ -92,6 +92,7 @@ def test_the_owner_sees_in_one_glance_which_drive_holds_the_only_copy(family, qt
     assert tree.topLevelItem(0).text(0) == "Projects 2019"         # ...and first in its table
 
 
+@pytest.mark.slow
 def test_june_2015_is_a_place_you_can_go(family, qtbot):
     r"""Browse -> 2015 -> Jun: the photograph, the letter, the drive's photograph
     and the message, wherever each lives now. (Reports -> Browse your timeline

@@ -580,6 +580,7 @@ def test_a_file_is_not_marked_indexed_before_its_vectors_exist(tmp_path, corpus)
         + "\n  ".join(violations))
 
 
+@pytest.mark.slow
 def test_pruning_does_not_load_every_message_in_the_archive(tmp_path, corpus):
     """At 200,000 emails, materialising every row to discard the mail is
     minutes and hundreds of megabytes - at the very end of a run, for nothing.
