@@ -256,6 +256,7 @@ def test_a_run_reads_the_chosen_folder_first_then_newest(tmp_path: Path) -> None
     assert stats.walk_complete
 
 
+@pytest.mark.slow
 def test_as_found_is_still_the_walk_order(tmp_path: Path) -> None:
     """The old behaviour, kept behind the setting: no scan phase, and the
     chosen folder is not guaranteed first across the corpus (only within the

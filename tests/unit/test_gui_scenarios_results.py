@@ -183,6 +183,7 @@ def test_the_selected_row_survives_the_interim_to_full_swap(gui_mainwindow, qtbo
 # silently dropped and `current_row()` was None when the pane was switched on.
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_clicked_result_is_still_previewed_after_the_rows_are_replaced_by_a_longer_query(
         gui_mainwindow, qtbot):
     from PySide6.QtCore import Qt

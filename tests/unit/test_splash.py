@@ -384,6 +384,7 @@ class TestGetSplashStatusText:
 
 # --- every line fits its box (2026-09-29) -------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.qt
 @pytest.mark.parametrize("system_points", [9.0, 11.0, 13.0])
 def test_no_splash_line_runs_off_the_splash(qapp, system_points) -> None:

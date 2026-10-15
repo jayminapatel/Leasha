@@ -827,6 +827,7 @@ def _paint(window, payload, expanded: bool, width: int):
     return hint.height(), image, option
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("width", [340, 760])
 @pytest.mark.parametrize("size", list(TEXT_SIZES))
 @pytest.mark.parametrize("density", ["compact", "normal"])

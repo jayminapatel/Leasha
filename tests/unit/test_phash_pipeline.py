@@ -225,6 +225,7 @@ def test_no_phash_computer_configured_means_ocr_still_works(tmp_path):
 # --- H7-shaped: batched writes, not one UPDATE per file -----------------
 
 
+@pytest.mark.slow
 def test_many_photos_flush_their_hashes_in_one_batch(tmp_path, monkeypatch):
     root = tmp_path / "docs"
     for i in range(10):

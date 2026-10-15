@@ -194,6 +194,7 @@ def test_all_roots_ignores_the_modes_without_touching_the_records(tmp_path, corp
     assert after == before                         # and nothing re-dated
 
 
+@pytest.mark.slow
 def test_rows_under_a_skipped_archive_are_not_pruned(tmp_path, corpus):
     r"""**And are not `stat`'d either, which is the point.**
 

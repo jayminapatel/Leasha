@@ -242,6 +242,7 @@ def test_an_inline_icon_pixel_and_divider_are_not_read(monkeypatch) -> None:
 
 # --- the promise ------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_real_screenshot_scan_or_receipt_is_never_left_unread(monkeypatch) -> None:
     """Inline or attached, once or across many archives: always read, always indexed."""
     for archive in range(REPEAT_LIMIT + 3):

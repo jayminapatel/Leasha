@@ -102,6 +102,7 @@ def test_bundle_written_to_an_explicit_path(temp_env: Path, project_root: Path, 
     assert target.is_file()
 
 
+@pytest.mark.slow
 def test_env_in_bundle_is_redacted(temp_env: Path, project_root: Path, no_doctor) -> None:
     """A secret added to `.env` must never reach a bundle, and unknown keys
     are redacted by default - the allowlist is opt-in, not opt-out."""

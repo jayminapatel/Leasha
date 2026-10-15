@@ -118,6 +118,7 @@ def test_a_yes_moves_the_marked_copy_and_history_can_put_it_back(page, qtbot):
     qtbot.waitUntil(lambda: files["spare"].exists(), timeout=10000)
 
 
+@pytest.mark.slow
 def test_find_copies_of_this_opens_the_files_set_with_nothing_marked(page, qtbot):
     view, _store, files, _bin = page
     view.open_file(str(files["kept"]))
@@ -195,6 +196,7 @@ def _list(view):
     return view.sets.list_pane
 
 
+@pytest.mark.slow
 def test_the_list_tab_shows_every_file_with_the_standard_table_and_view_menu(page):
     view, _store, files, _bin = page
     pane = _list(view)

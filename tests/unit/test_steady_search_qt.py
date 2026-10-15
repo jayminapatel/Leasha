@@ -109,6 +109,7 @@ def test_the_home_content_sits_under_the_box(world):
 
 # -- 2. nothing pushes rows already on screen ---------------------------------------------
 
+@pytest.mark.slow
 def test_a_notice_arriving_late_does_not_push_the_rows(world):
     from app.search.engine import Notice
 
@@ -195,6 +196,7 @@ def test_hide_puts_the_card_away_for_that_query_only(card):
     assert not card.isHidden()                            # a new question gets its card
 
 
+@pytest.mark.slow
 def test_a_contact_found_after_the_rows_waits_for_the_next_set_of_rows(world):
     from app.ui.widgets.person_card import PersonInfo
 
@@ -268,6 +270,7 @@ def test_a_missing_file_is_marked_on_the_row_in_the_warning_colour(world):
     assert (word, token) == (MISSING_MARK, "warning")
 
 
+@pytest.mark.slow
 def test_the_badge_shows_its_word_and_no_corner_icon(world, monkeypatch):
     import app.ui.result_delegate as delegate
 
@@ -304,6 +307,7 @@ def test_matched_words_are_marked_in_the_name_too(world, monkeypatch):
 
 # -- 5. the sort control -------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_sort_control_sets_the_typed_sort_and_follows_it(world):
     view, _engine, _store = world
     sort = view.sort_button

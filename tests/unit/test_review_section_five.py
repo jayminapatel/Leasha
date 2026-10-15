@@ -363,6 +363,7 @@ if __name__ == "__main__":       # pragma: no cover
 # --- §3's last item: a budget that is enforced rather than observed ---------
 
 
+@pytest.mark.slow
 def test_the_wildcard_budget_actually_stops_the_scan(tmp_path: Path) -> None:
     """`BUDGET_S` was measured after the query returned and then logged.
 
@@ -400,6 +401,7 @@ def test_the_wildcard_budget_actually_stops_the_scan(tmp_path: Path) -> None:
         assert problems, "cut short and said nothing - the failure that hides"
 
 
+@pytest.mark.slow
 def test_a_wildcard_that_runs_out_of_budget_says_what_to_do(
     tmp_path: Path
 ) -> None:
