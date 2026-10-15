@@ -1,6 +1,6 @@
 # scripts
 
-**Doc version:** 1.3 · **Updated:** 2026-10-09 · **Applies to:** app v0.3.5
+**Doc version:** 1.4 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
 
 Helper scripts that are not part of the application. Run them from the project folder with
 the venv's Python (`venv\Scripts\python.exe` on Windows, `venv/bin/python` elsewhere).
@@ -20,8 +20,10 @@ the venv's Python (`venv\Scripts\python.exe` on Windows, `venv/bin/python` elsew
   maps a change through the import graph and the texts of the tests, always adds the
   load-bearing tests, and runs everything when most of the suite can see the change, saying
   why. `--quick` deselects `gui`, `slow` and `qt` tests for a sanity pass; neither is the
-  release gate, which stays the whole suite. `--audit-markers` lists the slowest files and
-  every test over a second not marked `slow`, from the stored measurements.
+  release gate, which stays the whole suite. The same file keeps every test's last three
+  times; `--audit-markers` lists the slowest files and every test not marked `slow` whose
+  lowest time of those is a second or more (judged once a test has two), from the stored
+  measurements - the rule `tests/unit/test_slow_markers_truthful.py` fails on.
 - `suite_durations.py` and `suite_affected.py` - the runner's two helpers above; not run on
   their own.
 - `regen_vs_project.py` - rewrites `Leasha.pyproj` from the files git tracks. Run it after

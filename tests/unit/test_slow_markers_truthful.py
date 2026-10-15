@@ -6,9 +6,18 @@ Layer: L0 - repo tooling.
 `slow`; the other 605 (3,687 s) were not, so `run_suite.py --quick`
 (`not gui and not slow and not qt`) was not quick, and the marker meant nothing.
 They were marked in one pass. This keeps them from drifting again: a test that
-`logs/suite/durations.json` lists at or over `run_suite.SLOW_SECONDS` must carry
+`logs/suite/durations.json` judges at or over `run_suite.SLOW_SECONDS` must carry
 the mark - on the function, its class, a `pytest.param` of it, or the file's
 `pytestmark`.
+
+**Judged on the lowest of its last three runs (2026-10-15).** It used to be judged on
+the last run alone, and which tests cross a second moves with how loaded the laptop is:
+a quiet 4-part run listed 177, they were marked (#99), and the next 3-part run listed
+108 different ones. Marking again would only have moved the line. Load only ever adds
+time, so `durations.json` now keeps each test's last `run_suite.HISTORY_RUNS` times and
+the test is judged on the lowest (`run_suite.judged_seconds`), once it has
+`run_suite.JUDGED_AFTER_RUNS`: a quick test needs three slow runs in a row to be
+flagged, and a new test that really is slow is caught after its second run.
 
 **Read from the source, not from the measurement's `marked` flag.** The flag is
 whatever the test was when it last ran; a mark added since then is real, so the
@@ -17,8 +26,9 @@ measurement and is passed over.
 
 **Where the measurements live.** `logs/` is git-ignored: the numbers are the
 machine's own, written by `scripts/run_suite.py` after a run. A fresh clone - CI
-included - has none, and this test says so and skips. It bites on the machine
-that runs the full suite, which is where a new slow test first shows up.
+included - has none, and this test says so and skips; so does a machine whose file has
+no test measured twice yet (the first full run after the history began). It bites on
+the machine that runs the full suite, which is where a new slow test first shows up.
 """
 
 from __future__ import annotations
@@ -134,13 +144,14 @@ def _marks_in(path: Path) -> tuple[bool, dict[str, bool]]:
 
 
 def unmarked_over_threshold(measurements: dict) -> list[str]:
-    """Measured tests at or over the threshold whose source carries no `slow` mark."""
+    """Tests judged at or over the threshold whose source carries no `slow` mark."""
     offenders = []
-    for nodeid, entry in measurements.get("slow_tests", {}).items():
+    for nodeid, entry in measurements.get("tests", {}).items():
         # The source decides, never the recorded `marked` flag: a mark removed since the last
         # measured run must be caught now, not after the next one (review of #85).
-        if float(entry.get("seconds", 0.0)) < run_suite.SLOW_SECONDS:
-            continue
+        seconds = run_suite.judged_seconds(entry)
+        if seconds is None or seconds < run_suite.SLOW_SECONDS:
+            continue                             # not measured often enough yet, or quick
         path, _, rest = nodeid.partition("::")
         file = ROOT / path
         if Path(path).stem in EXEMPT or not file.is_file():
@@ -149,18 +160,25 @@ def unmarked_over_threshold(measurements: dict) -> list[str]:
         name = rest.split("[", 1)[0]
         if whole or name not in marks or marks[name] or marks.get(rest):
             continue                             # the file, the test, or this one case is marked
-        offenders.append(f"{nodeid} ({float(entry['seconds']):.1f} s)")
+        offenders.append(f"{nodeid} ({seconds:.1f} s)")
     return offenders
+
+
+def _judged_any(measurements: dict) -> bool:
+    return any(run_suite.judged_seconds(entry) is not None
+               for entry in measurements.get("tests", {}).values())
 
 
 def test_every_test_measured_over_the_threshold_is_marked_slow():
     measurements = run_suite.load_durations(run_suite.DURATIONS_FILE)
-    if not measurements.get("slow_tests"):
-        pytest.skip(f"no measurements at {run_suite.DURATIONS_FILE} - a full "
-                    f"`scripts/run_suite.py` run writes them")
+    if not _judged_any(measurements):
+        pytest.skip(f"no test measured {run_suite.JUDGED_AFTER_RUNS} times at "
+                    f"{run_suite.DURATIONS_FILE} - each full `scripts/run_suite.py` run adds "
+                    f"one time per test")
     offenders = unmarked_over_threshold(measurements)
     assert not offenders, (
-        f"{len(offenders)} test(s) took {run_suite.SLOW_SECONDS:.0f} s or more and are not "
+        f"{len(offenders)} test(s) took {run_suite.SLOW_SECONDS:.0f} s or more in each of "
+        f"their last {run_suite.HISTORY_RUNS} measured runs (the lowest is shown) and are not "
         f"marked `slow` - mark them (`@pytest.mark.slow`) or make them faster:\n  "
         + "\n  ".join(offenders[:60]))
 
@@ -182,26 +200,108 @@ def test_the_guard_catches_an_unmarked_slow_test_and_passes_a_marked_one(tmp_pat
         "import pytest\npytestmark = [pytest.mark.slow]\n\ndef test_any():\n    pass\n",
         encoding="utf-8")
     monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    _marks_in.cache_clear()
     over = run_suite.SLOW_SECONDS
-    measured = {"slow_tests": {
-        "tests/unit/test_probe.py::test_unmarked": {"seconds": over, "marked": False},
-        "tests/unit/test_probe.py::test_marked": {"seconds": over, "marked": False},
-        "tests/unit/test_probe.py::test_param[1]": {"seconds": over, "marked": False},
-        "tests/unit/test_probe.py::TestGroup::test_method": {"seconds": over, "marked": False},
-        "tests/unit/test_whole.py::test_any": {"seconds": over, "marked": False},
-        "tests/unit/test_probe.py::test_gone": {"seconds": over, "marked": False},
-        "tests/unit/test_probe.py::test_fast": {"seconds": over / 2, "marked": False},
+    slow_twice = {"runs": [over, over + 0.5], "marked": False}
+    measured = {"tests": {
+        "tests/unit/test_probe.py::test_unmarked": slow_twice,
+        "tests/unit/test_probe.py::test_marked": slow_twice,
+        "tests/unit/test_probe.py::test_param[1]": slow_twice,
+        "tests/unit/test_probe.py::TestGroup::test_method": slow_twice,
+        "tests/unit/test_whole.py::test_any": slow_twice,
+        "tests/unit/test_probe.py::test_gone": slow_twice,
+        "tests/unit/test_probe.py::test_fast": {"runs": [over / 2, over / 2], "marked": False},
     }}
+    # Judged on the lowest of its runs, so the line says the lowest.
     assert unmarked_over_threshold(measured) == [
         f"tests/unit/test_probe.py::test_unmarked ({over:.1f} s)"]
 
+    # 2026-10-15, the new rule: one quick run among its last three clears it; one slow run
+    # alone is not judged at all; three slow runs in a row are.
+    def judged(runs):
+        return unmarked_over_threshold(
+            {"tests": {"tests/unit/test_probe.py::test_unmarked": {"runs": runs}}})
+
+    assert judged([over / 2, over * 3, over * 3]) == [], "a quiet run in the window clears it"
+    assert judged([over * 3, over / 2, over * 3]) == []
+    assert judged([over * 3]) == [], "one run, loaded or not, is not enough to judge"
+    assert judged([over / 2, over * 2, over * 2, over * 2]) == [
+        f"tests/unit/test_probe.py::test_unmarked ({over * 2:.1f} s)"], (
+        "only the last three count: the quiet run has aged out")
+
 
 def test_the_threshold_is_the_runners_own():
-    """One number: `--audit-markers` and this guard cannot disagree about what is slow."""
+    """One number: `--audit-markers` and this guard cannot disagree about what is slow.
+    2026-10-15: nor about how a test is judged - both go through `judged_seconds`."""
     assert run_suite.SLOW_SECONDS == 1.0
-    audited = run_suite.unmarked_slow({"slow_tests": {
-        "a::t": {"seconds": run_suite.SLOW_SECONDS, "marked": False}}})
-    assert audited == [("a::t", run_suite.SLOW_SECONDS)]
+    at = run_suite.SLOW_SECONDS
+    audited = run_suite.unmarked_slow({"tests": {
+        "a::t": {"runs": [at, at + 1.0], "marked": False},
+        "a::u": {"runs": [at - 0.01, at + 1.0], "marked": False}}})
+    assert audited == [("a::t", at)]
+
+
+def _source(root: Path, marked: int, unmarked: int) -> list[str]:
+    """A test file of `marked` tests carrying `slow` and `unmarked` that do not."""
+    tests = root / "tests" / "unit"
+    tests.mkdir(parents=True, exist_ok=True)
+    names = [f"test_{i:03d}" for i in range(marked + unmarked)]
+    (tests / "test_load.py").write_text("import pytest\n\n" + "".join(
+        ("@pytest.mark.slow\n" if i < marked else "") + f"def {name}():\n    pass\n\n"
+        for i, name in enumerate(names)), encoding="utf-8")
+    return [f"tests/unit/test_load.py::{name}" for name in names]
+
+
+def _run(times: dict[str, float]) -> dict:
+    """One run's part, as `scripts/suite_durations.py` writes it."""
+    return {"files": {"tests/unit/test_load.py": sum(times.values())},
+            "tests": {name: {"seconds": seconds, "marked": False}
+                      for name, seconds in times.items()}}
+
+
+def test_177_then_108_different_tests_over_a_second_is_not_a_red(tmp_path, monkeypatch):
+    """The two runs of 2026-10-15, in shape: a quiet 4-part run put 177 tests over a second
+    and they were marked (#99); the next, 3-part run put 108 *different* tests over, each
+    of them well under a second the run before. Judged on the last run alone that was 108
+    offenders; judged on the lowest of the last runs it is none - and stays none through a
+    third run that is just as loaded."""
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    _marks_in.cache_clear()
+    names = _source(tmp_path, marked=177, unmarked=108 + 200)
+    first, second, rest = names[:177], names[177:285], names[285:]
+    quiet = _run({**{n: 1.3 for n in first}, **{n: 0.6 for n in second},
+                  **{n: 0.2 for n in rest}})
+    loaded = _run({**{n: 0.8 for n in first}, **{n: 1.2 for n in second},
+                   **{n: 0.4 for n in rest}})
+
+    after_one = run_suite.merge_durations({}, [quiet])
+    assert not _judged_any(after_one), "one run judges nothing - the guard skips"
+    assert unmarked_over_threshold(after_one) == []
+
+    after_two = run_suite.merge_durations(after_one, [loaded])
+    assert len(run_suite.recent_runs(after_two["tests"][second[0]])) == 2
+    latest_alone = [n for n, e in after_two["tests"].items()
+                    if run_suite.recent_runs(e)[-1] >= run_suite.SLOW_SECONDS and n in second]
+    assert len(latest_alone) == 108, "the old rule's red, reproduced"
+    assert unmarked_over_threshold(after_two) == []
+    assert run_suite.unmarked_slow(after_two) == []
+
+    after_three = run_suite.merge_durations(after_two, [loaded])
+    assert unmarked_over_threshold(after_three) == [], "the quiet run is still in the window"
+
+
+def test_a_new_test_that_really_is_slow_is_caught_on_its_second_run(tmp_path, monkeypatch):
+    """Order 1u section 4b's purpose kept: `--quick` stays quick because a genuinely slow
+    unmarked test is still caught within two runs, however quiet the machine."""
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    _marks_in.cache_clear()
+    old, new = _source(tmp_path, marked=0, unmarked=2)
+    history = run_suite.merge_durations({}, [_run({old: 0.1})])
+    history = run_suite.merge_durations(history, [_run({old: 0.1, new: 2.5})])
+    assert unmarked_over_threshold(history) == [], "its first run: not judged yet"
+    assert [name for name, _ in run_suite.awaiting_judgement(history)] == [new]
+    history = run_suite.merge_durations(history, [_run({old: 0.1, new: 2.2})])
+    assert unmarked_over_threshold(history) == [f"{new} (2.2 s)"]
 
 
 def test_every_exemption_names_a_real_file_and_a_reason():
