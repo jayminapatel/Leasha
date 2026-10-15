@@ -382,6 +382,7 @@ def test_the_progress_line_says_who_paused_the_run():
         "ends by itself and the other waits to be let go")
 
 
+@pytest.mark.slow
 def test_stopping_a_paused_run_from_the_page_clears_the_button(qtbot):
     from app.ui.indexing_view import PAUSE_LABEL
 

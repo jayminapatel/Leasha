@@ -169,6 +169,7 @@ def _judged_any(measurements: dict) -> bool:
                for entry in measurements.get("tests", {}).values())
 
 
+@pytest.mark.slow
 def test_every_test_measured_over_the_threshold_is_marked_slow():
     measurements = run_suite.load_durations(run_suite.DURATIONS_FILE)
     if not _judged_any(measurements):

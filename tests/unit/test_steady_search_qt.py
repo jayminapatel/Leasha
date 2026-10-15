@@ -165,6 +165,7 @@ def test_the_answer_card_holds_its_place_from_the_first_keystroke(card, qtbot):
     assert card.height() == reserved == card.maximumHeight()   # ...into the same slot
 
 
+@pytest.mark.slow
 def test_an_answer_that_never_comes_keeps_the_slot_for_that_query(card, qtbot):
     view, card, fake = card
     from app.chat.types import ChatTurn
@@ -258,6 +259,7 @@ def _paint(view, index):
         painter.end()
 
 
+@pytest.mark.slow
 def test_a_missing_file_is_marked_on_the_row_in_the_warning_colour(world):
     from app.ui.result_delegate import ROLE_MISSING
     from app.ui.presenter import MISSING_MARK
@@ -284,6 +286,7 @@ def test_the_badge_shows_its_word_and_no_corner_icon(world, monkeypatch):
     _paint(view, _group_index(view))
 
 
+@pytest.mark.slow
 def test_matched_words_are_marked_in_the_name_too(world, monkeypatch):
     import app.ui.result_delegate as delegate
 
@@ -380,6 +383,7 @@ def test_a_list_emptied_by_another_action_does_not_keep_the_old_count(world):
     assert view.status.text() == "No documents"
 
 
+@pytest.mark.slow
 def test_a_link_cut_off_by_the_one_line_notice_stays_clickable(world):
     from types import SimpleNamespace
 
@@ -397,6 +401,7 @@ def test_a_link_cut_off_by_the_one_line_notice_stays_clickable(world):
     assert chosen == ["apply:type:pdf"]
 
 
+@pytest.mark.slow
 def test_long_source_names_scroll_with_the_answer_inside_the_slot(card):
     view, card, _fake = card
     assert card.sources.parentWidget() is not None

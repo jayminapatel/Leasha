@@ -250,6 +250,7 @@ def test_a_held_file_is_picked_up_again_rather_than_left_for_ever(tmp_path, corp
 
 # --- an archive folder of photos (2026-10-05) ----------------------------------
 
+@pytest.mark.slow
 def test_an_archive_held_by_the_text_pass_is_read_by_the_images_pass(tmp_path, corpus):
     """The owner: "i ran the index few times no faces nothing keeps skipping".
     `PhotosMaster` was marked as an archive; the text pass held all 15,010
