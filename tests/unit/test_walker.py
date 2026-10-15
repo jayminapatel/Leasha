@@ -252,6 +252,16 @@ def test_default_exclusions_cover_the_usual_suspects() -> None:
     assert "~$*" in DEFAULT_EXCLUDE_GLOBS
 
 
+def test_a_repositorys_worktrees_are_not_walked(tmp_path: Path) -> None:
+    """2026-10-15: `.worktrees` and `.claude` hold git worktrees that coding sessions make
+    inside a repository and delete days later; their pictures filled the Photos page."""
+    make_tree(tmp_path, {"assets/logo.txt": "kept",
+                         ".worktrees/1u-a/assets/logo.txt": "a copy",
+                         ".claude/worktrees/agent-1/assets/logo.txt": "a copy"})
+    walked = {c.path.relative_to(tmp_path).as_posix() for c in walk(WalkConfig(roots=[tmp_path], extensions=TEXT))}
+    assert walked == {"assets/logo.txt"}
+
+
 # --- cloud placeholders -----------------------------------------------------
 
 def test_cloud_placeholders_are_skipped_without_being_read(tmp_path: Path) -> None:

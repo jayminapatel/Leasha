@@ -1390,7 +1390,7 @@ def decode_image(path: str):
         image = QImage(str(path))
     except Exception:                            # noqa: BLE001 - boundary
         return None
-    if image.isNull():
+    if image.isNull() and Path(str(path)).is_file():   # a file that is gone is not too big
         image = _decode_too_big(str(path))
     if image is None or image.isNull():
         return None

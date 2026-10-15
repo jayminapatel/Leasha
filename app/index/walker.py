@@ -77,6 +77,10 @@ DEFAULT_EXCLUDE_DIRS = frozenset({
     "Program Files (x86)", "ProgramData", "AppData", "$WinREAgent",
     # caches that hold copies of things already indexed elsewhere
     "Temp", "Temporary Internet Files", ".cache", "Cache",
+    # 2026-10-15: git worktrees made by coding sessions inside a repository - whole copies
+    # of a tree indexed already, deleted within days. 1,709 of the owner's "photos" were
+    # their logos and test screenshots, every one gone from disk, shown newest first.
+    ".worktrees", ".claude",
 })
 
 #: Filename patterns to skip wherever they appear.
