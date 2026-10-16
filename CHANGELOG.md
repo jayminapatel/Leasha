@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.141 · **Updated:** 2026-10-16 · **Applies to:** app v1.0.3
+**Doc version:** 4.142 · **Updated:** 2026-10-16 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A refusal never names a run whose process has ended (2026-10-16)
+
+When Remove, Start or a rescan is refused because the index is busy, the message names the run holding it only if that run's process is still alive, and says "another process" otherwise. It had named a run that ended hours earlier ("the window, since 21:01").
 
 ### An Outlook archive is read again only when its size changes, or after the re-check interval (2026-10-16)
 
