@@ -1351,6 +1351,7 @@ def test_each_picture_of_a_film_is_searchable_by_file_and_second(tmp_path):
         assert {(h.file_id, h.seconds) for h in after} == {(7, 10)}
 
 
+@pytest.mark.slow
 def test_two_films_do_not_share_a_moment_and_deleting_a_file_deletes_its_frames(tmp_path):
     pytest.importorskip("lancedb")
     from app.storage.vector_store import ImageVectorStore
