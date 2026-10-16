@@ -403,6 +403,7 @@ def _colour_vector(red: int, green: int, blue: int) -> list[float]:
     return l2_normalise(values)
 
 
+@pytest.mark.slow
 def test_the_lane_carries_a_photo_from_index_to_result_with_stand_in_vectors(
     tmp_path, ocr_that_reads_nothing,
 ):

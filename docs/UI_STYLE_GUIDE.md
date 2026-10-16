@@ -1,6 +1,6 @@
 # UI style guide - One Leasha
 
-**Doc version:** 1.2 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 1.3 · **Updated:** 2026-10-16 · **Applies to:** app v1.0.3
 
 How Leasha's window looks and behaves, as it is in the code today. Every rule names the
 module that carries it and the test that fails when it is broken. Where this guide and the
@@ -301,6 +301,11 @@ which is what `MainWindow._show_error` calls.
 
 ## 11. Saying what is happening
 
+- **One progress bar everywhere: the Indexing page's.** Every bar is `ShimmerBar`
+  (`widgets/shimmer_bar.py`): a rounded track, a gradient fill, a light sweeping along it while
+  the work runs (`set_active(True)`), and a gliding segment while the total is not known yet
+  (`setRange(0, 0)`). Never Qt's own `QProgressBar` - `tests/unit/test_one_progress_bar.py`
+  fails on one.
 - **Search says when it is working.** Once rows are on screen, a thin moving line shows
   `BUSY_DELAY_MS` (120 ms) after a search goes out and goes when that search's finished answer
   lands (`widgets/search_flight.py`, decisions in `presenter/search_feedback.py`). An empty list

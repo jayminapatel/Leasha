@@ -22,9 +22,10 @@ from typing import Any, Optional, Sequence
 
 from PySide6.QtCore import Qt, QThreadPool, QTimer
 from PySide6.QtWidgets import (QButtonGroup, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout,
-                             QLabel, QLineEdit, QProgressBar, QPushButton, QRadioButton,
+                             QLabel, QLineEdit, QPushButton, QRadioButton,
                              QWidget)
 
+from app.ui.widgets.shimmer_bar import ShimmerBar
 from app.index.photo_metadata import INSIDE, SIDECAR, run_write
 from app.ui.widgets.dialog_frame import frame
 
@@ -102,7 +103,8 @@ class WriteNamesDialog(QDialog):
         self.backup_row = QWidget()
         self.backup_row.setLayout(backup_row)
 
-        self.bar = QProgressBar()
+        # 2026-10-16, the owner: "progress bar should be standard like on indexing page" - ShimmerBar.
+        self.bar = ShimmerBar()
         self.bar.setVisible(False)
         self.status = QLabel("")
         self.status.setWordWrap(True)
@@ -166,6 +168,7 @@ class WriteNamesDialog(QDialog):
         self.cancel.setText("Stop")
         self.bar.setVisible(True)
         self.bar.setRange(0, 0)
+        self.bar.set_active(True)
         self.status.setText("Finding the photos to write into…")
         worker = CallableWorker(run_write, self._store, self.chosen_ids(), where=where,
                                 backup_root=backup_root, progress=self._progress,
@@ -186,6 +189,7 @@ class WriteNamesDialog(QDialog):
     def _finished(self, result: Any) -> None:
         """UI thread: say what was written, kept, skipped and copied; Cancel becomes Close."""
         self._timer.stop()
+        self.bar.set_active(False)
         self.bar.setVisible(False)
         parts = []
         if result.written:

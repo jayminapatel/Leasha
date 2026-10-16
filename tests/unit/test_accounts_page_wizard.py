@@ -229,6 +229,7 @@ def test_a_dry_run_shows_its_plan_and_approve_runs_the_first_sync_through_the_sc
     assert wait_until(lambda: [(c[0], c[1].get("allow_brake")) for c in calls] == [(a.id, False)])
 
 
+@pytest.mark.slow
 def test_a_held_run_offers_allow_which_syncs_with_allow_brake(world, monkeypatch):
     svc, page = world
     a = svc.accounts.get(svc.accounts.add("carddav", "a@x.com", "Home"))
