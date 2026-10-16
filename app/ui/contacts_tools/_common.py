@@ -25,9 +25,10 @@ from typing import Any, Callable, Iterable, Optional
 from PySide6.QtCore import QObject, QSize, Qt, QThreadPool, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QHBoxLayout, QHeaderView, QLabel, QListWidget, QListWidgetItem,
-    QProgressBar, QPushButton, QTableWidget, QVBoxLayout, QWidget,
+    QPushButton, QTableWidget, QVBoxLayout, QWidget,
 )
 
+from app.ui.widgets.shimmer_bar import ShimmerBar
 from app.contacts.card import SCALARS, Card, display_name
 from app.ui.theme import SPACE_S, theme_colours
 from app.ui.widgets.buttons import action_button
@@ -214,10 +215,10 @@ class ToolDialog(QDialog):
         self.status = QLabel("")
         self.status.setWordWrap(True)
         named(self.status, "Status", "What this window is doing, or what went wrong")
-        self.progress = QProgressBar()
+        # 2026-10-16, the owner: "progress bar should be standard like on indexing page" - ShimmerBar.
+        self.progress = ShimmerBar()
         self.progress.setRange(0, 0)
         self.progress.setTextVisible(False)
-        self.progress.setMaximumHeight(6)
         named(self.progress, "Progress", "Working in the background")
         self.progress.hide()
         root.addWidget(self.status)
@@ -304,6 +305,7 @@ class ToolDialog(QDialog):
 
     def busy(self, on: bool, text: str = "") -> None:
         self.progress.setVisible(on)
+        self.progress.set_active(on)
         if text or not on:
             self.say(text)
 

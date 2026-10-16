@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QProgressBar, QTableWidget,
                                QTableWidgetItem, QToolButton, QWidget)
 
+from app.ui.widgets.shimmer_bar import ShimmerBar
 from app.ui.presenter.account_activity import Activity, STATE_ICONS, actions_for, describe
 from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.widgets.icons import icon
@@ -126,7 +127,9 @@ class ActivityTable(QTableWidget):
                     self.removeCellWidget(row, 3)                # nothing is running: no bar to read
             else:
                 if not isinstance(bar, QProgressBar):
-                    bar = QProgressBar()
+                    # 2026-10-16, the owner: "progress bar should be standard like on indexing page" - ShimmerBar.
+                    bar = ShimmerBar()
+                    bar.set_active(True)
                     bar.setTextVisible(True)
                     bar.setAccessibleName("Progress")
                     self.setCellWidget(row, 3, bar)
