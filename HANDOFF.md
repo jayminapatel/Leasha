@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.184 · **Updated:** 2026-10-16 · **Applies to:** app v1.0.3
+**Doc version:** 7.185 · **Updated:** 2026-10-16 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-16, morning - the Settings page's Mail archives list is read again on every visit (owner: "why has the pst files not in the settings page"; "i want the default to be outlook in future for me the system is for all so it depends").** The list was read when the window opened and when a run finished (`shell.py`, `indexing_view.finished`); after the owner's reset the window opened on an empty index and the first run, still going, had listed 21 archives (read-only check: 1 INDEXED, 20 PENDING) that the page could not show until that run ended. `_tab_changed` now calls `settings_ctl._load_mail_archives()` on the way into Settings (a worker, one grouped query); `test_mail_archives_on_the_way_in.py` fails without it. **The reader default:** the application's default stays `auto` for everyone; the owner wants Outlook on this laptop - "How to read archives" in Settings, saved as `ui:pst_backend` (nothing was saved in the index on 2026-10-16). Left for the owner to choose in the window, not written behind a running Leasha; a run applies it at its start (`run_setup.apply_saved_pst_backend`), so the run in progress keeps the reader it began with.
 
 **2026-10-16, early morning - Remove on Places to index refused; the refusal named a dead run (#107, `b9e534b`; owner: "the remove button for github folder on places to index is not working").** Remove forgets a folder's data under the index run lock (`settings_controller._confirm_remove` -> `forget_folders`); at 02:11 it was refused with "An index run is already in progress (the window, since 21:01)" in a window opened at 02:07 that had started no run. The lock was really held by another process - most likely `tests/unit/test_run_lock.py`, which deliberately takes the machine's real locks, during a full suite run (UNCONFIRMED: the run logs carry no per-test times); nothing held it afterwards and Remove worked on the next try. The description named the 21:01 run because its process ended without taking its record down: `run_lock.describe_holder` now checks the record's pid (`_record_alive`) and says "another process" when it is gone. Full suite on the branch: 18,292 passed, 0 failed. **Trap:** running `test_run_lock.py` (alone or in the full suite) while Leasha is open can refuse a Remove, a Start or a rescan for the moment it holds the real lock - run the suite with Leasha closed, as the evening entry already says. **Owner's question answered from the tests:** a folder marked as an archive is walked once and then left alone (`test_archive_run.py::test_the_second_run_does_not_walk_it_at_all`, 28 tests pass) until its top folder's date moves, the re-check interval passes or a rescan is asked for - and only after a run that **completed** its pass: an interrupted run records no pass (`test_an_interrupted_run_records_no_pass`), so it is walked again until one finishes.
 
