@@ -2267,6 +2267,13 @@ class MainWindow(QMainWindow):
         elif index == self._tab_index.get(getattr(self, "contacts_view", None)):
             # Order 1k 6a: built on the first visit, re-read on every later one.
             self.contacts_view.refresh()
+        elif (index == self._tab_index.get(getattr(self, "settings_view", None))
+                and getattr(self, "settings_ctl", None) is not None):
+            # 2026-10-16, the owner: "why has the pst files not in the settings page".
+            # The Mail archives list was read when the window opened and when a run
+            # finished; after a reset, a long first run listed 21 archives that the
+            # page could not show for hours. Read again on the way in, on a worker.
+            self.settings_ctl._load_mail_archives()
         elif index == self._tab_index.get(getattr(self, "code_view", None)):
             # On the way in rather than on a timer: repositories change when an
             # index run finds one, which is rare and never while somebody is
