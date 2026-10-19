@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from app.ui.accounts import logic, parts
 from app.ui.accounts.backend import Backend
 from app.ui.accounts.parts import btn, hint, notice
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["SyncLog", "ask_save_path"]
 
@@ -71,6 +72,7 @@ class SyncLog(QWidget):
         row.addStretch(1)
         lay.addLayout(row)
         self.tree = QTreeWidget()
+        install_row_ring(self.tree)
         self.tree.setObjectName("syncLog")
         self.tree.setAccessibleName("Sync log")
         self.tree.setHeaderLabels(list(COLUMNS))

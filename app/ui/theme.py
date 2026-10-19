@@ -335,8 +335,10 @@ QListWidget::item, QListView::item, QTreeWidget::item {{
    The selected row gets the theme's ring while the list has the keyboard; the
    transparent border keeps a row the same size with and without it, and the
    padding gives back the pixel the 2px ring takes (DS-4), so a row is the height
-   it was with the old 1px one. */
-QListWidget, QTreeWidget {{ outline: 0; }}
+   it was with the old 1px one. Trees and tables lose the dotted box too: each one
+   draws the same ring round its whole current row (`widgets/row_ring.py`), and the
+   dotted box round one cell inside it would be a second, smaller mark. */
+QListWidget, QTreeWidget, QTreeView, QTableWidget, QTableView {{ outline: 0; }}
 QListWidget::item {{ border: {focus_width} solid transparent; padding: 2px 3px; }}
 QListWidget::item:selected:focus {{ border: {focus_width} solid {focus_ring}; }}
 /* A header that reads as a label rather than as a button: no border box, one

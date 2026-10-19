@@ -68,6 +68,7 @@ from app.ui.widgets.confirm import confirm
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 from app.ui.widgets import list_keys, menus
 from app.ui.theme import theme_colours
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["FileTypesEditor", "EditFileTypeDialog"]
 
@@ -254,6 +255,7 @@ class FileTypesEditor(QGroupBox):
         self.problems_only.stateChanged.connect(lambda _s: self._apply_filter())
 
         self.table = QTableWidget(0, 5)
+        install_row_ring(self.table)
         self.table.setHorizontalHeaderLabels(
             ["Index", "Type", "Read by", "Status", "Limit"]
         )

@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QGroupBox, QHBoxLayout, QHeade
 from app.ui.widgets.confirm import confirm
 from app.ui.widgets.model_download import DownloadRow
 from app.ui.workers import CallableWorker, run
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["ModelManagerBox"]
 
@@ -77,6 +78,7 @@ class ModelManagerBox(QGroupBox):
         intro.setWordWrap(True)
 
         self.installed = QTableWidget(0, 5)
+        install_row_ring(self.installed)
         self.installed.setObjectName("modelsInstalled")
         self.installed.setHorizontalHeaderLabels(["Model", "For", "Copy", "Size", "Status"])
         self._table_look(self.installed)
@@ -109,6 +111,7 @@ class ModelManagerBox(QGroupBox):
         self.filter.setPlaceholderText("Filter, e.g. whisper, french, qwen, gemma")
         self.filter.textChanged.connect(lambda _t: self._fill_available())
         self.available = QTableWidget(0, 5)
+        install_row_ring(self.available)
         self.available.setObjectName("modelsAvailable")
         self.available.setHorizontalHeaderLabels(["Model", "For", "Size", "Checked", "Licence"])
         self._table_look(self.available)

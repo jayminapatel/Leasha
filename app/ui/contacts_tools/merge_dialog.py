@@ -33,6 +33,7 @@ from app.ui.contacts_tools._common import (
 )
 from app.ui.widgets.icons import icon
 from app.ui.theme import SPACE_S
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["MergeDialog"]
 
@@ -111,6 +112,7 @@ class MergeDialog(ToolDialog):
         self.sent_note.setWordWrap(True)
         named(self.sent_note, "Accounts note", "Where the merged contact is kept")
         self.sent_tree = QTreeWidget()
+        install_row_ring(self.sent_tree)
         self.sent_tree.setHeaderHidden(True)
         named(self.sent_tree, "What each account will be sent",
               "For each account the contact is kept in, the card as that account will hold it")

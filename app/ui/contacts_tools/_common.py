@@ -35,6 +35,7 @@ from app.ui.widgets.buttons import action_button
 from app.ui.widgets.icons import icon, icon_size
 from app.ui.workers import CallableWorker, run
 from app.ui.widgets.dialog_frame import frame
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = [
     "named", "btn", "Job", "idle", "ToolDialog", "CardList", "make_table", "kind_icon",
@@ -336,6 +337,7 @@ class ToolDialog(QDialog):
 def make_table(owner: QWidget, headers: list[str], name: str, tip: str, *, stretch: int = 0,
                select: str = "rows") -> QTableWidget:
     table = QTableWidget(0, len(headers), owner)
+    install_row_ring(table)
     table.setHorizontalHeaderLabels(headers)
     table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)

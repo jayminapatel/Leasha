@@ -45,6 +45,7 @@ from app.ui.widgets.offline_media_rows import EXTRA_COLUMNS, LineActions
 from app.ui.widgets.page_states import EmptyState
 from app.ui.widgets.result_table import align_headers
 from app.ui.workers import CallableWorker, run
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["OfflineMediaView", "COLUMNS", "EXTRA_COLUMNS", "ALL_COLUMNS"]
 
@@ -106,6 +107,7 @@ class OfflineMediaView(LineActions, QWidget):
         self._row_buttons: dict[int, QPushButton] = {}
 
         self.tree = QTreeWidget()
+        install_row_ring(self.tree)
         self.tree.setColumnCount(len(ALL_COLUMNS))
         self.tree.setHeaderLabels(list(ALL_COLUMNS))
         self.tree.setRootIsDecorated(False)

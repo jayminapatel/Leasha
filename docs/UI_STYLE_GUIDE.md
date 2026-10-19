@@ -1,6 +1,6 @@
 # UI style guide - One Leasha
 
-**Doc version:** 1.3 · **Updated:** 2026-10-16 · **Applies to:** app v1.0.3
+**Doc version:** 1.4 · **Updated:** 2026-10-19 · **Applies to:** app v1.0.3
 
 How Leasha's window looks and behaves, as it is in the code today. Every rule names the
 module that carries it and the test that fails when it is broken. Where this guide and the
@@ -49,7 +49,8 @@ unified look ... icons are must.* Every screen should feel like one app.
 
 ## 2. Focus
 
-**Modules:** `app/ui/theme.py` (`FOCUS_WIDTH`), `app/ui/widgets/focus_visible.py`.
+**Modules:** `app/ui/theme.py` (`FOCUS_WIDTH`), `app/ui/widgets/focus_visible.py`,
+`app/ui/widgets/row_ring.py`.
 
 - **One focus width.** Every `:focus` rule draws a `FOCUS_WIDTH` (2px) edge, and the padding
   gives back the extra pixel, so a control never moves or grows when it takes the focus. A ring
@@ -63,6 +64,17 @@ unified look ... icons are must.* Every screen should feel like one app.
   arrived. *Held by* `tests/unit/test_paint_kit.py`
   (`test_a_click_marks_pointer_focus_and_the_keyboard_does_not`).
 - **A painted list rings its current row** when it has the keyboard (section 6).
+- **Every tree and table rings its whole current row** when it has the keyboard. A sheet rule
+  can only ring one cell, so `install_row_ring(view)` hangs one filter on the view's viewport:
+  the view paints itself as it always did (hover and selection unchanged), then a `FOCUS_WIDTH`
+  ring in `focus_ring` is drawn round the current row, across every shown column. A table whose
+  keyboard moves cell by cell (`SelectItems` with a selection, the spreadsheet preview) rings the
+  cell instead. The sheet's `outline: 0` takes Qt's dotted box off every list, tree and table, so
+  the ring is the only mark. Every `QTreeWidget`, `QTreeView`, `QTableWidget` and `QTableView`
+  built in `app/ui` calls it, the side lists included. *Held by* `tests/unit/test_row_ring.py`
+  (`test_every_tree_and_table_built_in_the_ui_is_ringed`,
+  `test_the_whole_current_row_is_ringed_when_the_view_has_the_keyboard`,
+  `test_no_ring_without_the_keyboard`).
 
 ## 3. Buttons and dialogs
 
@@ -190,8 +202,9 @@ state `ui:rail_hidden`). *Held by* `tests/unit/test_ux_keys_and_palette.py`,
   row radius) and, when the row is the current one of a view that has the keyboard
   (`State_HasFocus`), a `FOCUS_WIDTH` ring in `focus_ring`. `paint_badge` draws the kind badge,
   `scaled_font` and `set_weight` the fonts, `tok` the tokens. The Search results, the quick search
-  rows, the contacts list and cards and the timeline use it; the side lists ring their current
-  line with `paint_focus_ring`. *Held by* `tests/unit/test_paint_kit.py`
+  rows, the contacts list and cards and the timeline use it. Trees and tables, the side lists
+  among them, ring their current row with `row_ring` (section 2); the contacts table's cells
+  therefore paint no ring of their own. *Held by* `tests/unit/test_paint_kit.py`
   (`test_every_painted_selection_goes_through_the_kit`).
 - **One card.** `Card` is a `QFrame` marked `card="true"`; the theme gives it the surface, the
   `border` hairline and `radius_box`, and its layout takes `CARD_MARGINS` (`SPACE_M` all round).

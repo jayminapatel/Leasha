@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 from app.ui.presenter.space_rows import SpaceRow, SpaceTable, space_headline, space_tables
 from app.ui.widgets.result_table import align_headers, alignment_for
 from app.ui.widgets.sortable_item import SORT_ROLE, SortableTreeItem
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["SpaceTables"]
 
@@ -61,6 +62,7 @@ def _item(row: SpaceRow, aligns: tuple[str, ...]) -> SortableTreeItem:
 def _tree(table: SpaceTable) -> QTreeWidget:
     """One sortable tree for a `SpaceTable`; the copies inside a row are made on expand."""
     tree = QTreeWidget()
+    install_row_ring(tree)
     tree.setObjectName(f"space-{table.key}")
     tree.setAccessibleName(f"{table.title} table")
     tree.setToolTip(table.hint)

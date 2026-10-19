@@ -56,6 +56,7 @@ from app.ui.widgets.buttons import icon_button, put_on_row
 from app.ui.widgets.fitted_tree import FittedColumns
 from app.ui.widgets.page_states import EmptyState
 from app.ui.widgets.result_table import align_headers
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["MailArchivesBox"]
 
@@ -96,6 +97,7 @@ class MailArchivesBox(QGroupBox):
         self.empty = EmptyState(mail_archives_empty_text(), glyph="archive", align=Qt.AlignmentFlag.AlignLeft)
 
         self.tree = QTreeWidget()
+        install_row_ring(self.tree)
         self.tree.setColumnCount(7)
         # The two button columns' headings on two lines (2026-10-08): on one,
         # "Clear and read again" made its column four times the width of its

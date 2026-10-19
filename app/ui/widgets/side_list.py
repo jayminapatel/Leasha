@@ -25,7 +25,8 @@ from PySide6.QtGui import QBrush, QColor, QFont
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QMenu, QTreeWidget, QTreeWidgetItem
 
 from app.ui.presenter.side_entry import SideEntry   # Qt-free, so presenters build entries
-from app.ui.widgets.paint_kit import paint_focus_ring, set_weight
+from app.ui.widgets.paint_kit import set_weight
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["SideEntry", "SideList"]
 
@@ -86,6 +87,10 @@ class SideList(QTreeWidget):
         #: What the person did to each section since: `{section: expanded}`.
         self._folded: dict[str, bool] = {}
         self.last_menu: Optional[QMenu] = None
+        # The keyboard's ring round the whole current line, in this list's palette. The sheet's
+        # `outline: 0` took the native dotted box away and a sheet rule would ring each of the two
+        # columns on its own (review 2026-10-14, DS-2); `row_ring` draws one ring round the row.
+        install_row_ring(self, colours=lambda: self._colours or None)
 
     # -- what the page says ----------------------------------------------------------
 
@@ -331,20 +336,6 @@ class SideList(QTreeWidget):
         label = entry.label if not count else f"{entry.label}, {count}"
         item.setData(0, Qt.ItemDataRole.AccessibleTextRole,
                      f"{entry.label}, chosen" + (f", {count}" if count else "") if entry.checked else label)
-
-    def drawRow(self, painter: Any, option: Any, index: Any) -> None:  # noqa: N802 - Qt's name
-        """The row as Qt draws it, then the keyboard's ring round the whole current line.
-
-        The sheet's `outline: 0` took away the native dotted box and nothing replaced it, so
-        moving down a side list with the arrow keys showed no place at all (review 2026-10-14,
-        DS-2). A sheet rule would ring each of the two columns separately; this is one ring
-        round the row, in the width and colour every painted list uses (`paint_kit`).
-        """
-        super().drawRow(painter, option, index)
-        current = self.currentIndex()
-        if (self.hasFocus() and current.isValid() and current.row() == index.row()
-                and current.parent() == index.parent()):
-            paint_focus_ring(painter, option.rect.adjusted(1, 0, -1, 0), self._colours or None)
 
     def _more_icon(self, item: QTreeWidgetItem) -> None:
         """The More line carries an icon like every other line of a side list (order 1p)."""
