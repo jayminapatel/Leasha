@@ -49,6 +49,7 @@ from app.ui.presenter.link_marks import link_marks
 from app.ui.theme import theme_colours
 from app.ui.widgets import list_keys
 from app.ui.widgets.menus import global_point
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["ContactsPage"]
 
@@ -79,6 +80,7 @@ class ContactsPage(QWidget):
         self._creating = False
         self._busy = 0
         self._mode = "list"
+        self._pending_pick: Optional[int] = None    # Back/Forward's contact, until a read lands
         self.setObjectName("contactsPage")
 
         self.photos = PhotoCache(hub, parent=self)
@@ -166,6 +168,7 @@ class ContactsPage(QWidget):
     # ------------------------------------------------------------------ build
     def _make_table(self) -> QTableView:
         t = QTableView()
+        install_row_ring(t)
         t.setObjectName("contactsTable")
         t.setModel(self.model)
         t.setAccessibleName("Contacts")
@@ -423,6 +426,9 @@ class ContactsPage(QWidget):
         sm = self.table.selectionModel()
         sm.blockSignals(True)
         self.model.set_rows(snap.rows)
+        pick, self._pending_pick = self._pending_pick, None
+        if pick is not None and self._may_pick(pick):
+            keep = [pick]
         sm.clearSelection()
         for cid in keep:
             row = self.model.position_of(cid)
@@ -469,6 +475,31 @@ class ContactsPage(QWidget):
         if ids and self.model.position_of(ids[0]) >= 0:
             sm.setCurrentIndex(self.model.index(self.model.position_of(ids[0]), 0),
                                QItemSelectionModel.SelectionFlag.NoUpdate)
+
+    def current_contact_id(self) -> Optional[int]:
+        """The one contact picked, for the window's Back/Forward; None for none or several."""
+        ids = self.selected_ids()
+        return ids[0] if len(ids) == 1 else None
+
+    def _may_pick(self, cid: int) -> bool:
+        """Back/Forward may pick `cid`: listed now, not in the bin, no unsaved edit in the way."""
+        return (self._entry.kind != "bin" and self.model.position_of(cid) >= 0
+                and not self._editor_dirty())
+
+    def show_contact_id(self, cid: Optional[int]) -> None:
+        """Back/Forward: pick `cid` again from the rows already read - never a read of its own.
+
+        A read in flight (the page came forward and refreshes) would put back the old pick as it
+        lands, so the contact waits for it instead. One deleted or binned meanwhile is not in the
+        rows: the page stays as it is, with no dialog."""
+        if cid is None:
+            return
+        if self._busy or self._snap is None:
+            self._pending_pick = int(cid)
+            return
+        if self._may_pick(int(cid)) and self.current_contact_id() != int(cid):
+            self.select_ids([int(cid)])
+            self.table.scrollTo(self.model.index(self.model.position_of(int(cid)), 0))
 
     def show_contact(self, cid: int) -> None:
         """Search's "Open contact": the full list, this contact picked and its editor in front."""

@@ -28,6 +28,7 @@ from app.ui.tasks import my_words_read as _read, my_words_remove as _remove
 from app.ui.tasks import my_words_set as _write
 from app.ui.widgets.buttons import action_button, button_row
 from app.ui.workers import CallableWorker, run
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["MyWordsBox", "INTRO"]
 
@@ -63,6 +64,7 @@ class MyWordsBox(QGroupBox):
         intro = QLabel(INTRO)
         intro.setWordWrap(True)
         self.table = QTableWidget(0, 2)
+        install_row_ring(self.table)
         self.table.setObjectName("myWordsTable")
         self.table.setAccessibleName("Your words and what they mean")
         self.table.setHorizontalHeaderLabels(["Word", "Means"])

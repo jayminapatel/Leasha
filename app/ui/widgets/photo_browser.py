@@ -59,6 +59,7 @@ from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.widgets import list_keys
 from app.ui.widgets.file_menu import copy_paths
 from app.ui.widgets.menus import global_point
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["PhotoModel", "PhotoBrowser", "MODES", "ROLE_ROW"]
 
@@ -485,6 +486,7 @@ class PhotoBrowser(QWidget):
         self._glide = _Glide(self.grid)
 
         self.table = QTableView()
+        install_row_ring(self.table)
         self.table.setObjectName("photo_table")
         self.table.setToolTip("Your pictures - click a heading to sort by it")
         self.table.setSortingEnabled(True)

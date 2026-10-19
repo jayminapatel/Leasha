@@ -157,36 +157,8 @@ def test_the_quick_search_rows_ring_the_chosen_row_in_the_one_width():
     assert pixel() == QColor("#ffffff")
 
 
-def test_a_side_list_rings_its_current_line_when_it_has_the_keyboard(monkeypatch):
-    """`outline: 0` took the native box away and nothing replaced it (DS-2)."""
-    from PySide6.QtGui import QPainter
-    from PySide6.QtWidgets import QStyleOptionViewItem
-
-    from app.ui.presenter.side_entry import SideEntry
-    from app.ui.widgets.side_list import SideList
-
-    side = SideList("testSide", accessible="Test")
-    side.resize(220, 200)
-    side.set_entries([SideEntry(key="a", label="Alpha"), SideEntry(key="b", label="Beta")])
-    side.setCurrentItem(side.topLevelItem(0))
-    index = side.currentIndex()
-
-    def ring(focused: bool):
-        monkeypatch.setattr(side, "hasFocus", lambda: focused)
-        option = QStyleOptionViewItem()
-        option.initFrom(side)
-        option.rect = side.visualRect(index).adjusted(-side.visualRect(index).left(), 0, 0, 0)
-        option.rect.setWidth(220)
-        image = _canvas(220, max(20, option.rect.bottom() + 4))
-        painter = QPainter(image)
-        try:
-            side.drawRow(painter, option, index)
-        finally:
-            painter.end()
-        return image.pixelColor(2, option.rect.center().y())
-
-    assert _near(ring(True), _ring_colour())
-    assert not _near(ring(False), _ring_colour(), slack=10)
+# The side lists, and every other tree and table, ring their current row through one filter:
+# `tests/unit/test_row_ring.py` holds that.
 
 
 # The guard: a delegate that paints its own selection uses the kit.

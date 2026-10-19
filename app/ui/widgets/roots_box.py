@@ -52,6 +52,7 @@ from app.ui.widgets.fitted_tree import FittedColumns
 from app.ui.widgets.page_states import EmptyState
 from app.ui.widgets.result_table import align_headers
 from app.ui.widgets import list_keys, menus
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["RootsBox"]
 
@@ -102,6 +103,7 @@ class RootsBox(QGroupBox):
         self.confirms_removal = False
 
         self.tree = QTreeWidget()
+        install_row_ring(self.tree)
         self.tree.setColumnCount(5)
         # 2026-10-02: a fifth column, after the four that were there - each
         # line's own "Index now" (`_append`).

@@ -22,6 +22,7 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtWidgets import QTabWidget, QTableView
 
 from app.extract.cells import cached_letter
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["SheetTableModel", "SpreadsheetView"]
 
@@ -84,6 +85,7 @@ class SpreadsheetView(QTabWidget):
 
         for sheet in sheets or ():
             table = QTableView()
+            install_row_ring(table)
             table.setAccessibleName(f"Sheet: {getattr(sheet, 'name', '')}")
             table.setModel(SheetTableModel(sheet, table))
             table.setAlternatingRowColors(True)

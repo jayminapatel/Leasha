@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.143 · **Updated:** 2026-10-16 · **Applies to:** app v1.0.3
+**Doc version:** 4.144 · **Updated:** 2026-10-19 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -17,6 +17,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### The UX review's follow-ups (2026-10-19)
+
+- **Every tree and table shows the keyboard's place**: a focus ring round the current row
+  (accounts, sync log, contacts, file types, roots, mail archives, models, results and the rest).
+- **The sync chips and the tray say when a sync was held or failed before Leasha started**, and
+  show a clash met during the session as held.
+- **Back and Forward return to the contact that was open** on Contacts.
+- Parked, with its reasons: catching the mouse's back and forward buttons for the window alone.
 ### One progress bar everywhere: the Indexing page's (2026-10-16)
 
 The owner: "progress bar should be standard like on indexing page in the app they are not do them too". The Contacts tools dialogs, the activity table and "Write names into photos" showed Qt's plain block; they now use `ShimmerBar`, sweeping while they work. The Contacts dialogs' bar is no longer squeezed to 6 px. `test_one_progress_bar.py` fails on any new `QProgressBar(` in `app/ui`. The benchmark's stand-in window keeps its own, so as not to change what it measures.

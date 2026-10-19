@@ -43,6 +43,7 @@ from app.ui.presenter import GitScope
 from app.ui.view_options import weak_slot
 from app.ui.workers import CallableWorker, _emit, run
 from app.ui.theme import SPACE_XS
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["GitTree", "attach_git_tree", "scope_rows", "GIT_VIEW_HINT",
            "ROLE_SCOPE", "paint_repo_state", "draw_git_progress",
@@ -82,6 +83,7 @@ class GitTree(QTreeWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        install_row_ring(self)
         self.setHeaderHidden(True)
         self.setAccessibleName("Repositories, branches and commits")
         self.setUniformRowHeights(True)

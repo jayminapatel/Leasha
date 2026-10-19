@@ -766,6 +766,7 @@
     <Compile Include="app\ui\widgets\result_tools.py" />
     <Compile Include="app\ui\widgets\results_items.py" />
     <Compile Include="app\ui\widgets\roots_box.py" />
+    <Compile Include="app\ui\widgets\row_ring.py" />
     <Compile Include="app\ui\widgets\run_log.py" />
     <Compile Include="app\ui\widgets\saved_dialogs.py" />
     <Compile Include="app\ui\widgets\scroll.py" />
@@ -1151,6 +1152,7 @@
     <Compile Include="tests\unit\test_header_signal_safety.py" />
     <Compile Include="tests\unit\test_heif_preview.py" />
     <Compile Include="tests\unit\test_held_photos_read_with_run.py" />
+    <Compile Include="tests\unit\test_history_keeps_contact.py" />
     <Compile Include="tests\unit\test_identifiers.py" />
     <Compile Include="tests\unit\test_idle_optimize.py" />
     <Compile Include="tests\unit\test_idle_tune_and_space_report_ui.py" />
@@ -1419,6 +1421,7 @@
     <Compile Include="tests\unit\test_review_section_three.py" />
     <Compile Include="tests\unit\test_review_section_two.py" />
     <Compile Include="tests\unit\test_row_facts_homes.py" />
+    <Compile Include="tests\unit\test_row_ring.py" />
     <Compile Include="tests\unit\test_run_events.py" />
     <Compile Include="tests\unit\test_run_lock.py" />
     <Compile Include="tests\unit\test_run_log.py" />

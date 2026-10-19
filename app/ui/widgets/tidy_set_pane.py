@@ -29,6 +29,7 @@ from app.ui.presenter.tidy import set_heading
 from app.ui.widgets import list_keys, menus
 from app.ui.widgets.file_menu import copy_paths
 from app.ui.theme import SPACE_S
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["TidySetPane", "TAB_ICONS"]
 
@@ -112,6 +113,7 @@ class TidySetPane(QWidget):
         # A double-click keeps the tile, and Enter does the same, from one signal (`list_keys`).
         list_keys.install(self.tiles, default=self._tile_double_clicked, copy=self._copy_tile)
         self.copies = QTreeWidget()
+        install_row_ring(self.copies)
         self.copies.setAccessibleName("Every copy")
         self.copies.setHeaderLabels(["Can go", "Where", "Size", "Modified"])
         self.copies.setRootIsDecorated(False)

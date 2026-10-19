@@ -143,9 +143,9 @@ class NameDelegate(_Base):
         if row is None:
             return
         painter.save()
-        # A table cell meets its neighbours: square, no inset. The ring is the one
-        # every painted list draws (`paint_kit`, DS-2), round the current cell.
-        paint_row_state(painter, option.rect, option, self.c, radius=0, inset=(0, 0))
+        # A table cell meets its neighbours: square, no inset. No ring here: the table
+        # rings its whole current row (`row_ring`), so one round the cell would be a second.
+        paint_row_state(painter, option.rect, option, self.c, radius=0, inset=(0, 0), ring=False)
         r = option.rect
         side = min(26, r.height() - 6)
         draw_avatar(painter, QRect(r.x() + 6, r.y() + (r.height() - side) // 2, side, side), row, self.photos, self.c)
@@ -176,7 +176,7 @@ class ChipsDelegate(_Base):
         if row is None:
             return
         painter.save()
-        paint_row_state(painter, option.rect, option, self.c, radius=0, inset=(0, 0))
+        paint_row_state(painter, option.rect, option, self.c, radius=0, inset=(0, 0), ring=False)
         kind = COLUMNS[index.column()][0]
         # The chips' words: the scale's small step (they were 0.82 of a line, in pixels).
         painter.setFont(scaled_font(option.font, "small"))

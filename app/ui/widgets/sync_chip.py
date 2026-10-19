@@ -10,7 +10,9 @@ screen, because a mail fetch sends no progress of its own. A click opens the one
 nothing.
 
 The scheduler is created after the window's first paint (`AccountRuntime`), later than the pages: the runtime
-attaches every chip it finds, and a chip shown later attaches itself.
+attaches every chip it finds, and a chip shown later attaches itself. On attaching, the chip reads the accounts'
+last runs - the runtime's one read, or its own, on a worker - so a hold from before start-up says "Held - look"
+too (`SyncTracker.seed`).
 """
 
 from __future__ import annotations
@@ -54,6 +56,7 @@ class SyncChip(QToolButton):
         self.scheduler: Any = None
         self._asking = False
         self._acts: list = []
+        self._factory: Any = None
         self.setObjectName("syncChip")
         self.setAutoRaise(True)
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -68,16 +71,20 @@ class SyncChip(QToolButton):
         self.draw()
 
     # -- the scheduler
-    def attach(self, scheduler: Any) -> None:
+    def attach(self, scheduler: Any, factory: Any = None) -> None:
+        """Follow the scheduler's signals, and read the last runs once when given `factory` (the runtime's service
+        factory). The runtime attaches the chips it finds without one: its own read seeds them (`seed`)."""
         if scheduler is None or scheduler is self.scheduler:
             return
         self.scheduler = scheduler
+        self._factory = factory
         scheduler.run_started.connect(lambda why="": self._then(self.tracker.started, why))
         scheduler.progress.connect(lambda e: self._then(self.tracker.progress, e))
         scheduler.run_finished.connect(lambda out: self._then(self.tracker.finished, out, ask=True))
         scheduler.run_failed.connect(lambda err: self._then(self.tracker.failed_run, err, ask=True))
         self.tracker.running = bool(getattr(scheduler, "busy", False))
         self.draw()
+        self._read_last_runs()
 
     def _then(self, step: Any, value: Any, *, ask: bool = False) -> None:
         try:
@@ -91,10 +98,26 @@ class SyncChip(QToolButton):
     def _runtime(self) -> Any:
         return getattr(self.window(), "account_runtime", None)
 
+    # -- a hold from before start-up
+    def _read_last_runs(self) -> None:
+        """Once, on a worker: the activity rows, for `SyncTracker.seed`. Never read on the window's thread."""
+        if self._factory is None or self.tracker.heard:
+            return
+        from app.ui.later import when_done  # noqa: PLC0415
+        from app.ui.workers import CallableWorker, run  # noqa: PLC0415
+        from PySide6.QtCore import QThreadPool  # noqa: PLC0415
+
+        worker = CallableWorker(_snapshots, self._factory, component="ui.sync_chip")
+        when_done(self, worker, finished=self.seed, failed=lambda _e: None)
+        run(QThreadPool.globalInstance(), worker)
+
+    def seed(self, snaps: Any) -> None:
+        if self.tracker.seed(snaps or []):
+            self.draw()
+
     # -- the Mail chip reads the rows
     def _ask(self) -> None:
-        runtime = self._runtime()
-        factory = getattr(runtime, "factory", None)
+        factory = self._factory or getattr(self._runtime(), "factory", None)
         if self.kind != "mail" or factory is None or self._asking or not self.isVisible():
             return
         from app.ui.later import when_done  # noqa: PLC0415
@@ -108,6 +131,7 @@ class SyncChip(QToolButton):
 
     def set_snapshots(self, snaps: Any) -> None:
         self._asking = False
+        self.tracker.seed(snaps or [])                       # the first read also tells of an older hold
         now = time.time()
         self._acts = [describe(s, now) for s in (snaps or []) if s.get("enabled", True)]
         self.draw()
@@ -145,8 +169,13 @@ class SyncChip(QToolButton):
         """Attach to the window's scheduler if it exists by now. The Contacts chip is hidden while idle - it gets
         no show event - so its toolbar calls this when it is shown."""
         runtime = self._runtime()
-        if runtime is not None:
-            self.attach(getattr(runtime, "scheduler", None))
+        if runtime is None:
+            return
+        rows = getattr(runtime, "last_runs", None)
+        # The runtime's one read of the last runs, when it has come back; else this chip reads them itself.
+        self.attach(getattr(runtime, "scheduler", None), None if rows is not None else getattr(runtime, "factory", None))
+        if rows is not None:
+            self.seed(rows)
 
     def showEvent(self, event: Any) -> None:                                 # noqa: N802 - Qt
         super().showEvent(event)
