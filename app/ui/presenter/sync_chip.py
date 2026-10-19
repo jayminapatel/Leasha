@@ -12,6 +12,11 @@ signals (`run_started`, `progress`, `run_finished`, `run_failed`) and words one 
 
 IA-5: the Mail page's chip also says what mail is doing, from the activity rows (`mail_words`), because a mail
 fetch sends no progress events of its own.
+
+A hold from before start-up: the signals only tell of this session's runs, so a chip that attaches is seeded once
+from the accounts' last runs (`SyncTracker.seed`, the activity snapshot read on a worker). A contacts run that held
+(delete brake, churn guard) or waits on a clash (`ERR_SYNC_CONFLICT_HELD`) is "Held - look"; one that failed is
+"Sync failed - look". The next run's signals replace it, as for any hold.
 """
 
 from __future__ import annotations
@@ -44,9 +49,11 @@ class SyncTracker:
         self.live: dict[int, dict] = {}          # account id -> its latest contacts progress event
         self.held: list[str] = []                # accounts the last run held, by name
         self.failed = ""                         # the last run's failure, in its own words
+        self.heard = False                       # a scheduler signal (or a seed) has said how things stand
 
     # -- the scheduler's four signals
     def started(self, _why: Any = "") -> None:
+        self.heard = True
         self.running, self.held, self.failed = True, [], ""
         self.live.clear()
 
@@ -56,6 +63,7 @@ class SyncTracker:
         self.live.setdefault(aid, {}).update(dict(event))
 
     def finished(self, outcomes: Optional[Iterable[Any]]) -> None:
+        self.heard = True
         self.running = False
         self.live.clear()
         outcomes = list(outcomes or [])
@@ -64,9 +72,31 @@ class SyncTracker:
         self.failed = ""
 
     def failed_run(self, error: Any) -> None:
+        self.heard = True
         self.running = False
         self.live.clear()
         self.failed = str(getattr(error, "message", None) or error or "")
+
+    # -- before this session's first run
+    def seed(self, snapshots: Optional[Iterable[Mapping[str, Any]]]) -> bool:
+        """Take the hold or failure of the accounts' last contact runs (`AccountService.activity_snapshot` rows),
+        once, and only while no scheduler signal has said anything newer. True when it was taken."""
+        if self.heard or self.running:
+            return False
+        self.heard = True
+        held: list[str] = []
+        failed = ""
+        for snap in snapshots or []:
+            if snap.get("kind") != "contacts" or not snap.get("enabled", True):
+                continue
+            run = snap.get("run") or {}
+            name = str(snap.get("name") or "") or "an account"
+            if run.get("status") == "held" or run.get("error_code") == "ERR_SYNC_CONFLICT_HELD":
+                held.append(name)
+            elif run.get("status") == "failed" and not failed:
+                failed = str(run.get("error_text") or "").strip() or f"{name}."   # the tip's words need a reason
+        self.held, self.failed = held, ("" if held else failed)
+        return True
 
     # -- the words
     def step(self) -> str:

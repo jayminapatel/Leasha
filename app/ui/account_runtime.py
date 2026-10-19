@@ -218,7 +218,7 @@ class AccountRuntime:
         if isinstance(shell, QObject):
             from app.ui.widgets.sync_chip import SyncChip  # noqa: PLC0415
             for chip in shell.findChildren(SyncChip):
-                chip.attach(self.scheduler)
+                chip.attach(self.scheduler, self.factory)
 
     # -- the tray's two items
     def pause(self, choice: str) -> None:
