@@ -58,6 +58,7 @@ from app.ui.widgets.icons import icon
 from app.ui.widgets.menus import Item
 from app.ui.widgets.page_states import EmptyState
 from app.ui.widgets.select_all import SelectBar
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["EnrichDialog", "EnrichData", "gather_proposals", "apply_selected", "sure_words"]
 
@@ -211,6 +212,7 @@ class EnrichDialog(ToolDialog):
         self.run.changed.connect(self._from_run)
 
         self.tree = QTreeWidget()
+        install_row_ring(self.tree)
         self.tree.setHeaderLabels(["Contact / detail", "Now", "Suggested", "Where from", "When", "Confidence"])
         self.tree.setRootIsDecorated(True)
         self.tree.setAlternatingRowColors(True)

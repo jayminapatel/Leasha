@@ -20,6 +20,7 @@ from app.ui.contacts.logic import describe_entry
 from app.ui.theme import SPACE_S, SPACE_M, theme_colours
 from app.ui.widgets.buttons import action_button, put_on_row
 from app.ui.widgets.icons import icon
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["HistoryPanel"]
 
@@ -41,6 +42,7 @@ class HistoryPanel(QWidget):
         self.empty = QLabel("Nothing has changed on this contact yet.")
         self.empty.setObjectName("resultsSummary")
         self.tree = QTreeWidget()
+        install_row_ring(self.tree)
         self.tree.setHeaderLabels(["When", "What happened", ""])
         self.tree.setRootIsDecorated(False)
         self.tree.setAccessibleName("Changes to this contact")

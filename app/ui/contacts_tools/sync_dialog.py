@@ -32,6 +32,7 @@ from app.ui.presenter import sync_status as words
 from app.ui.presenter.account_actions import allow_question, handle
 from app.ui.presenter.account_activity import overall_line
 from app.ui.widgets.activity_table import ActivityTable
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["SyncDialog", "open_sync_window"]
 
@@ -61,6 +62,7 @@ class SyncDialog(ToolDialog):
         self.activity_summary.setWordWrap(True)
         self.activity_summary.setAccessibleName("Summary of every account")
         self.problems = QTreeWidget()
+        install_row_ring(self.problems)
         self.problems.setHeaderLabels(["Account", "Contact", "Why the account refused it"])
         self.problems.setRootIsDecorated(False)
         self.problems.setAlternatingRowColors(True)

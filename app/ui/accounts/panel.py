@@ -29,6 +29,7 @@ from app.ui.widgets.activity_table import ActivityTable
 from app.ui.widgets.dialog_frame import frame
 from app.ui.widgets.select_all import SelectBar
 from app.ui.widgets.settings_row import add_row
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["AccountPanel", "ask_remove", "choose_from"]
 
@@ -144,6 +145,7 @@ def choose_from(parent: Optional[QWidget], title: str, names: list[str], chosen:
     dlg = QDialog(parent)
     lay = frame(dlg, title)                                  # UI phase B: one dialog frame
     tree = QTreeWidget()
+    install_row_ring(tree)
     tree.setHeaderHidden(True)
     tree.setAccessibleName(title)
     from PySide6.QtCore import Qt  # noqa: PLC0415

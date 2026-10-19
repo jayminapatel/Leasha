@@ -49,6 +49,7 @@ from app.ui.presenter.link_marks import link_marks
 from app.ui.theme import theme_colours
 from app.ui.widgets import list_keys
 from app.ui.widgets.menus import global_point
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["ContactsPage"]
 
@@ -166,6 +167,7 @@ class ContactsPage(QWidget):
     # ------------------------------------------------------------------ build
     def _make_table(self) -> QTableView:
         t = QTableView()
+        install_row_ring(t)
         t.setObjectName("contactsTable")
         t.setModel(self.model)
         t.setAccessibleName("Contacts")

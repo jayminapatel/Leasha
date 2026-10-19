@@ -36,6 +36,8 @@ from typing import Any, Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QAbstractItemView, QTableWidget, QWidget
 
+from app.ui.widgets.row_ring import install_row_ring
+
 __all__ = [
     "ResultTable", "ROLE_ROW", "ROLE_RANK", "RELEVANCE", "ALIGNMENTS",
     "alignment_for", "redraw_with_details",
@@ -123,6 +125,7 @@ class ResultTable(QTableWidget):
         #: reshuffle that would have to agree with Qt's about ties.
         self._rank_column = len(headings) if ranked else -1
         super().__init__(0, len(headings) + (1 if ranked else 0), parent)
+        install_row_ring(self)
         self.setHorizontalHeaderLabels(
             [*headings, ""] if ranked else list(headings))
         if ranked:

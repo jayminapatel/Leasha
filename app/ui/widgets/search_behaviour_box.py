@@ -49,6 +49,7 @@ from app.search.policy import (
     for_surface,
 )
 from app.ui.widgets.settings_row import add_row, add_under
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["SearchBehaviourBox"]
 
@@ -246,6 +247,7 @@ class SearchBehaviourBox(QGroupBox):
     def _build_grid(self) -> QTableWidget:
         """One row per behaviour, one column per tab, read from the policy."""
         grid = QTableWidget(len(BEHAVIOURS), len(SURFACES) + 1, self)
+        install_row_ring(grid)
         grid.setObjectName("searchBehaviourGrid")
         grid.setHorizontalHeaderLabels(
             ["Behaviour"] + [SURFACE_LABELS[name] for name in SURFACES])

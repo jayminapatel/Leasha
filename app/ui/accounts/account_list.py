@@ -19,6 +19,7 @@ from app.ui.accounts import logic
 from app.ui.later import later
 from app.ui.theme import theme_colours
 from app.ui.widgets.icons import icon_size
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["AccountList", "COLUMNS"]
 
@@ -43,6 +44,7 @@ class AccountList(QTreeWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        install_row_ring(self)
         self.setObjectName("accountList")
         self.setAccessibleName("Accounts")
         self.setHeaderLabels(list(COLUMNS))

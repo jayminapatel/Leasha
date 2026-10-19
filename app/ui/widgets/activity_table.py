@@ -16,6 +16,7 @@ from app.ui.widgets.shimmer_bar import ShimmerBar
 from app.ui.presenter.account_activity import Activity, STATE_ICONS, actions_for, describe
 from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.widgets.icons import icon
+from app.ui.widgets.row_ring import install_row_ring
 
 __all__ = ["ActivityTable", "COLUMNS"]
 
@@ -34,6 +35,7 @@ class ActivityTable(QTableWidget):
 
     def __init__(self, parent: Optional[QWidget] = None, *, single_account: bool = False) -> None:
         super().__init__(0, len(COLUMNS), parent)
+        install_row_ring(self)
         self.setHorizontalHeaderLabels(list(COLUMNS))
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
