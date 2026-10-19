@@ -13,7 +13,8 @@ signals (`run_started`, `progress`, `run_finished`, `run_failed`) and words one 
 IA-5: the Mail page's chip also says what mail is doing, from the activity rows (`mail_words`), because a mail
 fetch sends no progress events of its own.
 
-A hold from before start-up: the signals only tell of this session's runs, so a chip that attaches is seeded once
+A clash (`ERR_SYNC_CONFLICT_HELD`, on a run that is otherwise ok or partial) is a hold too. A hold from before
+start-up: the signals only tell of this session's runs, so a chip that attaches is seeded once
 from the accounts' last runs (`SyncTracker.seed`, the activity snapshot read on a worker). A contacts run that held
 (delete brake, churn guard) or waits on a clash (`ERR_SYNC_CONFLICT_HELD`) is "Held - look"; one that failed is
 "Sync failed - look". The next run's signals replace it, as for any hold.
@@ -39,6 +40,15 @@ class ChipWords:
 
 
 _NONE = ChipWords("", "", "refresh-cw", "text_dim")
+
+#: A run that went through but left contacts changed in two places waiting on your choice (status ok or partial).
+CLASH = "ERR_SYNC_CONFLICT_HELD"
+
+
+def _holds(outcome: Any) -> bool:
+    """A run's outcome held something for you: the delete brake or churn guard ("held"), or a clash."""
+    code = str(getattr(getattr(outcome, "error", None), "code", "") or "")
+    return getattr(outcome, "status", "") == "held" or code == CLASH
 
 
 class SyncTracker:
@@ -67,7 +77,7 @@ class SyncTracker:
         self.running = False
         self.live.clear()
         outcomes = list(outcomes or [])
-        held = [str(getattr(o, "account_name", "") or "") for o in outcomes if getattr(o, "status", "") == "held"]
+        held = [str(getattr(o, "account_name", "") or "") for o in outcomes if _holds(o)]
         self.held = [h for h in held if h] or (["an account"] if held else [])
         self.failed = ""
 
@@ -91,7 +101,7 @@ class SyncTracker:
                 continue
             run = snap.get("run") or {}
             name = str(snap.get("name") or "") or "an account"
-            if run.get("status") == "held" or run.get("error_code") == "ERR_SYNC_CONFLICT_HELD":
+            if run.get("status") == "held" or run.get("error_code") == CLASH:
                 held.append(name)
             elif run.get("status") == "failed" and not failed:
                 failed = str(run.get("error_text") or "").strip() or f"{name}."   # the tip's words need a reason

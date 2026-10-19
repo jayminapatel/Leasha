@@ -11,7 +11,8 @@ nothing.
 
 The scheduler is created after the window's first paint (`AccountRuntime`), later than the pages: the runtime
 attaches every chip it finds, and a chip shown later attaches itself. On attaching, the chip reads the accounts'
-last runs once, on a worker, so a hold from before start-up says "Held - look" too (`SyncTracker.seed`).
+last runs - the runtime's one read, or its own, on a worker - so a hold from before start-up says "Held - look"
+too (`SyncTracker.seed`).
 """
 
 from __future__ import annotations
@@ -71,12 +72,12 @@ class SyncChip(QToolButton):
 
     # -- the scheduler
     def attach(self, scheduler: Any, factory: Any = None) -> None:
-        """Follow the scheduler's signals, and read the last runs once (`factory`: the runtime's service factory -
-        passed in, because the runtime attaches chips before the window holds it)."""
+        """Follow the scheduler's signals, and read the last runs once when given `factory` (the runtime's service
+        factory). The runtime attaches the chips it finds without one: its own read seeds them (`seed`)."""
         if scheduler is None or scheduler is self.scheduler:
             return
         self.scheduler = scheduler
-        self._factory = factory or getattr(self._runtime(), "factory", None)
+        self._factory = factory
         scheduler.run_started.connect(lambda why="": self._then(self.tracker.started, why))
         scheduler.progress.connect(lambda e: self._then(self.tracker.progress, e))
         scheduler.run_finished.connect(lambda out: self._then(self.tracker.finished, out, ask=True))
@@ -168,8 +169,13 @@ class SyncChip(QToolButton):
         """Attach to the window's scheduler if it exists by now. The Contacts chip is hidden while idle - it gets
         no show event - so its toolbar calls this when it is shown."""
         runtime = self._runtime()
-        if runtime is not None:
-            self.attach(getattr(runtime, "scheduler", None), getattr(runtime, "factory", None))
+        if runtime is None:
+            return
+        rows = getattr(runtime, "last_runs", None)
+        # The runtime's one read of the last runs, when it has come back; else this chip reads them itself.
+        self.attach(getattr(runtime, "scheduler", None), None if rows is not None else getattr(runtime, "factory", None))
+        if rows is not None:
+            self.seed(rows)
 
     def showEvent(self, event: Any) -> None:                                 # noqa: N802 - Qt
         super().showEvent(event)
