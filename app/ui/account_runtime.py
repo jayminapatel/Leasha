@@ -170,6 +170,11 @@ def _snapshot(factory: Callable[[], Any]) -> tuple[Any, list]:
     return svc.settings(), svc.status(datetime.now())
 
 
+def _last_runs(factory: Callable[[], Any]) -> list:
+    """Worker: the activity rows, whose last runs say whether a sync was held or failed before start-up."""
+    return factory().activity_snapshot(datetime.now())
+
+
 def _set_pause(factory: Callable[[], Any], choice: str) -> None:
     from app.ui.accounts.logic import pause_value  # noqa: PLC0415
     value = None if choice == "off" else pause_value(choice, datetime.now())
@@ -215,6 +220,9 @@ class AccountRuntime:
                              (self.scheduler.run_finished, self.tracker.finished),
                              (self.scheduler.run_failed, self.tracker.failed_run)):
             signal.connect(lambda value=None, s=slot: (s(value), self._tell_tray()))
+        # A hold or failure from before start-up: `start` reads the last runs once and seeds the tray's tracker and
+        # every chip from that one read; a chip attached later takes the same rows (`last_runs`).
+        self.last_runs: Optional[list] = None
         if isinstance(shell, QObject):
             from app.ui.widgets.sync_chip import SyncChip  # noqa: PLC0415
             for chip in shell.findChildren(SyncChip):
@@ -249,6 +257,26 @@ class AccountRuntime:
             host = None
         return open_sync_window(host, SimpleNamespace(service=LazyService(self.shell)), start=False)
 
+    def _read_last_runs(self) -> None:
+        from app.ui.workers import CallableWorker, run  # noqa: PLC0415
+        from PySide6.QtCore import QThreadPool  # noqa: PLC0415
+
+        worker = CallableWorker(_last_runs, self.factory, component="ui.account_runtime")
+        worker.signals.finished.connect(self._seed)
+        worker.signals.failed.connect(lambda _e: None)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _seed(self, snaps: Any) -> None:
+        """UI thread, no I/O: the last runs, to the tray's tracker and every chip (each takes them once)."""
+        self.last_runs = list(snaps or [])
+        if self.tracker.seed(self.last_runs):
+            self._tell_tray()
+        from PySide6.QtCore import QObject  # noqa: PLC0415
+        if isinstance(self.shell, QObject):
+            from app.ui.widgets.sync_chip import SyncChip  # noqa: PLC0415
+            for chip in self.shell.findChildren(SyncChip):
+                chip.seed(self.last_runs)
+
     def _tell_tray(self) -> None:
         tray = getattr(self.shell, "tray", None)
         if tray is not None and hasattr(tray, "set_accounts_activity"):
@@ -269,6 +297,7 @@ class AccountRuntime:
         """Start the 30 s tick, and read once so a sign-in about to expire is noticed at start."""
         self.scheduler.start()
         self._refresh_all(read_only=True)
+        self._read_last_runs()
 
     def stop(self) -> None:
         self.scheduler.stop()

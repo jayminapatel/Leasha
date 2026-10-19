@@ -222,6 +222,141 @@ def test_the_contacts_chip_hides_when_idle_and_opens_the_sync_window(qtbot):
     assert opened == [top]
 
 
+def _row(status, *, kind="contacts", code="", text="", name="Work", enabled=True):
+    return {"account_id": 1, "name": name, "kind": kind, "enabled": enabled,
+            "run": {"status": status, "error_code": code, "error_text": text}}
+
+
+def test_the_tracker_is_seeded_from_holds_and_failures_before_start_up():
+    t = SyncTracker()
+    assert t.seed([_row("held", code="ERR_SYNC_DELETE_BRAKE"), _row("ok", name="Home")])
+    w = t.words()
+    assert w.text == "Held - look" and "Work" in w.tip and w.tone == "warning"
+    clash = SyncTracker()
+    clash.seed([_row("partial", code="ERR_SYNC_CONFLICT_HELD", name="Home")])
+    assert clash.words().text == "Held - look" and "Home" in clash.words().tip
+    failed = SyncTracker()
+    failed.seed([_row("failed", text="The server said no."), _row("held", kind="mail")])
+    assert failed.words().text == "Sync failed - look" and "The server said no." in failed.words().tip
+    quiet = SyncTracker()
+    quiet.seed([_row("held", enabled=False), _row("ok"), {"kind": "contacts", "enabled": True, "run": None}])
+    assert quiet.words().text == ""
+
+
+def test_a_seed_never_overrides_what_this_sessions_signals_said():
+    t = SyncTracker()
+    t.finished([NS(status="ok", account_name="Work")])
+    assert not t.seed([_row("held")]) and t.words().text == ""
+    once = SyncTracker()
+    once.seed([])
+    assert not once.seed([_row("held")])                               # read once
+    held = SyncTracker()
+    held.seed([_row("held")])
+    held.started("sync-now")                                           # Allow starts a sync: the hold clears
+    held.finished([NS(status="ok", account_name="Work")])
+    assert held.words().text == ""
+
+
+def test_a_hold_from_before_start_up_shows_on_the_chip_read_on_a_worker(world):
+    import threading
+    from app.ui.widgets.sync_chip import SyncChip
+    store, svc, pages = world
+    aid = svc.accounts.add("carddav", "a@x.com", "Work")
+    run = svc.accounts.start_run(svc.accounts.get(aid), "contacts", "schedule")
+    svc.accounts.finish_run(run, "held", held=3, error_code="ERR_SYNC_DELETE_BRAKE", plan=HELD_PLAN)
+    read_on = []
+
+    def factory():
+        read_on.append(threading.current_thread())
+        return svc
+
+    top = QWidget()
+    top.account_runtime = NS(open_sync=lambda parent: None, scheduler=None, factory=None)
+    chip = SyncChip("contacts", top)
+    top.show()
+    sched = FakeScheduler()
+    try:
+        chip.attach(sched, factory)
+        assert wait_until(lambda: chip.text() == "Held - look")
+        assert not chip.isHidden() and "Work" in chip.toolTip()
+        assert read_on and threading.main_thread() not in read_on      # on a worker, never the window's thread
+        sched.run_started.emit("sync-now")
+        sched.run_finished.emit([NS(status="ok", account_name="Work")])  # a later run that went through
+        assert chip.isHidden() and chip.text() == "Sync status"
+        wait_until(lambda: False, 0.2)
+        assert len(read_on) == 1                                         # once, not again after the run
+    finally:
+        top.deleteLater()
+
+
+def test_the_runtime_reads_the_last_runs_once_for_the_tray_and_every_chip(world):
+    import threading
+    from PySide6.QtWidgets import QMenu
+    from app.ui.account_runtime import AccountRuntime
+    from app.ui.tray import TrayPresence
+    from app.ui.widgets.sync_chip import SyncChip
+
+    class Shell(QWidget):
+        pass
+
+    store, svc, pages = world
+    aid = svc.accounts.add("carddav", "a@x.com", "Work")
+    run = svc.accounts.start_run(svc.accounts.get(aid), "contacts", "schedule")
+    svc.accounts.finish_run(run, "held", held=3, error_code="ERR_SYNC_DELETE_BRAKE", plan=HELD_PLAN)
+    tray = TrayPresence(NS())
+    tray._tray = NS(setToolTip=lambda t: None, showMessage=lambda *a: None)
+    tray._menu = QMenu()
+    tray._menu.addAction("Quit")
+    shell = Shell()
+    shell._store, shell.tray, shell.settings_view = store, tray, NS(accounts_page=None)
+    chip = SyncChip("contacts", shell)
+    read_on = []
+    try:
+        rt = AccountRuntime(shell)
+        assert chip.scheduler is rt.scheduler and chip._factory is None     # the runtime's read seeds it
+        rt.factory = lambda: read_on.append(threading.current_thread()) or svc
+        rt._read_last_runs()
+        assert wait_until(lambda: tray._account_activity_action.text() == "Accounts: held - look")
+        assert chip.text() == "Held - look"
+        assert len(read_on) == 1 and threading.main_thread() not in read_on   # one read, on a worker
+        shell.account_runtime = rt
+        late = SyncChip("contacts", shell)                                  # a chip built after the read
+        late.try_attach()
+        assert late.text() == "Held - look" and len(read_on) == 1          # the same rows, not a second read
+        rt.scheduler.run_started.emit("sync-now")
+        rt.scheduler.run_finished.emit([NS(status="ok", account_name="Work", error=None)])
+        assert not tray._account_activity_action.isVisible() and chip.isHidden()
+    finally:
+        shell.deleteLater()
+
+
+def test_a_clash_in_this_session_is_held_until_a_run_without_it():
+    t = SyncTracker()
+    t.started("schedule")
+    t.finished([NS(status="partial", account_name="Home", error=NS(code="ERR_SYNC_CONFLICT_HELD"))])
+    w = t.words()
+    assert w.text == "Held - look" and "Home" in w.tip
+    t.started("schedule")
+    t.finished([NS(status="ok", account_name="Home", error=None)])
+    assert t.words().text == ""
+    t.finished([NS(status="ok", account_name="Home", error=NS(code="ERR_SYNC_CONFLICT_HELD"))])
+    assert t.words().text == "Held - look"
+    t.finished([NS(status="partial", account_name="Home", error=NS(code="ERR_ACCOUNT_TROUBLE"))])
+    assert t.words().text == ""
+
+
+def test_the_mail_chip_takes_a_hold_from_its_first_read():
+    from app.ui.widgets.sync_chip import SyncChip
+    qt()
+    top = QWidget()
+    chip = SyncChip("mail", top)
+    try:
+        chip.set_snapshots([_row("held", code="ERR_SYNC_CHANGES_HELD"), _row("ok", kind="mail")])
+        assert chip.text() == "Held - look"
+    finally:
+        top.deleteLater()
+
+
 def test_the_mail_chip_says_what_mail_is_doing():
     from app.ui.presenter.account_activity import Activity
     def act(state, frac=None):
