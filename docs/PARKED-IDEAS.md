@@ -1,6 +1,6 @@
 # Parked ideas
 
-**Doc version:** 1.6 · **Updated:** 2026-10-13 · **Applies to:** app v0.3.5
+**Doc version:** 1.7 · **Updated:** 2026-10-19 · **Applies to:** app v0.3.5
 
 > *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
@@ -170,3 +170,20 @@ then an enrichment source matching them to Leasha's contacts the way the vCard s
 Whether contact items should also be imported into the contact book outright is a
 separate question for the same order.
 
+## 8. The mouse's back and forward buttons, caught for the window alone - parked 2026-10-19
+
+From the UX review of 2026-10-14 (`docs/REVIEW-2026-10-14-ux-architecture.md`, IA-10). The owner,
+2026-10-19: "park them and record it" - this one parked, the other three follow-ups built.
+
+**What is there now.** `NavigationController` installs an event filter on the whole
+application (`app/ui/controllers/navigation_controller.py`, `app.installEventFilter`) to catch the
+mouse's back and forward buttons anywhere in the window. It bails out at once for every other
+event, but it is a Python call for each event Qt delivers - about 4,400 during one page switch,
+profiled on the laptop (~6 ms) - and a window that is closed but not destroyed keeps its filter.
+
+**The alternative, and why it waits.** A filter on the window's own `QWindow` would see each mouse
+event once, and only that window's. But `qtbot.mouseClick` on a widget delivers straight to the
+widget, past the `QWindow`, so the tests that prove Back and Forward would no longer see them, and
+real XButton delivery on Windows cannot be checked from a session (UNVERIFIED). Nothing is wrong
+today; it is a cost measured in milliseconds. Worth doing only with a real mouse to check it, and
+a test that sends the event the way Windows does.
