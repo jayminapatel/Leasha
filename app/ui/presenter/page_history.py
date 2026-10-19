@@ -8,8 +8,9 @@ window keeps a browser's history of the pages it showed: Alt+Left and the mouse'
 back button go back, Alt+Right and its forward button go forward.
 
 **A page and a simple sub-state.** A place is `(page, sub)`: the page's rail title
-and one short string the page can be put back to - the Settings category, or
-"naming" for the Photos naming page. The sub-state of the place being left is
+and one short string the page can be put back to - the Settings category,
+"naming" for the Photos naming page, or the contact picked on Contacts
+(`contact_sub` / `contact_of`). The sub-state of the place being left is
 written into it as it is left (`leave`), so going back returns to the page as it
 was left, not as it was first opened.
 
@@ -22,13 +23,37 @@ from __future__ import annotations
 
 from typing import Optional
 
-__all__ = ["CAP", "Place", "PageHistory"]
+__all__ = ["CAP", "Place", "PageHistory", "contact_sub", "contact_of"]
 
 #: The most places remembered.
 CAP = 50
 
 #: `(page title, sub-state)`.
 Place = tuple
+
+#: How the Contacts page's sub-state starts: "contact:<id>".
+_CONTACT = "contact:"
+
+
+def contact_sub(contact_id: Optional[int]) -> str:
+    """The Contacts page's sub-state for the contact picked, or "" for none."""
+    try:
+        cid = int(contact_id) if contact_id is not None else 0
+    except (TypeError, ValueError):
+        return ""
+    return f"{_CONTACT}{cid}" if cid > 0 else ""
+
+
+def contact_of(sub: str) -> Optional[int]:
+    """The contact id a Contacts sub-state names, or None for anything else."""
+    text = str(sub or "")
+    if not text.startswith(_CONTACT):
+        return None
+    try:
+        cid = int(text[len(_CONTACT):])
+    except ValueError:
+        return None
+    return cid if cid > 0 else None
 
 
 class PageHistory:

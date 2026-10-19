@@ -56,3 +56,25 @@ def test_an_empty_page_name_is_ignored():
     h = PageHistory()
     assert not h.visit("")
     assert h.current is None and h.back() is None
+
+
+def test_the_contact_picked_is_a_sub_state_that_reads_back():
+    from app.ui.presenter.page_history import contact_of, contact_sub
+
+    assert contact_sub(42) == "contact:42" and contact_of("contact:42") == 42
+    assert contact_sub(None) == "" and contact_sub(0) == "" and contact_sub("x") == ""
+    for other in ("", "naming", "Accounts", "contact:", "contact:abc", "contact:-3"):
+        assert contact_of(other) is None
+
+
+def test_back_returns_to_the_contact_the_page_was_left_on():
+    from app.ui.presenter.page_history import contact_of, contact_sub
+
+    h = PageHistory()
+    h.visit("Search")
+    h.visit("Contacts", contact_sub(7))
+    h.visit("Mail")
+    h.visit("Contacts", contact_sub(9))
+    assert contact_of(h.back()[1]) is None                  # Mail
+    assert h.back() == ("Contacts", "contact:7")
+    assert h.forward() == ("Mail", "") and h.forward() == ("Contacts", "contact:9")

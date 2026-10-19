@@ -19,7 +19,7 @@ window (`shell.py`) only binds them:
   the cursor in the page's own box; on a page with none, Search.
 * **IA-10 - back and forward** (`presenter/page_history.py`): Alt+Left / Alt+Right
   and the mouse's back and forward buttons, between pages and the Photos naming
-  page / the Settings category they were left on.
+  page / the Settings category / the contact picked on Contacts they were left on.
 * **MS-4 - type, then arrow** on Files, Mail, Code and Photos (`widgets/arrow_keys.py`).
 """
 
@@ -33,7 +33,7 @@ from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 from app.core.logging import logger
 from app.ui.presenter import actions as palette_words
-from app.ui.presenter.page_history import PageHistory
+from app.ui.presenter.page_history import PageHistory, contact_of, contact_sub
 
 __all__ = ["NavigationController", "page_box", "PAGE_KEYS", "NAMING", "PALETTE_KEY"]
 
@@ -169,8 +169,12 @@ class NavigationController(QObject):
     # -- history -------------------------------------------------------------------
 
     def sub_state(self, view: Any) -> str:
-        """The one thing a page is put back to: Photos' naming page, Settings' category."""
+        """The one thing a page is put back to: Photos' naming page, Settings' category,
+        the contact picked on Contacts."""
         w = self._w
+        if view is not None and view is getattr(w, "contacts_view", None):
+            current = getattr(view, "current_contact_id", None)
+            return contact_sub(current()) if callable(current) else ""
         if view is not None and view is getattr(w, "photos_view", None):
             centre = getattr(view, "centre", None)
             naming = getattr(view, "_naming", None)
@@ -233,6 +237,10 @@ class NavigationController(QObject):
                     view.show_naming()
                 elif self.sub_state(view) == NAMING:
                     view.show_photos()
+            elif view is not None and view is getattr(self._w, "contacts_view", None):
+                cid = contact_of(sub)
+                if cid is not None and callable(getattr(view, "show_contact_id", None)):
+                    view.show_contact_id(cid)
             elif view is not None and view is getattr(self._w, "settings_view", None) and sub:
                 nav = getattr(view, "_nav", None)
                 if nav is not None and sub in nav.category_names():
