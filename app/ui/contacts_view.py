@@ -119,6 +119,15 @@ class ContactsView(QWidget):
         """Select one contact and show it (a search hit's card opens here)."""
         self.ensure_built().show_contact(int(contact_id))
 
+    def current_contact_id(self) -> Optional[int]:
+        """The one contact picked, for Back/Forward; None before the page is built."""
+        return self.page.current_contact_id() if self.page is not None else None
+
+    def show_contact_id(self, contact_id: Optional[int]) -> None:
+        """Back/Forward: the contact picked when the page was left, if it is still listed."""
+        if contact_id is not None:
+            self.ensure_built().show_contact_id(int(contact_id))
+
     def retint(self, colours: dict) -> None:
         if self.page is not None:
             self.page.retint(colours)
