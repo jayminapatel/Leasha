@@ -141,3 +141,52 @@ def test_cluster_batch_accepts_precomputed_centroids_or_raw_bytes():
 
     assert plan_bytes.assign and plan_array.assign
     assert plan_bytes.assign[0][:2] == plan_array.assign[0][:2] == (1, 9)
+
+
+def _loop_matches(faces, centroids, declined):
+    """The face-by-face answer `cluster_batch` gave before 2026-10-20."""
+    out = []
+    for face_id, raw in faces:
+        refused = declined.get(face_id)
+        candidates = ({p: v for p, v in centroids.items() if p not in refused}
+                      if refused else centroids)
+        out.append(fc.best_match(fc.from_bytes(raw), candidates) if candidates else None)
+    return out
+
+
+def test_the_batch_match_gives_the_face_by_face_answer():
+    """2026-10-20: one matrix product in place of a call per face and pile.
+    Same pile and score for every face - declined piles, a zero face and a
+    zero pile included - so no verdict moves."""
+    rng = np.random.default_rng(7)
+    centroids = {pid: rng.normal(size=16).astype(np.float32) for pid in range(100, 140)}
+    centroids[999] = np.zeros(16, dtype=np.float32)
+    faces = [(i, fc.to_bytes(rng.normal(size=16))) for i in range(60)]
+    faces.append((60, fc.to_bytes([0.0] * 16)))
+    # Each face is near one pile, so assign and suggest both occur.
+    faces += [(70 + k, fc.to_bytes(centroids[100 + k] + rng.normal(scale=s, size=16)))
+              for k, s in enumerate([0.05, 0.3, 0.6, 1.0, 0.05])]
+    declined = {70: {100}, 3: set(centroids) - {120}, 4: set(centroids)}
+
+    expected = _loop_matches(faces, centroids, declined)
+    got = fc._best_matches([fc.from_bytes(r) for _i, r in faces],
+                           [i for i, _r in faces], centroids, declined)
+
+    assert [m and m[0] for m in got] == [m and m[0] for m in expected]
+    for g, e in zip(got, expected):
+        if e is not None:
+            assert g[1] == pytest.approx(e[1], abs=1e-5)
+    assert got[4] is None and got[3][0] == 120
+
+
+def test_a_drain_of_thousands_of_faces_against_hundreds_of_piles_is_quick():
+    """The owner's index, 2026-10-20: 7,753 unmatched faces, 614 piles. The
+    loop took 90 s and blocked the writer; the batch is well under one."""
+    import time
+    rng = np.random.default_rng(1)
+    centroids = {pid: rng.normal(size=512).astype(np.float32) for pid in range(614)}
+    faces = [(i, fc.to_bytes(rng.normal(size=512))) for i in range(32)]
+    started = time.perf_counter()
+    for _ in range(243):            # 7,753 faces in drain batches of 32
+        fc.cluster_batch(faces, centroids)
+    assert time.perf_counter() - started < 5.0

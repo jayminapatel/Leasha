@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.144 · **Updated:** 2026-10-19 · **Applies to:** app v1.0.3
+**Doc version:** 4.145 · **Updated:** 2026-10-20 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Readers no longer wait on face grouping (2026-10-20)
+
+- **An index run with many photos no longer stops at "Waiting for the index writer".** Grouping
+  new faces into people compared every unsorted face with every person one pair at a time; on
+  the owner's index (7,753 unsorted faces, 614 people) one pass took 90 seconds, every 25 faces,
+  and the index writer waited behind it. The same pass now takes under 5 seconds, with the
+  same results.
 
 ### The UX review's follow-ups (2026-10-19)
 
