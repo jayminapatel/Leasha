@@ -109,6 +109,63 @@ def best_match(embedding: np.ndarray, centroids: dict[int, np.ndarray]
     return best_id, best_score
 
 
+def _best_matches(
+    vectors: Sequence[np.ndarray], face_ids: Sequence[int],
+    centroids: dict[int, np.ndarray], declined: dict[int, set[int]],
+) -> "list[tuple[int, float] | None]":
+    r"""`best_match` for a whole batch at once: one matrix product.
+
+    **2026-10-20, the owner: readers waiting for the index writer.** The
+    mid-run drain re-walks every face that matched nobody, every
+    `FACE_CLUSTER_EVERY` faces. On the owner's index that was 7,753 faces
+    against 614 piles - 4.8 million `cosine_similarity` calls, 90 s of
+    Python a pass and about 3 minutes with its writes - and the picture
+    thread doing it let its queue fill, so the consumer blocked handing it
+    the next photo and every reader waited behind the consumer.
+
+    Same answer as `best_match` face by face: the first pile with the
+    highest score wins, a zero vector scores 0.0, a declined pile is never a
+    candidate, and a face whose every candidate scores -1.0 or less (or has
+    none) gets `None`. Falls back to `best_match` if the vectors cannot be
+    stacked (mixed lengths), which no detector produces.
+    """
+    if not vectors or not centroids:
+        return [None] * len(vectors)
+    pile_ids = list(centroids)
+    try:
+        piles = np.stack([centroids[p] for p in pile_ids]).astype(np.float32, copy=False)
+        faces = np.stack(vectors).astype(np.float32, copy=False)
+        # `einsum`, not `@`: `@` goes to BLAS, which starts a thread per
+        # core - and with the run's readers and meaning model already on
+        # those cores, measured on the owner's laptop, 32 x 614 took 41-63
+        # ms that way against 3.4 ms here (1.5 ms with BLAS on one thread).
+        dots = np.einsum("ij,kj->ik", faces, piles)
+    except ValueError:
+        out: "list[tuple[int, float] | None]" = []
+        for face_id, vector in zip(face_ids, vectors):
+            refused = declined.get(face_id)
+            candidates = ({p: v for p, v in centroids.items() if p not in refused}
+                          if refused else centroids)
+            out.append(best_match(vector, candidates) if candidates else None)
+        return out
+    denom = (np.linalg.norm(faces, axis=1)[:, None].astype(np.float64)
+             * np.linalg.norm(piles, axis=1)[None, :])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scores = np.where(denom == 0.0, 0.0, dots / denom)
+    column = {p: i for i, p in enumerate(pile_ids)}
+    for row, face_id in enumerate(face_ids):
+        refused = declined.get(face_id)
+        if refused:
+            columns = [column[p] for p in refused if p in column]
+            scores[row, columns] = -np.inf
+    best = np.argmax(scores, axis=1)
+    out = []
+    for row, col in enumerate(best):
+        score = float(scores[row, col])
+        out.append(None if score <= -1.0 else (pile_ids[int(col)], score))
+    return out
+
+
 @dataclass(slots=True)
 class ClusterPlan:
     """What `cluster_batch` decided. The caller applies it - this module
@@ -157,16 +214,12 @@ def cluster_batch(
     plan = ClusterPlan()
     centroids = {pid: from_bytes(data) if not isinstance(data, np.ndarray) else data
                  for pid, data in existing_centroids.items()}
+    vectors = [from_bytes(raw) for _face_id, raw in faces]
+    matches = _best_matches(vectors, [face_id for face_id, _raw in faces],
+                            centroids, declined or {})
 
     leftover: list[tuple[int, np.ndarray]] = []
-    for face_id, raw in faces:
-        vector = from_bytes(raw)
-        # 2026-10-05: never a person this face was told it is not (`declined`,
-        # the chip's No and the manage dialog's "Not this person").
-        refused = (declined or {}).get(face_id)
-        candidates = ({p: v for p, v in centroids.items() if p not in refused}
-                      if refused else centroids)
-        match = best_match(vector, candidates) if candidates else None
+    for (face_id, _raw), vector, match in zip(faces, vectors, matches):
         if match is None:
             leftover.append((face_id, vector))
             continue
