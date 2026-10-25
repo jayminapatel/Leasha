@@ -207,12 +207,16 @@ class AccountService:
 
     def _contact_provider(self, account: Account, transport: Transport) -> ContactProvider:
         from app.accounts.providers.carddav import CardDavProvider, basic_auth_header  # noqa: PLC0415
+        # 2026-10-25: "File as" for the two that have it, from Settings > Accounts.
+        filed_as = str(getattr(self.accounts.settings(), "file_as", "") or "first_last")
         if account.provider == "google":
             from app.accounts.providers.google_people import GooglePeopleProvider  # noqa: PLC0415
-            return GooglePeopleProvider(transport, self.token_source(account), account=account.name)
+            return GooglePeopleProvider(transport, self.token_source(account), account=account.name,
+                                        file_as=filed_as)
         if account.provider == "microsoft":
             from app.accounts.providers.graph_contacts import GraphContactsProvider  # noqa: PLC0415
-            return GraphContactsProvider(transport, self.token_source(account), account=account.name)
+            return GraphContactsProvider(transport, self.token_source(account), account=account.name,
+                                         file_as=filed_as)
         if account.provider == "apple":
             return CardDavProvider.icloud(transport, account.address, self.token_source(account),
                                           account=account.name)

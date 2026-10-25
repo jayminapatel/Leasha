@@ -126,10 +126,15 @@ class GraphContactsProvider:
     caps = GRAPH_CAPS
 
     def __init__(self, transport: Transport, token_source: TokenSource, *, account: str = "Microsoft",
-                 base_url: str = API_BASE, page_size: int = 100, send_if_match: bool = False) -> None:
+                 base_url: str = API_BASE, page_size: int = 100, send_if_match: bool = False,
+                 file_as: str = "first_last") -> None:
         """`send_if_match` also sends `If-Match: W/"<changeKey>"` on writes. Off by
         default: the pre-read compare below is what guards a write, and whether
-        Graph's contact ETag is exactly that form has not been seen live."""
+        Graph's contact ETag is exactly that form has not been seen live.
+
+        `file_as` (2026-10-25): how each contact written is filed in Outlook - an
+        `app.contacts.file_as.FORMATS` key, from the account settings."""
+        self._file_as = file_as
         self._t = transport
         self._token = token_source
         self._account = account
@@ -262,6 +267,11 @@ class GraphContactsProvider:
             "homeAddress": None, "businessAddress": None, "otherAddress": None, "businessHomePage": None,
             "birthday": None, "spouseName": None, "manager": None, "assistantName": None, "imAddresses": [],
         }
+        # 2026-10-25, the owner: Outlook's "File as" was empty for every contact written from here.
+        from app.contacts.file_as import file_as  # noqa: PLC0415
+
+        body["fileAs"] = file_as(c.scalars, self._file_as,
+                                 [f.value for f in c.fields if f.kind == "email"]) or None
         for f in c.fields:
             tokens = f.label.lower().split()
             if f.kind == "email":

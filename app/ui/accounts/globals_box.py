@@ -233,6 +233,19 @@ class GlobalSettingsBox(QWidget):
             self.maps_site.addItem(text, key)
         add_row(form, self.maps_site, "Show addresses on",
                 hint=hint("The site opened when you click an address."))
+        # 2026-10-25, the owner: Outlook's "File as" was empty for contacts written from Leasha.
+        from app.contacts.file_as import FORMATS as FILE_AS_FORMATS  # noqa: PLC0415
+
+        self.file_as = QComboBox()
+        self.file_as.setAccessibleName("File contacts as")
+        self.file_as.setToolTip("How a contact is filed and sorted in Outlook and Google Contacts")
+        for key, text in FILE_AS_FORMATS:
+            self.file_as.addItem(text, key)
+        add_row(form, self.file_as, "File contacts as",
+                hint=hint("Outlook's and Google's \"File as\". Set on each contact Leasha writes; a contact "
+                         "without those names is filed by its company, then its email."))
+        self.file_as.currentIndexChanged.connect(
+            lambda _i: self._save(file_as=str(self.file_as.currentData())))
         self.default_account.currentIndexChanged.connect(self._default_changed)
         self.phone_region.editingFinished.connect(self._region_done)
         self.maps_site.currentIndexChanged.connect(lambda _i: self._save(maps_site=str(self.maps_site.currentData())))
@@ -420,6 +433,7 @@ class GlobalSettingsBox(QWidget):
             self._region = s.phone_region or "GB"
             set_quiet(self.phone_region, self._region, "setText")
             set_quiet(self.maps_site, self.maps_site.findData(s.maps_site), "setCurrentIndex")
+            set_quiet(self.file_as, max(0, self.file_as.findData(s.file_as)), "setCurrentIndex")
             for w, v in ((self.google_id, s.google_client_id), (self.microsoft_id, s.microsoft_client_id)):
                 if not w.hasFocus():
                     set_quiet(w, v, "setText")
