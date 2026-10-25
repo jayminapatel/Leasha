@@ -824,6 +824,7 @@
     <Compile Include="doctor.py" />
     <Compile Include="packaging\leasha_entry.py" />
     <Compile Include="packaging\make_installer_art.py" />
+    <Compile Include="scripts\ci_pytest.py" />
     <Compile Include="scripts\pst_field_test.py" />
     <Compile Include="scripts\regen_vs_project.py" />
     <Compile Include="scripts\rename_fixup.py" />
@@ -955,6 +956,7 @@
     <Compile Include="tests\unit\test_child_stdin.py" />
     <Compile Include="tests\unit\test_chunk_index_trigger.py" />
     <Compile Include="tests\unit\test_chunker.py" />
+    <Compile Include="tests\unit\test_ci_pytest.py" />
     <Compile Include="tests\unit\test_cli_accounts_contacts.py" />
     <Compile Include="tests\unit\test_cli_expands_slashes.py" />
     <Compile Include="tests\unit\test_cli_extract.py" />

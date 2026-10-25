@@ -55,8 +55,21 @@ jobs:
         run: |
           venv\Scripts\python.exe -m compileall -q app
 
-      - name: Run the suite (offscreen Qt, excluding e2e/jvm)
+      # 2026-10-25: through scripts/ci_pytest.py, so the step ends when pytest has (the run on
+      # 9e45ff3 printed its summary at 13:27 and sat until the 90-minute ceiling), and with the
+      # `timing` tests left to the next step, as scripts/run_suite.py leaves them to the end.
+      - name: Run the suite (offscreen Qt, excluding e2e/jvm and the timing tests)
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          venv\Scripts\python.exe -m pytest tests -q -m "not jvm and not e2e" --timeout=600
+          venv\Scripts\python.exe scripts\ci_pytest.py -- tests -q -m "not jvm and not e2e and not timing" --timeout=600
+
+      # The wall-clock budgets, on their own after the rest. A shared runner is slower than the
+      # laptop the budgets were set on, so a miss here is a warning, not a red run: the full
+      # local suite is the gate (CLAUDE.md, 2026-10-15).
+      - name: Run the timing tests on their own (a miss is a warning)
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          venv\Scripts\python.exe scripts\ci_pytest.py -- tests -q -m "not jvm and not e2e and timing" --timeout=600

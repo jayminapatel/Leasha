@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.148 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
+**Doc version:** 4.149 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Windows Run on GitHub ends when its tests have; its timing tests are a warning there (2026-10-25)
+
+Windows Run on `main` had run every test by 13:27 and was cancelled by the 90-minute ceiling at 13:55: pytest did not end, and a process left behind held the step open. The workflow now runs pytest through `scripts/ci_pytest.py`, which copies pytest's output from a file, knows when the session has finished, and ends a pytest that has not exited a minute later with the session's status. The `timing` tests run in a step of their own after the rest, where a miss is a warning: a shared runner is slower than the laptop the budgets were set on, and the full local suite is the gate. Also: `test_lo_session` no longer fails when a converter member has already ended with its parent, and three tests over a second are marked `slow` (#115).
 
 ### The user guide and the reference catch up with 16-25 October (2026-10-25)
 
