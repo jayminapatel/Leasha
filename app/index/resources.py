@@ -39,7 +39,7 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from app.core.logging import logger
 from app.core.osbridge.priority import lower_process_priority
@@ -315,6 +315,19 @@ def psutil_available() -> bool:
     return True
 
 
+def _is_leasha(process: Any) -> bool:
+    """Is this process Leasha - `python[w] -m app.<something>`, the window, a run, a
+    model host, or the `venv` launcher in front of one? Never raises."""
+    try:
+        args = [str(a).lower() for a in (process.cmdline() or [])]
+    except Exception:                           # noqa: BLE001 - gone, or not ours to read
+        return False
+    for at, arg in enumerate(args[:-1]):
+        if arg == "-m" and args[at + 1].startswith("app."):
+            return True
+    return False
+
+
 class SystemProbe:
     """The seam. Everything above works against `Snapshot`; this makes one."""
 
@@ -341,6 +354,9 @@ class SystemProbe:
         #: `time.monotonic()` before which the process table is not walked
         #: again for the list of children (`CHILD_LIST_S`).
         self._children_listed_until = 0.0
+        #: The topmost Leasha process above this one (`_family_root`), found once;
+        #: None until asked, this process when there is none above it.
+        self._root = None
 
     @property
     def index_path(self) -> Optional[Path]:
@@ -502,7 +518,7 @@ class SystemProbe:
         if now >= self._children_listed_until:
             self._children_listed_until = now + CHILD_LIST_S
             try:
-                listed = self._process.children(recursive=True)
+                listed = self._family(psutil)
             except Exception:                   # noqa: BLE001 - keep what we have
                 listed = None
             if listed is not None:
@@ -524,6 +540,39 @@ class SystemProbe:
             except Exception:                   # noqa: BLE001 - NoSuchProcess, AccessDenied
                 kept.pop(key, None)
         return total
+
+    def _family(self, psutil) -> list:
+        """Every Leasha process but this one: this process's children, and - when the
+        run is a child of the window - the window, its model host and the rest of
+        what the window started. Never raises past the caller's guard.
+
+        2026-10-25: a restarted run paused itself three times in its first five
+        minutes on "The machine is busy (84% CPU used by other programs)", and the
+        busiest of those programs was `pythonw.exe` at 44% - Leasha's own window and
+        model host. The run is `app.cli index`, a child of the window; only its own
+        children were subtracted, so its parent and its siblings counted as
+        somebody else's work."""
+        root = self._family_root(psutil)
+        me = self._process.pid
+        family = [root] if root.pid != me else []
+        family += [p for p in root.children(recursive=True) if p.pid != me]
+        return family
+
+    def _family_root(self, psutil) -> Any:
+        """The topmost process above this one that is Leasha (`python -m app.…`), or
+        this process. Found once: a run does not change its parents."""
+        if self._root is not None:
+            return self._root
+        root = self._process
+        try:
+            parent = root.parent()
+            while parent is not None and _is_leasha(parent):
+                root = parent
+                parent = parent.parent()
+        except Exception:                       # noqa: BLE001 - this process, then
+            pass
+        self._root = root
+        return root
 
     def lower_priority(self) -> bool:
         """Drop below normal priority. Returns whether it worked.
@@ -605,8 +654,19 @@ def busiest_processes(
         cores = psutil.cpu_count() or 1
         me = psutil.Process()
         ours = {me.pid}
+        # 2026-10-25: the whole Leasha family, as `SystemProbe._family` counts it - the
+        # window above a run and its model host are not somebody else's. The walk up
+        # has its own guard: a parent that cannot be asked leaves this process the root.
+        root = me
         try:
-            ours.update(child.pid for child in me.children(recursive=True))
+            parent = root.parent()
+            while parent is not None and _is_leasha(parent):
+                root, parent = parent, parent.parent()
+        except Exception:                       # noqa: BLE001 - this process, then
+            root = me
+        try:
+            ours.add(root.pid)
+            ours.update(child.pid for child in root.children(recursive=True))
         except Exception:                       # noqa: BLE001
             pass
 

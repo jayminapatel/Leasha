@@ -1143,6 +1143,10 @@ class _Extracted:
     #: None for anything that has none. Set on every item from such a file,
     #: including its marker, which is what clears the cursor.
     resume_key: Optional[str] = None
+    #: 2026-10-25: on a container's closing record, the archive as it is *after* the
+    #: read - `(marker, size_bytes, mtime_ns)` - when the read itself changed it
+    #: (`Pipeline._after_outlook_read`). None: record it as the scan found it.
+    after_read: Optional[tuple] = None
 
     @property
     def row_key(self) -> str:
@@ -5246,6 +5250,10 @@ class Pipeline:
 
         produced = 0
         seen_keys: set[str] = set()
+        #: 2026-10-25: did any document of this file come from the direct `.pst`
+        #: reader (`meta["backend"] == "libpff"`)? None of them means read through
+        #: Outlook - `_after_outlook_read` - wherever the read ran.
+        read_directly = False
         #: 0x 3a/3c. This thread's slot, or None outside a pipeline worker (a
         #: test calling this directly). Looked up once per file, not per message.
         slot = getattr(self._worker_slots(), "slot", None)
@@ -5260,7 +5268,7 @@ class Pipeline:
             """One document of this file as the consumer takes it, or None for
             one with no text. Shared by the loop below and by `in_hand`, so a
             document kept after a cut-off is keyed exactly as any other."""
-            nonlocal produced, retry_next_pass
+            nonlocal produced, retry_next_pass, read_directly
             if any(_is_transient_partial(w) for w in document.warnings):
                 retry_next_pass = True
 
@@ -5308,6 +5316,8 @@ class Pipeline:
                     )
                 key = f"{key}#{index}"
             seen_keys.add(key)
+            if not read_directly and (getattr(document, "meta", None) or {}).get("backend") == "libpff":
+                read_directly = True
 
             produced += 1
             self._stats_ref.current_item = produced
@@ -5415,6 +5425,8 @@ class Pipeline:
                 key=default_key, source_kind="archive",
                 first_of_file=False, file_marker=True,
                 resume_key=resume_key,
+                after_read=(None if read_directly
+                            else self._after_outlook_read(candidate, digest)),
             )
 
     def _install_ocr_helper(self) -> None:
@@ -7911,15 +7923,43 @@ class Pipeline:
             with self._cluster_lock:
                 self._drain_face_cluster(stats, paced=False)
 
+    def _after_outlook_read(self, candidate: Candidate, digest: Any) -> Optional[tuple]:
+        """`(marker, size, mtime)` of a `.pst` just read **through Outlook**, taken now -
+        or None, to record it as the scan found it. Never raises.
+
+        2026-10-25: reading through Outlook mounts the archive, and Outlook writes to it
+        while it is mounted - its header counters (`bidNextP`, `BREFNBT`...) and its date
+        move. The marker kept was the one the scan took *before* the read, so the next
+        run found "its header moved since the last read" and read every archive again,
+        in full, on every run: 2007, 2010 and 2011.pst on 2026-10-25, same size to the
+        byte. Taken after the read, the marker includes Outlook's own writes. Not for a
+        direct read, which writes nothing: a marker that moved during one is new mail -
+        the caller passes None for those (`read_directly` in `_extract_stream`)."""
+        try:
+            path = Path(str(candidate.path))
+            if path.suffix.lower() != ".pst" or digest is None:
+                return None
+            # Read directly is decided by the caller from the documents themselves
+            # (`meta["backend"]`), which holds in a reader process too.
+            marker = change_marker(path)
+            if marker is None:
+                return None
+            stat = path.stat()
+            return (marker, int(stat.st_size), int(stat.st_mtime_ns))
+        except Exception:                               # noqa: BLE001 - as the scan found it
+            return None
+
     def _write_marker(self, item: _Extracted) -> None:
         """Record a container as indexed without giving it any chunks."""
         candidate = item.candidate
+        marker, size, mtime = item.after_read or (
+            item.content_hash, candidate.size_bytes, candidate.mtime_ns)
         with self.store.batch():
             file_id = self.store.upsert_file(
                 item.row_key,
-                size_bytes=candidate.size_bytes,
-                mtime_ns=candidate.mtime_ns,
-                content_hash=item.content_hash,
+                size_bytes=size,
+                mtime_ns=mtime,
+                content_hash=marker,
                 status=FileStatus.PENDING,
                 source_kind=item.source_kind,
                 # The container itself (the `.pst`/archive file) is exactly

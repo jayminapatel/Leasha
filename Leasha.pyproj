@@ -1135,6 +1135,7 @@
     <Compile Include="tests\unit\test_gitquery.py" />
     <Compile Include="tests\unit\test_gitsearch.py" />
     <Compile Include="tests\unit\test_gitsearch_reading.py" />
+    <Compile Include="tests\unit\test_governor_counts_the_leasha_family.py" />
     <Compile Include="tests\unit\test_governor_settles.py" />
     <Compile Include="tests\unit\test_gpu_gate_pictures.py" />
     <Compile Include="tests\unit\test_gpu_lock_across_processes.py" />
@@ -1297,6 +1298,7 @@
     <Compile Include="tests\unit\test_outlook_busy.py" />
     <Compile Include="tests\unit\test_outlook_cleanup.py" />
     <Compile Include="tests\unit\test_outlook_cleanup_ui.py" />
+    <Compile Include="tests\unit\test_outlook_read_leaves_no_change.py" />
     <Compile Include="tests\unit\test_own_python.py" />
     <Compile Include="tests\unit\test_owner_questions.py" />
     <Compile Include="tests\unit\test_packaging_entry.py" />
