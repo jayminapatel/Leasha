@@ -56,7 +56,7 @@ __all__ = [
     "format_size", "is_message_row", "has_own_size", "own_size",
     "archived_message_sql", "message_name", "DISK_FILE_KIND", "disk_file_sql",
     "attachment_of", "is_mail_attachment", "attachment_sql", "listed_files_sql",
-    "is_message_key", "container_of", "is_synthetic_path",
+    "is_message_key", "container_of", "is_synthetic_path", "zip_member_of",
     "day_words", "moment_words",
 ]
 
@@ -180,6 +180,23 @@ def container_of(path: Any) -> str:
     """
     match = _IN_A_MAILBOX.match(str(path or ""))
     return match.group("box") if match else ""
+
+
+#: A file inside a zip on disk: `D:\a\backup.zip/q3/report.docx`.
+#: 2026-10-04, code review: built from `ZIP_FAMILY_EXTS`. Moved here from
+#: `app/ui/attachment_open.py` on 2026-10-25 so the index can ask it too.
+_ZIP_MEMBER = re.compile(r"^(?P<zip>(?![\w.+-]+://).+?\.(?:" + ext_alternation(ZIP_FAMILY_EXTS)
+                         + r"))/(?P<inner>.+)$",
+                         re.IGNORECASE)
+
+
+def zip_member_of(path: Any) -> tuple[str, str]:
+    """`(the zip on disk, the path inside it)`, or `("", "")`. No I/O.
+
+    2026-10-04, the owner: "the same should be for zips". Not a catalogued
+    drive's member (`leasha-volume://`): that drive may not be plugged in."""
+    match = _ZIP_MEMBER.match(str(path or ""))
+    return (match.group("zip"), match.group("inner")) if match else ("", "")
 
 
 def is_message_key(path: Any) -> bool:

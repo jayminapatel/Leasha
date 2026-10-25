@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import sys
 import threading
 import time
 import weakref
@@ -70,7 +71,7 @@ from app.storage.migrations import (
     CONTENT_TRIGGERS, CURRENT_VERSION, apply_migrations, read_version,
 )
 
-__all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME", "FaceRecord", "PileRecord", "PileSample", "PendingSuggestion", "PhotoRow"]
+__all__ = ["SqliteStore", "FileRecord", "ScanRow", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME", "FaceRecord", "PileRecord", "PileSample", "PendingSuggestion", "PhotoRow"]
 
 _log = logger.bind(component="storage.sqlite")
 
@@ -573,6 +574,19 @@ class FileRecord:
                       if key in row.keys()})
 
 
+class ScanRow(NamedTuple):
+    """The part of a `files` row the scan's change check reads - see
+    `SqliteStore.rows_for_change_check`. The same names and values as the
+    `FileRecord` fields they stand for."""
+    id: int
+    size_bytes: int
+    mtime_ns: int
+    content_hash: Optional[str]
+    status: str
+    skip_code: Optional[str]
+    indexed_at: Optional[int]
+
+
 @dataclass(frozen=True)
 class VolumeRecord:
     """One catalogued Offline Media source - a drive, share, cloud mount,
@@ -640,6 +654,8 @@ class PileSample:
     file_id: int
     path: str
     bbox: tuple[float, float, float, float]
+    #: The face row it is (`faces.id`); 0 where a caller built one without it.
+    face_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -654,6 +670,9 @@ class PileRecord:
     #: When this pile's newest face was found (epoch seconds) - the People
     #: window's "Recently found" order (2026-10-14).
     last_found: int = 0
+    #: The face the person chose for the tile, while it is still in the pile
+    #: (`set_pile_cover`); `samples[0]` is then that face. None: automatic.
+    cover_face_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -2049,6 +2068,35 @@ class SqliteStore:
         """The row keyed exactly by `path` (case as stored), or None."""
         row = self.conn.execute("SELECT * FROM files WHERE path = ?", (str(path),)).fetchone()
         return FileRecord.from_row(row) if row else None
+
+    def rows_for_change_check(self) -> dict[str, "ScanRow"]:
+        r"""`{path: ScanRow}` for every row keyed by a plain path - one read.
+
+        2026-10-25, the owner: "when you stop and start index the resume is
+        too slow ... we have the data in the database already". The scan asked
+        `get_file` once per file found - a lookup on the path index and a
+        `FileRecord` built from a `SELECT *` - and on a restart every one of
+        them finds a row. Measured read-only against the owner's index that
+        day (8 GB, 155k file rows, `immutable=1`, this laptop): 5,000 such
+        lookups in random order took 0.73 s, 146 µs each, before the record
+        was built; this whole read took 0.44 s for 137k rows.
+
+        **Plain paths only** - no key with `://` in it: a message
+        (`pst://...`), its attachments and a catalogued drive's
+        `leasha-volume://` rows are not files a walk finds, and are left to
+        `get_file`. `ScanRow` carries exactly the fields
+        `Pipeline._classify` reads; it is a snapshot, so a caller that must
+        see a row another thread may change meanwhile asks `get_file`.
+        """
+        cursor = self.conn.cursor()
+        cursor.row_factory = None
+        rows = cursor.execute(
+            "SELECT path, id, size_bytes, mtime_ns, content_hash, status, skip_code, "
+            "indexed_at FROM files WHERE instr(path, '://') = 0").fetchall()
+        intern = sys.intern
+        return {row[0]: ScanRow(row[1], row[2], row[3], row[4],
+                                intern(row[5]) if isinstance(row[5], str) else row[5],
+                                row[6], row[7]) for row in rows}
 
     def get_file_by_id(self, file_id: int) -> Optional[FileRecord]:
         """The row with this id, or None once it has been deleted."""
@@ -4590,6 +4638,7 @@ class SqliteStore:
 
     def unembedded_by_file(
         self, batch_size: int = 256, first_folders: Sequence[str] = (),
+        on_snapshot: Optional[Any] = None,
     ) -> list[list[tuple[int, int]]]:
         r"""Chunks awaiting a vector, as `(chunk_id, file_id)` batches of **whole files**.
 
@@ -4620,6 +4669,17 @@ class SqliteStore:
         `C:\Docs2` - without regard to the case of A-Z. Storage cannot import
         the walker (it is the layer below), so the rule is repeated here.
 
+        **`on_snapshot`** (2026-10-25) is called, with no arguments, once the
+        read has started and before its rows are fetched. From that moment the
+        answer is fixed: one statement is one read transaction, so in WAL mode
+        every row it returns is as the database stood when it began, whatever
+        is written meanwhile. The pipeline reads the backlog on a thread of its
+        own while the run goes on (`Pipeline._park_backlog_behind`), and waits
+        only for this - so the backlog is the start-of-run backlog, exactly as
+        when it was read on the run's own thread, and never takes in a passage
+        this run writes. Called even when the backlog is empty, and called at
+        most once.
+
         Measured 2026-10-10 on this laptop, synthetic stores with 120-word
         passages, 60% awaiting a vector, CPU shared with four other jobs (so
         each figure is a range over two runs of a median of 3): 120k waiting
@@ -4646,12 +4706,17 @@ class SqliteStore:
         # row, which profiled at half this method's time over 120k rows.
         cursor = self.conn.cursor()
         cursor.row_factory = None
-        rows = cursor.execute(
+        cursor.execute(
             # LEFT: a passage whose file row is missing (foreign keys off in a
             # repair or a test) is still handed back, as it always was - last,
             # with no date.
             "SELECT c.id, c.file_id, f.mtime_ns, f.source_kind FROM chunks c "
-            "LEFT JOIN files f ON f.id = c.file_id WHERE c.embedded = 0").fetchall()
+            "LEFT JOIN files f ON f.id = c.file_id WHERE c.embedded = 0")
+        # `execute` has taken the first step: the read transaction - and with
+        # it the snapshot - is open until the last row is fetched.
+        if on_snapshot is not None:
+            on_snapshot()
+        rows = cursor.fetchall()
         # Rows arrive in passage-id order, and one file's passages are written
         # together (`replace_chunks`), so they come as runs: grouped a run at a
         # time rather than a row at a time. A file met again later (its
@@ -4831,6 +4896,35 @@ class SqliteStore:
                 f"SELECT f.id FROM files f WHERE {attachment_sql('f')} "
                 "AND NOT EXISTS (SELECT 1 FROM faces WHERE faces.file_id = f.id))")
             return int(cursor.rowcount or 0)
+
+    def forget_face_scans_of_zip_pictures(self) -> int:
+        """Un-mark every picture inside a zip recorded as face-scanned with no
+        face found, so the next run looks at it. Returns how many. 2026-10-25.
+
+        The same hole as `forget_face_scans_of_mail_pictures`, through the
+        other door: a zip member's key (`D:\\a\\x.zip/assets/logo.png`) is not a
+        place on disk, the scan tried it as one, failed, found nothing and
+        marked it as looked at - 46 of the owner's on 2026-10-25
+        (`logs/runs/run-20261025-113053-index.log`). Which keys are zip
+        members is `row_facts.zip_member_of`'s rule, asked of each candidate
+        row here rather than restated in SQL. A mark beside a found face is
+        real and is kept."""
+        from app.core.row_facts import zip_member_of
+
+        rows = self.conn.execute(
+            "SELECT s.file_id, f.path FROM face_scans s JOIN files f ON f.id = s.file_id "
+            "WHERE NOT EXISTS (SELECT 1 FROM faces WHERE faces.file_id = s.file_id)"
+        ).fetchall()
+        doomed = [int(r[0]) for r in rows if zip_member_of(r[1])[0]]
+        if not doomed:
+            return 0
+        with self.write() as conn:
+            for start in range(0, len(doomed), 500):
+                part = doomed[start:start + 500]
+                conn.execute(
+                    f"DELETE FROM face_scans WHERE file_id IN ({','.join('?' * len(part))})",
+                    part)
+        return len(doomed)
 
     @staticmethod
     def _face_from_row(row: sqlite3.Row) -> FaceRecord:
@@ -5446,32 +5540,69 @@ class SqliteStore:
         file ids the UI draws crops from. `samples` per pile, not the whole
         set - the grid shows a handful of thumbnails, not every photo."""
         rows = self.conn.execute(
-            "SELECT p.id, p.name, COUNT(f.id) AS n, MAX(f.created_at) AS last "
+            "SELECT p.id, p.name, p.cover_face_id AS cover, COUNT(f.id) AS n, "
+            "       MAX(f.created_at) AS last "
             "FROM piles p JOIN faces f ON f.pile_id = p.id "
-            "GROUP BY p.id, p.name ORDER BY n DESC, p.id LIMIT ?",
+            "GROUP BY p.id, p.name, p.cover_face_id ORDER BY n DESC, p.id LIMIT ?",
             (limit,),
         ).fetchall()
+        face_sql = ("SELECT f.id AS face_id, f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, "
+                    "       fl.id AS file_id, fl.path AS path "
+                    "FROM faces f JOIN files fl ON fl.id = f.file_id ")
         out: list[PileRecord] = []
         for row in rows:
-            sample_rows = self.conn.execute(
-                "SELECT f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, "
-                "       fl.id AS file_id, fl.path AS path "
-                "FROM faces f JOIN files fl ON fl.id = f.file_id "
-                "WHERE f.pile_id = ? ORDER BY f.id LIMIT ?",
+            sample_rows = list(self.conn.execute(
+                face_sql + "WHERE f.pile_id = ? ORDER BY f.id LIMIT ?",
                 (row["id"], samples),
-            ).fetchall()
+            ).fetchall())
+            # 2026-10-25: the cover the person chose (`set_pile_cover`) comes first -
+            # only while it is still one of this pile's faces; otherwise the
+            # automatic first face stands, and `cover_face_id` says None.
+            cover = None
+            if row["cover"] is not None:
+                chosen = self.conn.execute(
+                    face_sql + "WHERE f.id = ? AND f.pile_id = ?",
+                    (row["cover"], row["id"])).fetchone()
+                if chosen is not None:
+                    cover = int(chosen["face_id"])
+                    rest = [r for r in sample_rows if int(r["face_id"]) != cover]
+                    sample_rows = [chosen, *rest][:samples]
             out.append(PileRecord(
                 id=row["id"], name=row["name"], face_count=row["n"],
                 last_found=int(row["last"] or 0),
+                cover_face_id=cover,
                 samples=tuple(
                     PileSample(
                         file_id=r["file_id"], path=r["path"],
                         bbox=(r["bbox_x"], r["bbox_y"], r["bbox_w"], r["bbox_h"]),
+                        face_id=int(r["face_id"]),
                     )
                     for r in sample_rows
                 ),
             ))
         return out
+
+    def set_pile_cover(self, pile_id: int, face_id: Optional[int]) -> bool:
+        r"""The face `pile_id`'s tile shows, chosen by the person - "Use as cover
+        photo" in the manage dialog (2026-10-25). `None` goes back to the
+        automatic face. Returns False, and changes nothing, for a face that is
+        not in that pile (it moved while the menu was open) or a pile gone.
+
+        Kept on the pile (`piles.cover_face_id`, schema 44), so it survives a
+        restart and a re-grouping, which only files new faces and never moves
+        one already in a pile. `piles_with_counts` uses it only while the face
+        is still in the pile, so a face moved away needs nothing cleared here."""
+        with self.write() as conn:
+            if face_id is None:
+                changed = conn.execute(
+                    "UPDATE piles SET cover_face_id = NULL WHERE id = ?",
+                    (int(pile_id),)).rowcount
+            else:
+                changed = conn.execute(
+                    "UPDATE piles SET cover_face_id = ? WHERE id = ? AND EXISTS "
+                    "(SELECT 1 FROM faces WHERE id = ? AND pile_id = ?)",
+                    (int(face_id), int(pile_id), int(face_id), int(pile_id))).rowcount
+        return bool(changed)
 
     def sync_people_segment(self, file_id: int, *, label: str = "People") -> None:
         r"""Rebuild this file's `People:` labelled segment. Section 3a.

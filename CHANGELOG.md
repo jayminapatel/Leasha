@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.145 · **Updated:** 2026-10-20 · **Applies to:** app v1.0.3
+**Doc version:** 4.146 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A restart starts reading in seconds; choose a person's cover photo; pixelated faces are left out (2026-10-25)
+
+- **Restart:** indexing no longer pauses for Leasha's own window and model host, which it had counted as "other programs". An archive read through Outlook is no longer read again next time because Outlook's own mount moved its header. The waiting-for-meaning backlog is listed beside the scan instead of in front of it, the scan checks files against one bulk read of the index instead of one lookup each, and pictures inside zip files are read for faces properly. Measured on a synthetic index the size of the owner's: from Start to reading 57 s down to 11 s (median).
+- **People:** right-click a person's tile and choose "Change the cover photo…", or right-click a face and choose "Use as cover photo". The choice is kept, as schema 44.
+- **Faces:** a face too blurred, upscaled or blocky to recognise is no longer kept for naming or grouping (`app/extract/face_quality.py`), measured on synthetic and real faces.
 
 ### Readers no longer wait on face grouping (2026-10-20)
 

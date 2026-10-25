@@ -310,6 +310,7 @@
     <Compile Include="app\extract\era_hints.py" />
     <Compile Include="app\extract\exif.py" />
     <Compile Include="app\extract\face_detect.py" />
+    <Compile Include="app\extract\face_quality.py" />
     <Compile Include="app\extract\florence_tagger.py" />
     <Compile Include="app\extract\heif.py" />
     <Compile Include="app\extract\iwork.py" />
@@ -1092,7 +1093,9 @@
     <Compile Include="tests\unit\test_external_run.py" />
     <Compile Include="tests\unit\test_extract.py" />
     <Compile Include="tests\unit\test_extract_lazy_registry.py" />
+    <Compile Include="tests\unit\test_face_backfill_zip_members.py" />
     <Compile Include="tests\unit\test_face_clustering.py" />
+    <Compile Include="tests\unit\test_face_quality.py" />
     <Compile Include="tests\unit\test_fast_pptx.py" />
     <Compile Include="tests\unit\test_fast_readers.py" />
     <Compile Include="tests\unit\test_fast_xlsx.py" />
@@ -1135,6 +1138,7 @@
     <Compile Include="tests\unit\test_gitquery.py" />
     <Compile Include="tests\unit\test_gitsearch.py" />
     <Compile Include="tests\unit\test_gitsearch_reading.py" />
+    <Compile Include="tests\unit\test_governor_counts_the_leasha_family.py" />
     <Compile Include="tests\unit\test_governor_settles.py" />
     <Compile Include="tests\unit\test_gpu_gate_pictures.py" />
     <Compile Include="tests\unit\test_gpu_lock_across_processes.py" />
@@ -1297,6 +1301,7 @@
     <Compile Include="tests\unit\test_outlook_busy.py" />
     <Compile Include="tests\unit\test_outlook_cleanup.py" />
     <Compile Include="tests\unit\test_outlook_cleanup_ui.py" />
+    <Compile Include="tests\unit\test_outlook_read_leaves_no_change.py" />
     <Compile Include="tests\unit\test_own_python.py" />
     <Compile Include="tests\unit\test_owner_questions.py" />
     <Compile Include="tests\unit\test_packaging_entry.py" />
@@ -1311,6 +1316,7 @@
     <Compile Include="tests\unit\test_pause_button.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
     <Compile Include="tests\unit\test_pdf_ocr.py" />
+    <Compile Include="tests\unit\test_people_cover_photo.py" />
     <Compile Include="tests\unit\test_people_during_a_run.py" />
     <Compile Include="tests\unit\test_people_seen_once_and_sorting.py" />
     <Compile Include="tests\unit\test_perf_floors.py" />
@@ -1414,6 +1420,7 @@
     <Compile Include="tests\unit\test_results_before_rerank.py" />
     <Compile Include="tests\unit\test_results_liveness.py" />
     <Compile Include="tests\unit\test_results_view.py" />
+    <Compile Include="tests\unit\test_resume_backlog_parked_behind.py" />
     <Compile Include="tests\unit\test_reverse_image_acceptance.py" />
     <Compile Include="tests\unit\test_review_2026_08_26.py" />
     <Compile Include="tests\unit\test_review_section_five.py" />
@@ -1435,6 +1442,7 @@
     <Compile Include="tests\unit\test_scaffold.py" />
     <Compile Include="tests\unit\test_scale_limits.py" />
     <Compile Include="tests\unit\test_scan.py" />
+    <Compile Include="tests\unit\test_scan_reads_rows_once.py" />
     <Compile Include="tests\unit\test_schedule.py" />
     <Compile Include="tests\unit\test_scopes.py" />
     <Compile Include="tests\unit\test_search_feedback.py" />
@@ -1596,6 +1604,7 @@
     <Compile Include="tools\nightly.py" />
     <Compile Include="tools\nightly_probe.py" />
     <Compile Include="tools\reader_recall.py" />
+    <Compile Include="tools\resume_bench.py" />
   </ItemGroup>
   <ItemGroup>
     <Content Include=".env.example" />

@@ -329,6 +329,7 @@ def detect_faces(path: Path, *, data: Optional[bytes] = None) -> list[FaceDetect
         return []
 
     from app.core.face_size import big_enough
+    from app.extract.face_quality import too_pixelated
 
     out: list[FaceDetection] = []
     for face in faces:
@@ -339,6 +340,11 @@ def detect_faces(path: Path, *, data: Optional[bytes] = None) -> list[FaceDetect
         # 2026-10-14: a face in the background of a group photo, too small to
         # match or to recognise (`app.core.face_size` has the measurement).
         if not big_enough(x2 - x1, y2 - y1):
+            continue
+        # 2026-10-25, the owner: "if the photo is highly pixelated ignore it" -
+        # big enough, but blown up from a thumbnail, smeared, or all JPEG
+        # squares (`app.extract.face_quality` has the measurement).
+        if too_pixelated(image, (x1, y1, x2, y2)):
             continue
         out.append(FaceDetection(
             bbox=(x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)),

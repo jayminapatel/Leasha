@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 43
+CURRENT_VERSION = 44
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -2201,6 +2201,29 @@ def _v43_enrich_declines(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v44_pile_cover(conn: sqlite3.Connection) -> None:
+    r"""`piles.cover_face_id`: the face a person's tile shows, chosen by the person.
+
+    2026-10-25, the owner: "in name the picture there should be an option to change the
+    cover photo". The People page showed a pile's lowest-numbered face; the manage dialog's
+    "Use as cover photo" now records the one the person picked, on the pile itself, so it
+    goes with the pile (a combine deletes the source pile and its choice; Forget keeps it).
+
+    **Only a choice, never trusted on its own.** `SqliteStore.piles_with_counts` uses it
+    only while that face is still in the pile, so a face moved to someone else or out of
+    every group falls back to the automatic face without anything here being cleared, and
+    a deleted face (its photo re-read or removed) is set to NULL by the reference. The
+    index makes that reference cheap: deleting a face looks the piles up by it.
+
+    Additive: one nullable column and one index; every existing pile keeps the automatic face.
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(piles)")}
+    if "cover_face_id" not in cols:
+        conn.execute("ALTER TABLE piles ADD COLUMN cover_face_id INTEGER "
+                     "REFERENCES faces(id) ON DELETE SET NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_piles_cover ON piles(cover_face_id)")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -2244,6 +2267,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     41: _v41_enrichment_that_finds,
     42: _v42_message_tails,
     43: _v43_enrich_declines,
+    44: _v44_pile_cover,
 }
 
 #: Released migrations that open and close transactions of their own -

@@ -115,6 +115,9 @@ MENU_ICONS: dict[str, str] = {
     "Manage the faces in this pile…": "users",
     "Forget this person…": "trash-2",
     "Look through these faces…": "users",
+    # 2026-10-25, the owner: "an option to change the cover photo".
+    "Change the cover photo…": "image",
+    "Use as cover photo": "image",
     # The rail's page buttons (`rail_order.py`).
     "Move up": "chevron-up",
     "Move down": "chevron-down",

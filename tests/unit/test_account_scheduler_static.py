@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+import pytest
 
 APP = Path(__file__).resolve().parents[2] / "app"
 
@@ -39,6 +40,7 @@ def _offenders() -> list[str]:
     return found
 
 
+@pytest.mark.slow
 def test_only_the_schedule_and_sync_now_can_start_a_sync():
     assert _offenders() == [], (
         "these modules start a sync but are not the schedule or a Sync now:\n  " + "\n  ".join(_offenders()))

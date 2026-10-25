@@ -15,6 +15,7 @@ import pytest
 pytest.importorskip("PySide6")
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_an_archive_listed_by_a_run_in_progress_shows_when_settings_is_opened(
         gui_mainwindow, qtbot, tmp_path):

@@ -60,7 +60,10 @@ def test_the_face_finder_drops_a_face_too_small_to_match(monkeypatch, tmp_path):
 
     engine = SimpleNamespace(get=lambda _image: [found(10, 10, 130, 150), found(5, 5, 25, 29)])
     monkeypatch.setattr(face_detect, "_load", lambda: engine)
-    monkeypatch.setattr(face_detect, "_read_bgr", lambda *_a: np.zeros((200, 200, 3)))
+    # 2026-10-25: a photo with picture in it - a blank one is now "too
+    # pixelated" (`app.extract.face_quality`), which is not what this holds.
+    grain = np.random.default_rng(3).integers(0, 256, (200, 200, 3)).astype("uint8")
+    monkeypatch.setattr(face_detect, "_read_bgr", lambda *_a: grain)
 
     faces = face_detect.detect_faces(tmp_path / "group.jpg")
 

@@ -572,15 +572,17 @@ def test_each_file_s_row_is_looked_up_once_not_twice(tmp_path: Path) -> None:
         stats = _pipeline(store, root).run()
         assert stats.indexed == len(ages)
         file_keys = [key for key in asked if key.endswith(".txt")]
-        assert sorted(file_keys) == sorted(str(root / name) for name in ages), (
-            "one row lookup per file")
+        # 2026-10-25: at most once - the scan now reads every row in one go
+        # (`Pipeline._load_scan_rows`), so a file may be looked up not at all.
+        assert len(file_keys) == len(set(file_keys)), "one row lookup per file"
+        assert set(file_keys) <= {str(root / name) for name in ages}
 
         moved = ["b-new.txt", "chosen/x-old.txt", "i-year.txt"]
         _move_dates(root, moved)
         asked.clear()
         again = _pipeline(store, root).run()
         file_keys = [key for key in asked if key.endswith(".txt")]
-        assert len(file_keys) == len(set(file_keys)) == len(ages)
+        assert len(file_keys) == len(set(file_keys)) <= len(ages)
     assert again.indexed == 0
     assert again.unchanged == len(ages)
 

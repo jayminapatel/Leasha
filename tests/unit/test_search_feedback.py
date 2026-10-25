@@ -75,13 +75,28 @@ class Gate(QRunnable):
         self.signals.done.emit()
 
 
-def _settle(until, tries: int = 200) -> bool:
-    for _ in range(tries):
+def _settle(until, tries: int | None = None, *, ceiling_s: float = 30.0) -> bool:
+    """Pump events until `until()` holds. With `tries`, exactly that many 10 ms turns -
+    a pause, as `_settle(lambda: False, tries=10)` is. Without, up to `ceiling_s`.
+
+    2026-10-25: the wait was 200 turns of 10 ms; it ran out in a full local run with
+    four parts loading the laptop, and the same test passed alone 3 of 3. A ceiling,
+    not a budget - what each test checks is unchanged."""
+    if tries is not None:
+        for _ in range(tries):
+            QApplication.processEvents()
+            if until():
+                return True
+            time.sleep(0.01)
+        return False
+    deadline = time.monotonic() + ceiling_s
+    while True:
         QApplication.processEvents()
         if until():
             return True
+        if time.monotonic() >= deadline:
+            return False
         time.sleep(0.01)
-    return False
 
 
 @pytest.fixture()

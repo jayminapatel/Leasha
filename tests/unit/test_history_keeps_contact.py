@@ -47,6 +47,7 @@ def _people(window, *names):
     return [hub.create(card(*name.split())) for name in names]
 
 
+@pytest.mark.slow
 def test_back_returns_to_the_same_contact(win):
     app, window = win
     ann, bob = _people(window, "Ann Lee", "Bob Bell")

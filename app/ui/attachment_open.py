@@ -26,7 +26,6 @@ Open (`workers.open_row_async`, 2026-10-04) - the places
 from __future__ import annotations
 
 import hashlib
-import re
 import shutil
 import stat
 import time
@@ -35,7 +34,7 @@ from typing import Any
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
-from app.core.row_facts import ZIP_FAMILY_EXTS, attachment_of, ext_alternation, is_message_key
+from app.core.row_facts import attachment_of, is_message_key, zip_member_of
 
 __all__ = [
     "OPENED_FOLDER",
@@ -62,20 +61,8 @@ def is_archive_attachment(path: Any) -> bool:
     return is_message_key(text) and bool(attachment_of(text)[0])
 
 
-#: A file inside a zip on disk: `D:\a\backup.zip/q3/report.docx`.
-#: 2026-10-04, code review: built from `row_facts.ZIP_FAMILY_EXTS`.
-_ZIP_MEMBER = re.compile(r"^(?P<zip>(?![\w.+-]+://).+?\.(?:" + ext_alternation(ZIP_FAMILY_EXTS)
-                         + r"))/(?P<inner>.+)$",
-                         re.IGNORECASE)
-
-
-def zip_member_of(path: Any) -> tuple[str, str]:
-    """`(the zip on disk, the path inside it)`, or `("", "")`. No I/O.
-
-    2026-10-04, the owner: "the same should be for zips". Not a catalogued
-    drive's member (`leasha-volume://`): that drive may not be plugged in."""
-    match = _ZIP_MEMBER.match(str(path or ""))
-    return (match.group("zip"), match.group("inner")) if match else ("", "")
+# `zip_member_of` lives in `app.core.row_facts` since 2026-10-25 (the index asks
+# it too); it is still exported from here for the window's callers.
 
 
 def opens_from_a_copy(path: Any) -> bool:

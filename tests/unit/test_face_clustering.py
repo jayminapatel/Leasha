@@ -179,6 +179,7 @@ def test_the_batch_match_gives_the_face_by_face_answer():
     assert got[4] is None and got[3][0] == 120
 
 
+@pytest.mark.slow
 def test_a_drain_of_thousands_of_faces_against_hundreds_of_piles_is_quick():
     """The owner's index, 2026-10-20: 7,753 unmatched faces, 614 piles. The
     loop took 90 s and blocked the writer; the batch is well under one."""

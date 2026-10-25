@@ -39,6 +39,11 @@ def test_the_backlog_is_asked_for_with_the_first_folders():
     built._log = __import__("app.core.logging", fromlist=["logger"]).logger
 
     built._drain_unembedded(SimpleNamespace(enrichment_counts={}))
+    # 2026-10-25: read on a thread of its own, which marks where its snapshot
+    # begins (`on_snapshot`) - see `Pipeline._park_backlog_behind`.
+    built._await_backlog_parker()
+    for asked in store.asked:
+        assert callable(asked.pop("on_snapshot"))
 
     assert store.asked == [{"batch_size": 64,
                             "first_folders": [str(Path("D:/Current")), str(Path("D:/Next"))]}]
