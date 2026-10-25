@@ -395,12 +395,17 @@ def settled(window, timeout: float = 30.0) -> None:
 
 def preview_text(window) -> str:
     """What the preview pane's text browser holds, read through UIA's text
-    pattern (its control name is only the word "Preview")."""
-    try:
-        browser = by_id(window, "QTextBrowser", "Text", timeout=3)
-        return browser.iface_text.DocumentRange.GetText(-1) or ""
-    except Exception:                                                # noqa: BLE001
-        return ""
+    pattern (its control name is only the word "Preview").
+
+    2026-10-26: the pane's text is a `MailBody` (a `QTextBrowser` subclass, order 0y 4a),
+    and UIA's automation id carries the subclass's name, so both are looked for."""
+    for automation_id in ("MailBody", "QTextBrowser"):
+        try:
+            browser = by_id(window, automation_id, "Text", timeout=3)
+            return browser.iface_text.DocumentRange.GetText(-1) or ""
+        except Exception:                                            # noqa: BLE001
+            continue
+    return ""
 
 
 def is_topmost(window) -> bool:
