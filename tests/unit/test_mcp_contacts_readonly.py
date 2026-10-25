@@ -107,6 +107,7 @@ def _counts(settings):
 
 # -- every tool, called: nothing changes -------------------------------------
 
+@pytest.mark.slow
 def test_every_listed_tool_leaves_the_hub_the_accounts_and_the_index_as_they_were(world):
     from mcp import Client
 

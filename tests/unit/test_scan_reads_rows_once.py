@@ -20,6 +20,7 @@ import os
 from app.index.pipeline import UNCHANGED, Pipeline
 from app.storage.sqlite_store import FileStatus, SqliteStore
 from tests.unit.test_pst_change_marker import _candidate, _classifier
+import pytest
 
 HOUR_NS = 3_600_000_000_000
 
@@ -142,6 +143,7 @@ def test_a_partial_row_is_asked_of_the_store_while_the_scan_runs(tmp_path):
         store.close()
 
 
+@pytest.mark.slow
 def test_a_scan_asks_the_store_per_file_no_longer(tmp_path, monkeypatch):
     """A restart over files the index knows: one read, not one lookup a file."""
     from tests.unit.test_enrichment_backlog import FakeVectors, _embedder, _run

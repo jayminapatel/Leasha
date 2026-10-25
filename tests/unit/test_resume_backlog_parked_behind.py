@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 from app.index import pipeline as module
 from app.storage.sqlite_store import SqliteStore
+import pytest
 
 
 def _file_with_passages(store, tmp_path, name, count):
@@ -177,6 +178,7 @@ def test_parked_work_waits_while_the_newest_first_scan_lists_files():
     assert built._next_parked() == ([(2, 20)], True)
 
 
+@pytest.mark.slow
 def test_a_real_restart_still_fills_every_vector(tmp_path):
     """End to end: every passage an earlier run left is embedded once."""
     from tests.unit.test_enrichment_backlog import FakeVectors, _corpus, _embedder, _run
