@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.147 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
+**Doc version:** 4.148 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The user guide and the reference catch up with 16-25 October (2026-10-25)
+
+The owner: "is the documentation and help updated if not do so". The user guide (the in-app help) now covers choosing a person's cover photo, pixelated faces being left out, Settings > Accounts > File contacts as, a restart reading again within seconds, Leasha's own processes not pausing a run, and when an Outlook archive is read again. The technical reference is at schema 44 and describes the same; the glossary gains Cover photo, Pixelated face and File as; troubleshooting's archive row is rewritten and a missing-face row added; the build spec lists `.worktrees` and `.claude` among the folders never walked.
 
 ### Contacts are filed in Outlook and Google as you choose - "First Last" by default (2026-10-25)
 
