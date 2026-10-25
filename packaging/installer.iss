@@ -157,7 +157,10 @@ begin
           preprocessor command), however it is indented. }
         Message := Format('%s has %d GB free. A large index needs about %d GB.', [Drive, FreeMB div 1024, RequiredFreeGB]);
         Message := Message + #13#10#13#10 + 'Leasha will still work, and stops before the drive is full. Use this folder anyway?';
-        Result := MsgBox(Message, mbConfirmation, MB_YESNO) = IDYES;
+        { 2026-10-26: SuppressibleMsgBox, not MsgBox - a /VERYSILENT install on a drive
+          under RequiredFreeGB sat on this question, unseen, for over an hour. Silent,
+          the answer is Yes, the same as clicking through. }
+        Result := SuppressibleMsgBox(Message, mbConfirmation, MB_YESNO, IDYES) = IDYES;
       end;
   end;
 end;

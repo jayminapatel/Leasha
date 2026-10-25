@@ -29,6 +29,17 @@ def test_only_preprocessor_directives_start_with_a_hash():
     assert not wrong, wrong
 
 
+def test_no_question_can_stop_a_silent_install():
+    """2026-10-26: a `/VERYSILENT` install of 1.1.0 sat on the free-space question, unseen,
+    for over an hour - `MsgBox` is shown even when silent; `SuppressibleMsgBox` is not."""
+    import re
+
+    plain = [(n, line.strip()) for n, line in
+             enumerate(SCRIPT.read_text(encoding="utf-8").splitlines(), 1)
+             if re.search(r"(?<!Suppressible)\bMsgBox\(", line)]
+    assert not plain, plain
+
+
 def test_the_build_script_refuses_a_build_with_a_settings_file_in_it():
     text = (SCRIPT.parent / "build.ps1").read_text(encoding="utf-8-sig")
     assert '_internal\.env' in text and "throw" in text.split('_internal\.env', 1)[1][:200]
