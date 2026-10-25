@@ -95,6 +95,7 @@ def test_healthy_fixtures_yield_text_and_plausible_chunks(fixture_root: Path, na
 
 # --- 3 ----------------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.parametrize("name", list(BAD_OF_EACH_TYPE.values()), ids=list(BAD_OF_EACH_TYPE))
 def test_bad_fixtures_skip_and_continue(fixture_root: Path, name: str) -> None:
     with pytest.raises(AppErrorException) as caught:

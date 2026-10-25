@@ -1277,6 +1277,7 @@ def test_a_queued_recording_is_read_by_the_next_run_even_from_another_folder(tmp
     assert stats.enrichment_counts["media_transcript"] == 1
 
 
+@pytest.mark.slow
 def test_a_stopped_run_leaves_the_queue_alone_and_says_what_is_waiting(tmp_path, tools, frames):
     root = _corpus(tmp_path)
     use_engine(FakeEngine())

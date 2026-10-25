@@ -163,6 +163,7 @@ def test_a_type_the_pane_cannot_draw_is_never_read(store, monkeypatch):
     assert in_memory_preview(r"D:\Docs\report.pdf", None) is None, "a file on disk is not this"
 
 
+@pytest.mark.slow
 def test_an_attached_workbook_previews_as_its_grid(store):
     from app.ui.preview_loader import KIND_SPREADSHEET, in_memory_preview
 

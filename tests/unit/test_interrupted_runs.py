@@ -287,6 +287,7 @@ def test_cli_index_says_it_is_carrying_on(capsys, planted, corpus, monkeypatch) 
 
 # --- the page ----------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_the_indexing_page_shows_it_and_takes_it_down_when_a_run_starts(
         qtbot, tmp_path, locks, monkeypatch) -> None:
