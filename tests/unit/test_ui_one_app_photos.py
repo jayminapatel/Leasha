@@ -101,6 +101,7 @@ def test_one_double_click_opens_the_viewer_once(qapp):
     assert len(opened) == 1
 
 
+@pytest.mark.slow
 def test_opening_a_photo_again_reuses_the_viewer_already_open(view):
     from app.ui.widgets.photo_viewer import PhotoViewer
 

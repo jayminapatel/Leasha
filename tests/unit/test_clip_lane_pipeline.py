@@ -135,6 +135,7 @@ def test_constructing_a_pipeline_with_neither_argument_still_works():
 # --- the lane, configured -----------------------------------------------------
 
 
+@pytest.mark.slow
 def test_every_ladder_passed_image_gets_a_clip_vector(tmp_path):
     root = tmp_path / "docs"
     _png(root / "one.png")

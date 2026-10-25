@@ -209,7 +209,12 @@ def test_a_session_killed_from_outside_is_replaced_between_files(helper, tmp_pat
         session.convert(_make(tmp_path, "a"), tmp_path / "a.txt", "txt", timeout_s=20)
         victims = _tree(session)
         for pid in victims:
-            psutil.Process(pid).kill()
+            # 2026-10-25: a member can end by itself once its parent is killed (a full
+            # run met it gone), so a member already gone counts as killed.
+            try:
+                psutil.Process(pid).kill()
+            except psutil.NoSuchProcess:
+                pass
         assert _gone_within(victims)
 
         session.convert(_make(tmp_path, "b"), tmp_path / "b.txt", "txt", timeout_s=20)
