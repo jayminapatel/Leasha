@@ -70,6 +70,7 @@ from app.extract import reading as reader_reading
 from app.extract.archive import set_member_reader
 from app.extract.base import change_marker, extractor_for, reads_externally
 from app.core.priority import lower_this_thread
+from app.core.row_facts import zip_member_of
 from app.core.osbridge.pathnames import path_key
 from app.core.run_lock import COMMAND_LINE, publish, stop_requested
 from app.extract.source_types import indexed_ext
@@ -2438,6 +2439,8 @@ class Pipeline:
         self._parked = collections.deque()
         self._parked_busy = False
         self._parked_refused = False
+        # 2026-10-25: this run's own backlog reader (`_park_backlog_behind`).
+        self._backlog_parker = None
         # §6g: same reason - a second run starts back at the static count.
         self._dynamic_workers = []
         self._replacement_workers = []
@@ -2724,6 +2727,11 @@ class Pipeline:
             # already ended itself having recorded the error. This only has
             # to ask it to stop.
             self._stop_feeder(feeder)
+            # 2026-10-25: the backlog reader, like every other thread of the
+            # run, is not left running past it (`_park_backlog_behind`).
+            parker = getattr(self, "_backlog_parker", None)
+            if parker is not None:
+                parker.join(timeout=5)
             # 0x 3c: every reader has ended and closed its slot, so this
             # empties `workers` - a finished run must not go on showing the
             # last files it was reading, whoever reads `stats` next.
@@ -3281,6 +3289,8 @@ class Pipeline:
         walker.set(task=TASK_FINDING, item="", path="")
         walked_folder = None
         try:
+            # 2026-10-25: the rows the change check reads, in one read.
+            self._load_scan_rows()
             for candidate in self._candidates(mark_first_band=band is not None):
                 if self._stop.is_set():
                     halted = True
@@ -3352,7 +3362,13 @@ class Pipeline:
                     # Into the marked folders' own list while they are walked.
                     (band if band is not None and feed is None
                      else worklist).add(candidate, decision)
-                    waiting.append(_waiting_row(candidate))
+                    # 2026-10-25: a name the index already lists is not listed
+                    # again - `add_waiting_files` would ignore it (INSERT OR
+                    # IGNORE), and on a restart that was every unread file,
+                    # 15% of the walker's time in a profile of the owner-scale
+                    # bench (`tools/resume_bench.py`).
+                    if not self._row_listed(candidate):
+                        waiting.append(_waiting_row(candidate))
                     if len(waiting) >= WAITING_BATCH:
                         self._write_waiting(waiting)
                     continue
@@ -3362,6 +3378,7 @@ class Pipeline:
                 # walker's deterministic order within a priority band.
                 sequence += 1
                 self._queue_work(work, (candidate.priority, sequence, candidate, decision))
+            self._scan_rows = None               # the walk is over: no more checks
             self._write_waiting(waiting)
             if worklist is not None and not halted and not self._stop.is_set():
                 sequence = self._read_in_order(work, stats, worklist, band=feed)
@@ -3375,6 +3392,8 @@ class Pipeline:
             )
             self._log.error("walker stopped early: {}", stats.stopped_early.render())
         finally:
+            # The snapshot is the scan's alone - see `_load_scan_rows`.
+            self._scan_rows = None
             if worklist is not None:
                 worklist.close()
             if band is not None:
@@ -4210,6 +4229,93 @@ class Pipeline:
         with lock:
             stats.unchanged += 1
 
+    def _load_scan_rows(self) -> None:
+        r"""Read every file row once, for the scan's change check. Never raises.
+
+        2026-10-25, the owner: "when you stop and start index the resume is
+        too slow ... we have the data in the database already". The scan asked
+        the store about each file it found, one query each
+        (`SqliteStore.get_file`), and on a restart every one of them finds a
+        row. One read of the rows the check needs replaces them
+        (`SqliteStore.rows_for_change_check`); `_known_row` answers from it.
+        Measured with `tools/resume_bench.py` (owner-scale synthetic index,
+        138,000 files, warm cache, this laptop shared with other work; the
+        check alone over every file the walk found, three runs each, the read
+        included): 35.7-39.5 µs a file before, 5.3-7.6 µs after. On the
+        owner's own index (read-only, `immutable=1`) the read took 1.3 s for
+        142,761 rows and held 63 MB; the lookups it replaces cost 16 µs each
+        warm and 146 µs each on a colder cache. The owner's ~1 ms a file on
+        2026-10-25 was not these alone: the scan shared the processor with the
+        meaning model on the parked backlog (`_scan_holds_parked`) and with the
+        window, the governor reporting 81-84% busy throughout (UNCONFIRMED how
+        the ~1 ms divides between them; it cannot be measured from here).
+
+        Not for a run given its own files (the folder watch: a few files, a
+        few lookups), and gone when the scan ends (`_produce`), so nothing
+        after the scan can read a snapshot that has gone stale. If the read
+        fails the check asks per file, as it always did.
+        """
+        self._scan_rows = None
+        if self.config.candidate_source is not None:
+            return
+        try:
+            started = time.perf_counter()
+            self._scan_rows = self.store.rows_for_change_check()
+            self._log.debug("read {:,} file row(s) for the change check in {:.2f}s",
+                            len(self._scan_rows), time.perf_counter() - started)
+        except Exception as exc:                # noqa: BLE001 - per-file lookups instead
+            self._scan_rows = None
+            self._log.debug("the change check asks per file: {}", exc)
+
+    def _known_row(self, candidate: Candidate) -> Any:
+        r"""The row `_classify` judges a candidate by - `get_file`'s answer.
+
+        From the scan's snapshot (`_load_scan_rows`) when there is one and the
+        key is a plain path, which is every key the snapshot holds: a key that
+        is absent from it has no row. **Two answers come from the store
+        itself:** a key with `://` (a catalogued drive's file), which the
+        snapshot leaves out; and a `PARTIAL` row, the one state another thread
+        moves a row out of while the scan runs - the feeder promotes it to
+        `INDEXED` the moment its parked passages are embedded, and `_classify`
+        tells the two apart for an unreadable file and a mail archive
+        (`_partial_matters`; for any other file the snapshot's `PARTIAL` is
+        answered as it stands). Every other row is written during a scan only for a file the
+        walk has already passed: names listed early (`add_waiting_files`, by
+        the walker itself, after the check) and files read (each checked
+        before it was queued).
+        """
+        key = _candidate_row_key(candidate)
+        rows = getattr(self, "_scan_rows", None)
+        if rows is not None and "://" not in key:
+            row = rows.get(key)
+            if row is None or row.status != FileStatus.PARTIAL or not self._partial_matters(
+                    candidate):
+                return row
+        return self.store.get_file(key)
+
+    def _row_listed(self, candidate: Candidate) -> bool:
+        """Does the scan's snapshot hold a row for this file? False without one.
+        Rows are never deleted while a scan runs (the clean-up pass comes after
+        it), so a row in the snapshot is a row in the index."""
+        rows = getattr(self, "_scan_rows", None)
+        return rows is not None and _candidate_row_key(candidate) in rows
+
+    def _partial_matters(self, candidate: Candidate) -> bool:
+        r"""Could `PARTIAL` and `INDEXED` get different answers from `_classify`?
+
+        Only for a file nothing can read (the unreadable branch settles only
+        `INDEXED`) and for a mail archive (`_archive_only_touched` asks for
+        `INDEXED` and its `indexed_at`). For every other file the check treats
+        the two alike, and what the feeder's promotion writes besides the
+        status (`indexed_at`, a cleared `skip_code`) is read nowhere else in it
+        - so the snapshot's answer stands. 34,000 of the 138,000 files in the
+        owner-scale bench are `PARTIAL`; asking the store for each was 17% of
+        the walker's time in a profile.
+        """
+        if not getattr(candidate, "readable", True):
+            return True
+        return os.path.splitext(str(candidate.path))[1].lower() in self.SETTLED_ARCHIVE_EXTS
+
     def _classify(self, candidate: Candidate, *, hash_now: bool = True) -> Optional[str]:
         """`UNCHANGED` to skip the file; otherwise its content hash, or None.
 
@@ -4244,7 +4350,9 @@ class Pipeline:
             # `test_a_moved_file_is_repaired_without_re_extraction`, whose
             # second pipeline run kept reporting `indexed=1` instead of the
             # `unchanged=1` a settled file should produce.
-            record = self.store.get_file(_candidate_row_key(candidate))
+            # 2026-10-25: from the scan's one read of the rows when it has
+            # one (`_known_row`), the same row `get_file` would return.
+            record = self._known_row(candidate)
         except Exception as exc:            # noqa: BLE001 - see the docstring
             self._log.warning(
                 "could not read the row for {}, queuing it anyway: {}",
@@ -6088,6 +6196,8 @@ class Pipeline:
         """
         if self._stop.is_set() or self._person_paused() or self._parked_refused:
             return None
+        if self._scan_holds_parked():
+            return None
         with self._parked_lock:
             if not self._parked:
                 return None
@@ -6102,6 +6212,36 @@ class Pipeline:
             return None
         return entry
 
+    def _scan_holds_parked(self) -> bool:
+        r"""Is the "newest first" scan still going? Parked work waits for it.
+
+        2026-10-25, the owner: "when you stop and start index the resume is
+        too slow". In that order nothing is read until the scan has listed
+        every file (except the folders marked first, whose passages are
+        handed over, not parked), so the scan is the whole of the wait for new
+        work - and the meaning model, given the parked backlog from the moment
+        the feeder starts, spent that wait competing with it for the processor
+        and the store's writer. Measured with `tools/resume_bench.py`
+        (40,000 files, 10,000 read, 200,000 passages waiting; the real
+        bge-small int8 on the processor, 4 threads; this laptop, shared with
+        other work; one process per run, alternated, three each): the scan
+        took 3.18-3.53 s with the model on the backlog and 2.78-2.87 s
+        without. On the owner-scale bench (138,000 files, 748,000 passages
+        waiting), with the one-read change check (`_load_scan_rows`) as well,
+        the scan took 20.0-101.6 s before (median 46.0; it grew with whatever
+        else the machine was doing) and 7.6-10.9 s after. Nothing is lost by
+        waiting: the backlog is hours of work and
+        the scan seconds to minutes, and the end of the run still waits for all
+        of it (`_catch_up_meaning`).
+
+        Not in the "as found" order, where files are read while the walk goes
+        on and the walk can take hours over a slow share.
+        """
+        if normalise_order(getattr(self.config, "read_order", "")) != ORDER_NEWEST:
+            return False
+        stats = getattr(self, "_stats_ref", None)
+        return stats is not None and not getattr(stats, "walk_complete", True)
+
     def _parked_done(self) -> None:
         with self._parked_lock:
             self._parked_busy = False
@@ -6110,8 +6250,11 @@ class Pipeline:
         """Nothing parked, nothing parked in hand, nothing queued or embedding.
 
         Parked batches the governor refused do not count: they wait for the
-        next run, and nothing in this one will take them.
+        next run, and nothing in this one will take them. A backlog still
+        being listed does (2026-10-25, `_park_backlog_behind`).
         """
+        if self._parker_alive() and not self._parked_refused:
+            return False
         with self._parked_lock:
             parked = (bool(self._parked) and not self._parked_refused) or self._parked_busy
         return (not parked and self._feeder_queue.unfinished_tasks == 0
@@ -6164,7 +6307,12 @@ class Pipeline:
         for the passages they hand the model, before it returns; once the
         model's own backlog is done it says which photo pass is still going,
         so the page names what the run is actually waiting for.
+
+        2026-10-25: first, the start-of-run backlog is finished being listed
+        (`_park_backlog_behind`) - long done by now on any real run, since it
+        was read beside the whole scan - so what is parked below is all of it.
         """
+        self._await_backlog_parker()
         beside = self._start_pictures_beside_meaning(stats)
         if beside is None and self._parked_idle():
             return
@@ -6915,15 +7063,12 @@ class Pipeline:
         continues - a run that indexes new files is worth more than one that
         refuses to start because old ones are incomplete.
         """
+        if not at_run_end and self._text_first():
+            # 2026-10-25: read on a thread of its own - see `_park_backlog_behind`.
+            self._park_backlog_behind(stats)
+            return
         try:
-            # 2026-10-08: whole files per batch - see `unembedded_by_file`.
-            # 2026-10-10 (indexing review S2): in the order the run reads -
-            # the `--first` folders first, then newest file first - not the
-            # order the passages were stored in.
-            backlog = self.store.unembedded_by_file(
-                batch_size=self.config.embed_batch,
-                first_folders=[str(p) for p in (getattr(getattr(self.config, "walk", None),
-                                                       "priority_roots", None) or ())])
+            backlog = self._read_backlog()
         except Exception as exc:                 # noqa: BLE001 - a repair, not the job
             self._log.warning("could not check for unembedded chunks: {}", exc)
             return
@@ -6937,31 +7082,6 @@ class Pipeline:
         # steps that call them do.
         def halted() -> bool:
             return self._interrupted if at_run_end else self._stop.is_set()
-
-        if not at_run_end and self._text_first():
-            # 2026-10-08. **Parked, not embedded here.** Filling these first
-            # held every new file back behind them - after a stopped run with
-            # hours of meaning still to do, the next run read nothing for
-            # hours. They are searchable by their words already; the model
-            # takes them whenever reading leaves it free, and the end of the
-            # run waits for whatever is left (`_catch_up_meaning`).
-            #
-            # Their files stay PARTIAL until the vectors exist, and the walk
-            # takes an unchanged PARTIAL file as read (`_classify`) - so it is
-            # not read again behind the parked batch and embedded twice.
-            parked = 0
-            for ids in backlog:
-                self._parked.append((ids, True))
-                self._stats_ref.embed_batches += 1
-                parked += len(ids)
-            # What was *filled*, as before - `_embed_parked` adds to it.
-            stats.enrichment_counts["unembedded_chunk"] = 0
-            if parked:
-                self._log.info(
-                    "{} passage(s) an earlier run left without vectors are "
-                    "searchable by their words, and are given meaning as this "
-                    "run goes", parked)
-            return
 
         def _texts_for(ids: list[tuple[int, int]]) -> list[Any]:
             texts = self.store.chunk_texts(cid for cid, _fid in ids)
@@ -7037,6 +7157,121 @@ class Pipeline:
             self._log.info(
                 "filled in {} chunk(s) that an earlier run left without vectors - "
                 "they were searchable by keyword but not by meaning", filled)
+
+    def _read_backlog(self, on_snapshot: Optional[Callable[[], None]] = None
+                      ) -> list[list[tuple[int, int]]]:
+        """The passages awaiting a vector, in whole-file batches. Raises what
+        the store raises.
+
+        2026-10-08: whole files per batch - see `unembedded_by_file`.
+        2026-10-10 (indexing review S2): in the order the run reads - the
+        `--first` folders first, then newest file first - not the order the
+        passages were stored in."""
+        return self.store.unembedded_by_file(
+            batch_size=self.config.embed_batch,
+            first_folders=[str(p) for p in (getattr(getattr(self.config, "walk", None),
+                                                   "priority_roots", None) or ())],
+            on_snapshot=on_snapshot)
+
+    def _park_backlog_behind(self, stats: IndexStats) -> None:
+        r"""Park the start-of-run backlog for the meaning model, read on a
+        thread of its own while the run goes on to the scan.
+
+        2026-10-08. **Parked, not embedded here.** Filling these first held
+        every new file back behind them - after a stopped run with hours of
+        meaning still to do, the next run read nothing for hours. They are
+        searchable by their words already; the model takes them whenever
+        reading leaves it free, and the end of the run waits for whatever is
+        left (`_catch_up_meaning`). Their files stay PARTIAL until the vectors
+        exist, and the walk takes an unchanged PARTIAL file as read
+        (`_classify`) - so a file is not read again behind its parked batch and
+        embedded twice.
+
+        **2026-10-25, the owner: "when you stop and start index the resume is
+        too slow".** Reading the backlog was itself the wait: on his restart
+        that morning (`logs/runs/run-20261025-113053-index.log`) the catch-up
+        phase took 27 s, 11:31:00 to 11:31:27, to list 751,948 passages and
+        sort them into reading order - on the run's thread, before the scan
+        could start, for a list nothing would take from until the feeder
+        existed. Now a thread (`backlog-parker`) reads it and parks it, and the
+        run waits only until that read has *begun* (`on_snapshot`), which is
+        one step of one query. Measured with `tools/resume_bench.py` on an
+        owner-scale synthetic index (138,000 files, 34,000 read, 748,000
+        passages waiting, 615 MB; the real bge-small int8 on the processor;
+        warm cache; this laptop, shared with other work; three runs each,
+        alternated with the code before this change): the catch-up phase took
+        1.87-2.52 s before and 0.62-0.65 s after. The owner's 27 s was a cold
+        8 GB index, which this cannot reproduce (UNCONFIRMED how much of it
+        the thread hides there, but all of it is now beside the scan rather
+        than in front of it).
+
+        **Nothing parked is lost or embedded twice, as before:**
+
+        * *The same backlog.* The read is one statement, so in WAL mode it is
+          the database as it stood when it began - the run waits for that
+          moment before anything is walked or written - and a passage this run
+          writes is never in it. (Read while the run wrote, the backlog could
+          take in half of a file being written now, and `_embed_pending`'s
+          `delete_by_file_ids` would then drop the half embedded first.)
+        * *The same place in the queue.* The batches go to the front of
+          `_parked`, ahead of any this run parked meanwhile, as when they were
+          parked before the first file was read.
+        * *The end of the run waits for it.* `_catch_up_meaning` waits for this
+          thread before it looks at what is parked, and `_parked_idle` counts
+          it as parked work while it lives - so the run cannot end with a
+          backlog still being listed. A Stop does not wait: the passages stay
+          `embedded = 0` and the next run parks them again.
+        * *A failure is the old failure.* Logged as "could not check for
+          unembedded chunks", and the run goes on, as it did.
+
+        Its own connection, as every thread has (`SqliteStore` is one
+        connection per thread); it only reads. The deque is this run's,
+        captured here, so a thread that outlives a stopped run can never park
+        into the next run's queue.
+        """
+        # What was *filled*, as before - `_embed_parked` adds to it.
+        stats.enrichment_counts["unembedded_chunk"] = 0
+        # `setdefault`: a pipeline a test built without `__init__` has neither.
+        parked_into = self.__dict__.setdefault("_parked", collections.deque())
+        lock = self.__dict__.setdefault("_parked_lock", threading.Lock())
+        counts = getattr(self, "_stats_ref", None)
+        begun = threading.Event()
+
+        def park() -> None:
+            try:
+                backlog = self._read_backlog(on_snapshot=begun.set)
+            except Exception as exc:             # noqa: BLE001 - a repair, not the job
+                self._log.warning("could not check for unembedded chunks: {}", exc)
+                return
+            finally:
+                begun.set()
+            passages = sum(len(ids) for ids in backlog)
+            with lock:
+                parked_into.extendleft((ids, True) for ids in reversed(backlog))
+                if counts is not None:
+                    counts.embed_batches += len(backlog)
+            if passages:
+                self._log.info(
+                    "{} passage(s) an earlier run left without vectors are "
+                    "searchable by their words, and are given meaning as this "
+                    "run goes", passages)
+
+        lowered = self._background(park) if hasattr(self, "thread_priority_only") else park
+        thread = threading.Thread(target=lowered, name="backlog-parker", daemon=True)
+        self._backlog_parker = thread
+        thread.start()
+        begun.wait()
+
+    def _parker_alive(self) -> bool:
+        """Is this run's backlog still being listed (`_park_backlog_behind`)?"""
+        thread = getattr(self, "_backlog_parker", None)
+        return thread is not None and thread.is_alive()
+
+    def _await_backlog_parker(self) -> None:
+        """Wait for the backlog to be parked, unless the run is told to stop."""
+        thread = getattr(self, "_backlog_parker", None)
+        while thread is not None and thread.is_alive() and not self._stop.is_set():
+            thread.join(timeout=_PARKED_POLL_S)
 
     def _drain_caption_trickle(self, stats: IndexStats) -> None:
         r"""Corpus-wide "Describe" for every photo that does not have one yet.
@@ -7135,6 +7370,7 @@ class Pipeline:
 
         scanned = 0
         left_for_later = 0
+        zips_left = 0
         # 2026-10-14: the owner's "silent" face work - it says so now.
         lane = self._pass_lane()
         lane.set(task=TASK_FACE_BACKFILL, item="", path="", done=0, total=0)
@@ -7150,6 +7386,15 @@ class Pipeline:
                 if forgotten:
                     self._log.info(
                         "{:,} picture(s) from mail were marked as face-scanned "
+                        "without ever being opened - looking at them now", forgotten)
+            # 2026-10-25, once per index: the same for pictures inside zips -
+            # `forget_face_scans_of_zip_pictures` says how they were marked.
+            if self.store.get_state(self.ZIP_FACE_SCAN_REPAIR_KEY) is None:
+                forgotten = self.store.forget_face_scans_of_zip_pictures()
+                self.store.set_state(self.ZIP_FACE_SCAN_REPAIR_KEY, str(forgotten))
+                if forgotten:
+                    self._log.info(
+                        "{:,} picture(s) inside zips were marked as face-scanned "
                         "without ever being opened - looking at them now", forgotten)
             for batch in self.store.iter_photos_without_face_scan(
                     OcrExtractor.extensions, batch_size=8):
@@ -7173,12 +7418,17 @@ class Pipeline:
                         # from the archive (2026-10-07). An archive that would
                         # not open is not an answer about the picture, so the
                         # picture stays unmarked and is tried on the next run.
+                        # 2026-10-25: nor has a picture inside a zip - its
+                        # bytes, read from the zip; before, its key was opened
+                        # as a path, failed, and the picture was marked as
+                        # looked at with nothing found.
                         data = self._mail_picture_bytes(path)
                     except Exception as exc:      # noqa: BLE001 - H4: one photo, not the run
-                        from app.extract.pst_attachment import archive_unavailable
-
-                        if archive_unavailable(exc):
-                            left_for_later += 1
+                        if self._picture_left_for_later(exc):
+                            if zip_member_of(path)[0]:
+                                zips_left += 1
+                            else:
+                                left_for_later += 1
                             self._log.debug("face backfill left {} for a later run: {}",
                                             path, exc)
                             continue
@@ -7207,6 +7457,12 @@ class Pipeline:
                 "{:,} picture(s) from mail were not looked at for faces because "
                 "their archive would not open - usually Outlook has it. Close "
                 "Outlook and run again; nothing is lost.", left_for_later)
+        if zips_left:
+            # One line for them all, not one per picture (2026-10-25).
+            self._log.warning(
+                "{:,} picture(s) inside zips were not looked at for faces because "
+                "their zip could not be read; they are tried again on the next run.",
+                zips_left)
         stats.enrichment_counts[self.KIND_FACE_BACKFILL] = scanned
         if scanned:
             self._log.info(
@@ -7274,10 +7530,17 @@ class Pipeline:
         read is unknown or not a full one. Said once per archive per run, so a skip
         is never silent."""
         try:
-            if Path(str(candidate.path)).suffix.lower() not in self.SETTLED_ARCHIVE_EXTS:
-                return False
+            # 2026-10-25: the row first, the name second - every file the scan
+            # finds without a read row (a restart's `PENDING` names: 83k of the
+            # owner's 137k) came here, and parsing its path again to ask its
+            # suffix was 68 µs of the change check's ~180 µs a file in a
+            # profile (`tools/resume_bench.py`, 5,000 files, this laptop).
+            # Both are pure checks that each answer False, so the order
+            # changes no answer.
             if (record is None or record.status != FileStatus.INDEXED
                     or self.config.recheck_archives or getattr(candidate, "retry", False)):
+                return False
+            if Path(str(candidate.path)).suffix.lower() not in self.SETTLED_ARCHIVE_EXTS:
                 return False
             if int(record.size_bytes or -1) != int(candidate.size_bytes or -2):
                 return False
@@ -7324,6 +7587,8 @@ class Pipeline:
     #: `index_state` key: the one-off repair of mail pictures marked as
     #: face-scanned without being opened has run (its value: how many).
     FACE_SCAN_REPAIR_KEY = "repair:mail_face_scans"
+    #: The same, for pictures inside zips (2026-10-25).
+    ZIP_FACE_SCAN_REPAIR_KEY = "repair:zip_face_scans"
 
     #: The largest attachment read into memory to look for faces in.
     MAIL_PICTURE_BYTES_LIMIT = 64 * 1024 * 1024
@@ -7342,17 +7607,13 @@ class Pipeline:
         has it): the caller leaves the picture unmarked and the next run tries
         again. Any other failure yields the key as a path, which fails in the
         model as it always did and is settled as it always was."""
-        from app.core.row_facts import attachment_of
-
-        if not attachment_of(path)[0]:
+        if not self._has_no_file(path):
             yield Path(path)
             return
         try:
             data = self._mail_picture_bytes(path)
         except Exception as exc:                    # noqa: BLE001 - H4: one picture, not the run
-            from app.extract.pst_attachment import archive_unavailable
-
-            if archive_unavailable(exc):
+            if self._picture_left_for_later(exc):
                 self._log.debug("left {} for a later run: {}", path, exc)
                 yield None
             else:
@@ -7361,7 +7622,7 @@ class Pipeline:
             return
         import tempfile
 
-        suffix = Path(str(path).rsplit("/", 1)[-1]).suffix or ".img"
+        suffix = Path(str(path).replace("\\", "/").rsplit("/", 1)[-1]).suffix or ".img"
         handle, name = tempfile.mkstemp(prefix="leasha_mail_picture_", suffix=suffix)
         try:
             with os.fdopen(handle, "wb") as out:
@@ -7373,11 +7634,47 @@ class Pipeline:
             except OSError:                          # a scratch file; the temp folder is swept
                 pass
 
-    def _mail_picture_bytes(self, path: str) -> Optional[bytes]:
-        """The bytes of a picture that arrived attached to a message; `None`
-        for a picture that is a file on disk. Raises what the read raises."""
+    @staticmethod
+    def _has_no_file(path: str) -> bool:
+        """A picture whose key is not a place on disk: attached to a message,
+        or inside a zip (2026-10-25). No I/O."""
         from app.core.row_facts import attachment_of
 
+        return bool(attachment_of(path)[0] or zip_member_of(path)[0])
+
+    @staticmethod
+    def _picture_left_for_later(exc: BaseException) -> bool:
+        """Was a picture's container not there to read - Outlook holding the
+        archive, a zip that would not open - rather than the picture gone? The
+        first is tried again on a later run; the second is an answer."""
+        from app.extract.pst_attachment import archive_unavailable
+
+        return archive_unavailable(exc) or isinstance(exc, OSError)
+
+    def _mail_picture_bytes(self, path: str) -> Optional[bytes]:
+        """The bytes of a picture with no file of its own; `None` for a picture
+        that is a file on disk. Raises what the read raises.
+
+        Attached to a message: read from its archive (2026-10-07). Inside a zip
+        on disk (2026-10-25): read from the zip, nested zips too, by the same
+        `pst_attachment.member_of` the window's thumbnails use
+        (`app.ui.attachment_open.read_zip_member`) - an `OSError` when the zip
+        cannot be read (tried again later), `LookupError` when it no longer
+        holds the picture or the picture is over `MAIL_PICTURE_BYTES_LIMIT`
+        (an answer, as for an attachment)."""
+        from app.core.row_facts import attachment_of
+
+        zip_path, inside = zip_member_of(path)
+        if zip_path:
+            from app.extract.pst_attachment import member_of
+
+            if not Path(zip_path).is_file():
+                raise FileNotFoundError(zip_path)
+            data = member_of(Path(zip_path), inside, max_bytes=self.MAIL_PICTURE_BYTES_LIMIT)
+            if data is None:
+                raise LookupError(f"{Path(zip_path).name} does not hold {inside} "
+                                  "(or it is too large to look at)")
+            return data
         parent, rest = attachment_of(path)
         if not parent:
             return None

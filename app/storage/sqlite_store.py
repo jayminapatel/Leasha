@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import sys
 import threading
 import time
 import weakref
@@ -70,7 +71,7 @@ from app.storage.migrations import (
     CONTENT_TRIGGERS, CURRENT_VERSION, apply_migrations, read_version,
 )
 
-__all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME", "FaceRecord", "PileRecord", "PileSample", "PendingSuggestion", "PhotoRow"]
+__all__ = ["SqliteStore", "FileRecord", "ScanRow", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME", "FaceRecord", "PileRecord", "PileSample", "PendingSuggestion", "PhotoRow"]
 
 _log = logger.bind(component="storage.sqlite")
 
@@ -571,6 +572,19 @@ class FileRecord:
         `SELECT *` both build a record, the missing fields at their defaults."""
         return cls(**{key: row[key] for key in cls.__dataclass_fields__
                       if key in row.keys()})
+
+
+class ScanRow(NamedTuple):
+    """The part of a `files` row the scan's change check reads - see
+    `SqliteStore.rows_for_change_check`. The same names and values as the
+    `FileRecord` fields they stand for."""
+    id: int
+    size_bytes: int
+    mtime_ns: int
+    content_hash: Optional[str]
+    status: str
+    skip_code: Optional[str]
+    indexed_at: Optional[int]
 
 
 @dataclass(frozen=True)
@@ -2049,6 +2063,35 @@ class SqliteStore:
         """The row keyed exactly by `path` (case as stored), or None."""
         row = self.conn.execute("SELECT * FROM files WHERE path = ?", (str(path),)).fetchone()
         return FileRecord.from_row(row) if row else None
+
+    def rows_for_change_check(self) -> dict[str, "ScanRow"]:
+        r"""`{path: ScanRow}` for every row keyed by a plain path - one read.
+
+        2026-10-25, the owner: "when you stop and start index the resume is
+        too slow ... we have the data in the database already". The scan asked
+        `get_file` once per file found - a lookup on the path index and a
+        `FileRecord` built from a `SELECT *` - and on a restart every one of
+        them finds a row. Measured read-only against the owner's index that
+        day (8 GB, 155k file rows, `immutable=1`, this laptop): 5,000 such
+        lookups in random order took 0.73 s, 146 µs each, before the record
+        was built; this whole read took 0.44 s for 137k rows.
+
+        **Plain paths only** - no key with `://` in it: a message
+        (`pst://...`), its attachments and a catalogued drive's
+        `leasha-volume://` rows are not files a walk finds, and are left to
+        `get_file`. `ScanRow` carries exactly the fields
+        `Pipeline._classify` reads; it is a snapshot, so a caller that must
+        see a row another thread may change meanwhile asks `get_file`.
+        """
+        cursor = self.conn.cursor()
+        cursor.row_factory = None
+        rows = cursor.execute(
+            "SELECT path, id, size_bytes, mtime_ns, content_hash, status, skip_code, "
+            "indexed_at FROM files WHERE instr(path, '://') = 0").fetchall()
+        intern = sys.intern
+        return {row[0]: ScanRow(row[1], row[2], row[3], row[4],
+                                intern(row[5]) if isinstance(row[5], str) else row[5],
+                                row[6], row[7]) for row in rows}
 
     def get_file_by_id(self, file_id: int) -> Optional[FileRecord]:
         """The row with this id, or None once it has been deleted."""
@@ -4590,6 +4633,7 @@ class SqliteStore:
 
     def unembedded_by_file(
         self, batch_size: int = 256, first_folders: Sequence[str] = (),
+        on_snapshot: Optional[Any] = None,
     ) -> list[list[tuple[int, int]]]:
         r"""Chunks awaiting a vector, as `(chunk_id, file_id)` batches of **whole files**.
 
@@ -4620,6 +4664,17 @@ class SqliteStore:
         `C:\Docs2` - without regard to the case of A-Z. Storage cannot import
         the walker (it is the layer below), so the rule is repeated here.
 
+        **`on_snapshot`** (2026-10-25) is called, with no arguments, once the
+        read has started and before its rows are fetched. From that moment the
+        answer is fixed: one statement is one read transaction, so in WAL mode
+        every row it returns is as the database stood when it began, whatever
+        is written meanwhile. The pipeline reads the backlog on a thread of its
+        own while the run goes on (`Pipeline._park_backlog_behind`), and waits
+        only for this - so the backlog is the start-of-run backlog, exactly as
+        when it was read on the run's own thread, and never takes in a passage
+        this run writes. Called even when the backlog is empty, and called at
+        most once.
+
         Measured 2026-10-10 on this laptop, synthetic stores with 120-word
         passages, 60% awaiting a vector, CPU shared with four other jobs (so
         each figure is a range over two runs of a median of 3): 120k waiting
@@ -4646,12 +4701,17 @@ class SqliteStore:
         # row, which profiled at half this method's time over 120k rows.
         cursor = self.conn.cursor()
         cursor.row_factory = None
-        rows = cursor.execute(
+        cursor.execute(
             # LEFT: a passage whose file row is missing (foreign keys off in a
             # repair or a test) is still handed back, as it always was - last,
             # with no date.
             "SELECT c.id, c.file_id, f.mtime_ns, f.source_kind FROM chunks c "
-            "LEFT JOIN files f ON f.id = c.file_id WHERE c.embedded = 0").fetchall()
+            "LEFT JOIN files f ON f.id = c.file_id WHERE c.embedded = 0")
+        # `execute` has taken the first step: the read transaction - and with
+        # it the snapshot - is open until the last row is fetched.
+        if on_snapshot is not None:
+            on_snapshot()
+        rows = cursor.fetchall()
         # Rows arrive in passage-id order, and one file's passages are written
         # together (`replace_chunks`), so they come as runs: grouped a run at a
         # time rather than a row at a time. A file met again later (its
@@ -4831,6 +4891,35 @@ class SqliteStore:
                 f"SELECT f.id FROM files f WHERE {attachment_sql('f')} "
                 "AND NOT EXISTS (SELECT 1 FROM faces WHERE faces.file_id = f.id))")
             return int(cursor.rowcount or 0)
+
+    def forget_face_scans_of_zip_pictures(self) -> int:
+        """Un-mark every picture inside a zip recorded as face-scanned with no
+        face found, so the next run looks at it. Returns how many. 2026-10-25.
+
+        The same hole as `forget_face_scans_of_mail_pictures`, through the
+        other door: a zip member's key (`D:\\a\\x.zip/assets/logo.png`) is not a
+        place on disk, the scan tried it as one, failed, found nothing and
+        marked it as looked at - 46 of the owner's on 2026-10-25
+        (`logs/runs/run-20261025-113053-index.log`). Which keys are zip
+        members is `row_facts.zip_member_of`'s rule, asked of each candidate
+        row here rather than restated in SQL. A mark beside a found face is
+        real and is kept."""
+        from app.core.row_facts import zip_member_of
+
+        rows = self.conn.execute(
+            "SELECT s.file_id, f.path FROM face_scans s JOIN files f ON f.id = s.file_id "
+            "WHERE NOT EXISTS (SELECT 1 FROM faces WHERE faces.file_id = s.file_id)"
+        ).fetchall()
+        doomed = [int(r[0]) for r in rows if zip_member_of(r[1])[0]]
+        if not doomed:
+            return 0
+        with self.write() as conn:
+            for start in range(0, len(doomed), 500):
+                part = doomed[start:start + 500]
+                conn.execute(
+                    f"DELETE FROM face_scans WHERE file_id IN ({','.join('?' * len(part))})",
+                    part)
+        return len(doomed)
 
     @staticmethod
     def _face_from_row(row: sqlite3.Row) -> FaceRecord:
