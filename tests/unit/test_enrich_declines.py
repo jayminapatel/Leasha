@@ -41,7 +41,9 @@ def _person(hub, given, email, phone=""):
 
 
 def test_schema_43_makes_the_declines_table():
-    assert migrations.CURRENT_VERSION == 43
+    # A floor, not `== 43`: it broke the moment schema 44 (`piles.cover_face_id`) came,
+    # the trap `test_phash_column_migration.py` records (2026-10-25).
+    assert migrations.CURRENT_VERSION >= 43
     assert migrations.MIGRATIONS[43].__name__ == "_v43_enrich_declines"
     conn = sqlite3.connect(":memory:")
     migrations._v43_enrich_declines(conn)

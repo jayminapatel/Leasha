@@ -11,7 +11,7 @@ tooltip (the standing §6a rule this whole codebase holds every surface to).
 **Automatic and identity stay separate here too.** This page only ever shows
 what clustering already found (`SqliteStore.piles_with_counts`) and only ever
 calls `SqliteStore.rename_pile`/`combine_piles`/`split_pile`/
-`remove_face_from_pile`/`forget_person` in direct response to something a
+`remove_face_from_pile`/`forget_person`/`set_pile_cover` in direct response to something a
 person clicked - nothing here infers or suggests a name on its own; the
 learning loop's own suggestions (section 2c) surface as explicit "Is this
 Daddy?" yes/no chips, never a silent auto-rename.
@@ -1029,6 +1029,9 @@ class PhotoTaggerPage(QWidget):
             # another already did this; the menu is where it is looked for.
             menus.Item("Combine with another person…", lambda: self._combine_with(pile_id, name)),
             menus.Item("Manage the faces in this pile…", lambda: self._manage_faces(pile_id)),
+            # 2026-10-25, the owner: "an option to change the cover photo".
+            menus.Item("Change the cover photo…", lambda: self._choose_cover(pile_id),
+                       tip="Pick which of this person's faces shows on their tile"),
             # IA-6 (2026-10-14): Photos and Contacts, linked both ways.
             menus.Item("Open contact", lambda: self._open_contact(pile_id), icon="contact",
                        enabled=pile_id in self._contact_links,
@@ -1132,6 +1135,14 @@ class PhotoTaggerPage(QWidget):
         dialog.exec()
         self.reload()                            # whatever was changed in there
 
+    def _choose_cover(self, pile_id: int) -> None:
+        r"""The same faces, to pick the one this person's tile shows - a
+        double-click or "Use as cover photo" on a face (2026-10-25)."""
+        dialog = _ManageFacesDialog(self._store, pile_id, self, choosing_cover=True,
+                                    pile_name=self._pile_names.get(pile_id, ""))
+        dialog.exec()
+        self.reload()
+
     # -- batch-era control (0511 section 4b's override) -----------------------
 
     def _open_batch_era_dialog(self) -> None:
@@ -1227,7 +1238,7 @@ class _ManageFacesDialog(QDialog):
     FACE = 112
 
     def __init__(self, store: Any, pile_id: Optional[int], parent: Optional[QWidget] = None,
-                 *, pile_name: str = "") -> None:
+                 *, pile_name: str = "", choosing_cover: bool = False) -> None:
         super().__init__(parent, Qt.WindowType.Window
                          | Qt.WindowType.WindowMaximizeButtonHint
                          | Qt.WindowType.WindowCloseButtonHint)
@@ -1239,8 +1250,13 @@ class _ManageFacesDialog(QDialog):
         self._pile_id = pile_id
         self._pool = QThreadPool.globalInstance()
         self._changed = False
+        #: 2026-10-25: opened from "Change the cover photo…" - a double-click on
+        #: a face makes it the cover and closes the window.
+        self._choosing_cover = bool(choosing_cover) and not seen_once
 
         intro = QLabel(
+            f"Double-click the face you want on {who}'s tile, or right-click it and "
+            f"choose Use as cover photo." if self._choosing_cover else
             "Leasha found each of these faces only once, so it could not put them with "
             "anyone. Select the faces of one person - click, Ctrl-click or Shift-click "
             "for several - then name them or add them to someone you have named."
@@ -1259,6 +1275,13 @@ class _ManageFacesDialog(QDialog):
         self._list.setUniformItemSizes(True)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list.itemSelectionChanged.connect(self._selection_changed)
+        # 2026-10-25: right-click a face for "Use as cover photo" (a person's
+        # faces only - the faces seen once have no tile of their own to dress).
+        if not seen_once:
+            self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self._list.customContextMenuRequested.connect(self._on_face_menu)
+        if self._choosing_cover:
+            self._list.itemDoubleClicked.connect(self._face_double_clicked)
 
         select_all = QPushButton("Select all")
         select_all.setToolTip("Select every face in this group")
@@ -1451,6 +1474,46 @@ class _ManageFacesDialog(QDialog):
                 self._store.assign_face(face_id, int(target))
 
         self._apply(work, "Could not move them")
+
+    # -- the cover photo (2026-10-25) ---------------------------------------------------
+
+    def _on_face_menu(self, point: Any) -> None:
+        """Right-click on a face: "Use as cover photo", through `menus.show`."""
+        item = self._list.itemAt(point)
+        if item is None or self._pile_id is None:
+            return
+        face_id = int(item.data(ROLE_FACE_ID))
+        menus.show(menus.build(self, [
+            menus.Item("Use as cover photo", lambda: self.use_as_cover(face_id),
+                       default=self._choosing_cover,
+                       tip="Show this face on the person's tile in the grid"),
+        ]), self._list, point)
+
+    def _face_double_clicked(self, item: QListWidgetItem) -> None:
+        self.use_as_cover(int(item.data(ROLE_FACE_ID)))
+
+    def use_as_cover(self, face_id: int) -> None:
+        """Make `face_id` this person's cover - written on a worker
+        (`SqliteStore.set_pile_cover`); the page shows it when this closes."""
+        from app.ui.workers import CallableWorker, run
+
+        if self._pile_id is None:
+            return
+        worker = CallableWorker(self._store.set_pile_cover, self._pile_id, int(face_id),
+                                component="ui.photo_tagger.manage")
+        when_done(self, worker, finished=self._cover_set,
+                  failed=lambda error: _warn_write_failed(
+                      self, "Could not change the cover photo", error))
+        run(self._pool, worker)
+
+    def _cover_set(self, done: Any) -> None:
+        """UI thread: the cover is written. Opened to choose it, the window's job is done."""
+        if not done:                              # the face left this person meanwhile
+            self._load()
+            return
+        self._changed = True
+        if self._choosing_cover:
+            self.accept()
 
     def _close(self) -> None:
         """Close reports Accepted when anything changed, so the page re-reads."""
