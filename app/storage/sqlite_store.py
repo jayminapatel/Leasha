@@ -640,6 +640,8 @@ class PileSample:
     file_id: int
     path: str
     bbox: tuple[float, float, float, float]
+    #: The face row it is (`faces.id`); 0 where a caller built one without it.
+    face_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -654,6 +656,9 @@ class PileRecord:
     #: When this pile's newest face was found (epoch seconds) - the People
     #: window's "Recently found" order (2026-10-14).
     last_found: int = 0
+    #: The face the person chose for the tile, while it is still in the pile
+    #: (`set_pile_cover`); `samples[0]` is then that face. None: automatic.
+    cover_face_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -5446,32 +5451,69 @@ class SqliteStore:
         file ids the UI draws crops from. `samples` per pile, not the whole
         set - the grid shows a handful of thumbnails, not every photo."""
         rows = self.conn.execute(
-            "SELECT p.id, p.name, COUNT(f.id) AS n, MAX(f.created_at) AS last "
+            "SELECT p.id, p.name, p.cover_face_id AS cover, COUNT(f.id) AS n, "
+            "       MAX(f.created_at) AS last "
             "FROM piles p JOIN faces f ON f.pile_id = p.id "
-            "GROUP BY p.id, p.name ORDER BY n DESC, p.id LIMIT ?",
+            "GROUP BY p.id, p.name, p.cover_face_id ORDER BY n DESC, p.id LIMIT ?",
             (limit,),
         ).fetchall()
+        face_sql = ("SELECT f.id AS face_id, f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, "
+                    "       fl.id AS file_id, fl.path AS path "
+                    "FROM faces f JOIN files fl ON fl.id = f.file_id ")
         out: list[PileRecord] = []
         for row in rows:
-            sample_rows = self.conn.execute(
-                "SELECT f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, "
-                "       fl.id AS file_id, fl.path AS path "
-                "FROM faces f JOIN files fl ON fl.id = f.file_id "
-                "WHERE f.pile_id = ? ORDER BY f.id LIMIT ?",
+            sample_rows = list(self.conn.execute(
+                face_sql + "WHERE f.pile_id = ? ORDER BY f.id LIMIT ?",
                 (row["id"], samples),
-            ).fetchall()
+            ).fetchall())
+            # 2026-10-25: the cover the person chose (`set_pile_cover`) comes first -
+            # only while it is still one of this pile's faces; otherwise the
+            # automatic first face stands, and `cover_face_id` says None.
+            cover = None
+            if row["cover"] is not None:
+                chosen = self.conn.execute(
+                    face_sql + "WHERE f.id = ? AND f.pile_id = ?",
+                    (row["cover"], row["id"])).fetchone()
+                if chosen is not None:
+                    cover = int(chosen["face_id"])
+                    rest = [r for r in sample_rows if int(r["face_id"]) != cover]
+                    sample_rows = [chosen, *rest][:samples]
             out.append(PileRecord(
                 id=row["id"], name=row["name"], face_count=row["n"],
                 last_found=int(row["last"] or 0),
+                cover_face_id=cover,
                 samples=tuple(
                     PileSample(
                         file_id=r["file_id"], path=r["path"],
                         bbox=(r["bbox_x"], r["bbox_y"], r["bbox_w"], r["bbox_h"]),
+                        face_id=int(r["face_id"]),
                     )
                     for r in sample_rows
                 ),
             ))
         return out
+
+    def set_pile_cover(self, pile_id: int, face_id: Optional[int]) -> bool:
+        r"""The face `pile_id`'s tile shows, chosen by the person - "Use as cover
+        photo" in the manage dialog (2026-10-25). `None` goes back to the
+        automatic face. Returns False, and changes nothing, for a face that is
+        not in that pile (it moved while the menu was open) or a pile gone.
+
+        Kept on the pile (`piles.cover_face_id`, schema 44), so it survives a
+        restart and a re-grouping, which only files new faces and never moves
+        one already in a pile. `piles_with_counts` uses it only while the face
+        is still in the pile, so a face moved away needs nothing cleared here."""
+        with self.write() as conn:
+            if face_id is None:
+                changed = conn.execute(
+                    "UPDATE piles SET cover_face_id = NULL WHERE id = ?",
+                    (int(pile_id),)).rowcount
+            else:
+                changed = conn.execute(
+                    "UPDATE piles SET cover_face_id = ? WHERE id = ? AND EXISTS "
+                    "(SELECT 1 FROM faces WHERE id = ? AND pile_id = ?)",
+                    (int(face_id), int(pile_id), int(face_id), int(pile_id))).rowcount
+        return bool(changed)
 
     def sync_people_segment(self, file_id: int, *, label: str = "People") -> None:
         r"""Rebuild this file's `People:` labelled segment. Section 3a.
