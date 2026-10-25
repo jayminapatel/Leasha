@@ -169,9 +169,20 @@ def test_a_member_that_kills_the_child_costs_that_member_only(tmp_path, reader):
 
     def member_reader(temp: Path):
         if temp.name == "boom.txt":
-            stream = reader.read_raw(temp)
+            # 2026-10-25: the child dies for certain before the request reaches it.
+            # This killed it and then read, and `read_raw` is a generator: when the
+            # kill had already landed by the first read, `start()` saw a dead child and
+            # quietly started a fresh one, the member was read, and the test failed -
+            # twice in full runs on a loaded laptop, never alone. `start` is held for
+            # this one member so the request goes to the child that died; the real one
+            # is back for the next member, which still gets a fresh child.
             reader._proc.kill()                        # the native fault, stood in for
-            yield from stream
+            reader._proc.wait(timeout=10)
+            real_start, reader.start = reader.start, (lambda: None)
+            try:
+                yield from reader.read_raw(temp)
+            finally:
+                reader.start = real_start
             return
         yield from reader.read_raw(temp)
 
