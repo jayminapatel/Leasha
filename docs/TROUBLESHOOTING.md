@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.23 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 1.24 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -544,7 +544,8 @@ Logs also live in `logs\runs\` (one file per command or window session) and `log
 |---|---|
 | The window vanished while a folder picker was open, with no message | Fixed on 2026-10-02. Windows raised a harmless error inside the picker and the crash recorder itself fell over reading another thread. If it happens on 0.3.4 or later it is something new: send `logs\crash.log` and the newest file in `%LOCALAPPDATA%\CrashDumps` |
 | A mail archive (.pst) seems stuck for hours | Probably slow, not stuck: a large archive read through Outlook manages a few hundred to a few thousand messages an hour. The Indexing page now shows the folder and the count moving. Reading the file directly (Indexing > What gets read > Outlook archives) is much faster |
-| Every run reads all the mail archives again although nothing changed | Fixed on 2026-10-02. Outlook changes an archive's date just by opening it; Leasha now compares a fingerprint from inside the file and skips an archive whose contents have not moved. The first run after updating still reads each one once |
+| Every run reads all the mail archives again although nothing changed | Outlook changes an archive's date just by opening it, and every few minutes while it has it open. Leasha compares a fingerprint from inside the file and skips an archive whose contents have not moved. While Outlook holds the file the fingerprint cannot be read; then an archive of the same size is left alone until Indexing › What gets read › **Re-check archives every** has passed since its last full read, and the log says so. An archive still read every time is probably being read through Outlook: with **Outlook archives (.pst)** on Automatic, a file Outlook holds is read through Outlook - close Outlook, or choose Direct file reading |
+| A face in a photo is not on the People page | Faces under 40 pixels across, and faces too blurred, blown up or blocky from compression to recognise, are not kept: they would not match the person's other faces. A sharper photo of the same person is found as usual |
 | One folder or archive needs reading again, not all of them | Settings > What's indexed: the play button on that line ("Index now"). On the Indexing page's Offline shelf, the Rescan button on the drive's line |
 | "files type pst" (or "type pdf", "pdf files") finds nothing | From 2026-10-02 these words are read as a file type. If it still finds nothing, the index holds none: `leasha stats` says how many files are indexed. After a reset the index is empty until a run finishes |
 | Chat lists files when you asked for a number, a date or an address | Fixed on 2026-10-04: a question that names a value is read and quoted. If the answer is "not found", the value is not in what has been indexed |

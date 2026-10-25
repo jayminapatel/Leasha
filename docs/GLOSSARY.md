@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.18 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 1.19 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -151,6 +151,8 @@ and `202626270514`.
 | pHash | Perceptual hash, for cross-source duplicate detection | Milliseconds at index time |
 | Era hint | An approximate date for scans with no EXIF | From folder names, or set per batch in the Photo Tagger |
 | Photo Tagger | The page where the user names face clusters | Detection and clustering automatic; **identity only ever from the user**. Off by default |
+| Cover photo | The face a person's tile shows, chosen with Change the cover photo… or Use as cover photo; with none, or once that face has left the pile, the tile picks its own | `piles.cover_face_id` (schema 44); `SqliteStore.set_pile_cover` |
+| Pixelated face | A face big enough in pixels but too blurred, upscaled or blocky to recognise; not kept for naming or grouping | `app/extract/face_quality.py`; after the 40 px rule in `app/core/face_size.py` |
 
 ---
 
@@ -219,6 +221,7 @@ Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, l
 | Enrichment | Proposed additions to a contact: details from email signatures, a company from an email domain, a photo from a named face, the contact history, suggested contacts, vCard files, calendar invitations, a LinkedIn export, and three optional internet look-ups (Gravatar, a company's own icon, Wikidata for companies). Nothing is kept until the person accepts it in Enrich contacts, every suggestion carries its receipt, and each internet source is off by default. A value turned down with **Never suggest these** is not offered again for that contact | `app/contacts/enrich/`; hosts pinned in `app/accounts/http.py`; `enrich_declines`; measured with `contacts enrich --measure` |
 | Hub | Leasha's own master copy of the contact book. Accounts are copies that are kept in step with it, not the source | `ContactHub`, `app/contacts/hub.py`; SQLite is the authority (rule 6) |
 | Journal | The record of every change to a contact (who made it: Leasha, an import, or an account) with what was there before, so any change, a whole merge, a clean-up or a whole sync can be undone | `contact_journal`; a contact's **History**; `contacts history`, `contacts undo` |
+| File as | How Outlook and Google file and sort a contact ("Ann Lee", "Lee, Ann", "Acme"...); written on each contact Leasha sends to a Microsoft or Google account, First Last by default | Settings > Accounts > File contacts as; `app/contacts/file_as.py`; `AccountSettings.file_as` |
 | Kept in | The set of accounts a contact is stored in. A contact made in Leasha goes to the default account; one that came from an account is kept in that account; nothing is copied everywhere unless the person asks. Adding an account writes the contact there; taking one away deletes it from that account only after the person confirms | `contact_links`; the editor's **Kept in** chips |
 | Live mail | Mail fetched from an account over the internet, read only, and indexed like any other mail. Mail read from files and Outlook archives stays with the indexing schedule | `app/accounts/mail_sync.py`; Settings > Accounts, the account's **Mail** tab |
 | Quiet hours | Two times between which no scheduled sync starts. Sync now still works | Settings > Accounts |

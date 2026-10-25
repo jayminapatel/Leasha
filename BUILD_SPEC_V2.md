@@ -1,6 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.18 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
+**Doc version:** 2.19 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
@@ -361,7 +361,7 @@ done once, treat Layer 2 as code-complete but not signed off.
 **Build**
 
 - `walker.py` — **[BUILT]** configurable roots, extension allowlist, exclusion globs
-  (`node_modules`, `AppData`, `$Recycle.Bin`, `.git`, …). Emits candidates with
+  (`node_modules`, `AppData`, `$Recycle.Bin`, `.git`, `.worktrees`, `.claude`, …). Emits candidates with
   `mtime_ns` + `size_bytes`; hashes contents only when mtime or size changed.
   **Exclusions prune during the walk, never filter after it** — descending into a 40,000-file
   `node_modules` and discarding it costs the whole subtree, and a test counts the directories
