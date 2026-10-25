@@ -150,6 +150,10 @@ class AccountSettings:
     notify_failed_24h: bool = True
     default_account_id: Optional[int] = None
     phone_region: str = "GB"
+    # 2026-10-25, the owner: "the file as in contact does not come up in outlook, by default it should
+    # be first space last name ... make it configurable". How a contact is filed in an account that has
+    # the field (Outlook, Google) - an `app.contacts.file_as.FORMATS` key.
+    file_as: str = "first_last"
     maps_site: str = "openstreetmap"
     google_client_id: str = ""
     microsoft_client_id: str = ""

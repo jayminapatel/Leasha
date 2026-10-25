@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.146 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
+**Doc version:** 4.147 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Contacts are filed in Outlook and Google as you choose - "First Last" by default (2026-10-25)
+
+A contact Leasha writes to an Outlook (Microsoft) or Google account now carries "File as", set by Settings > Accounts > "File contacts as": First Last, Last, First, Company, Last, First (Company), or Company (Last, First). A contact without those names is filed by its company, then its email.
 
 ### A restart starts reading in seconds; choose a person's cover photo; pixelated faces are left out (2026-10-25)
 

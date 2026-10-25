@@ -68,7 +68,8 @@ _READ_FIELDS = ("names,nicknames,organizations,biographies,emailAddresses,phoneN
 #: The fields an update replaces. A field named here and absent from the body is
 #: cleared by Google, which is how a value removed in Leasha is removed there.
 _WRITE_FIELDS = ("names,nicknames,organizations,biographies,emailAddresses,phoneNumbers,"
-                 "addresses,urls,birthdays,events,relations,userDefined,imClients,memberships")
+                 "addresses,urls,birthdays,events,relations,userDefined,imClients,memberships,"
+                 "fileAses")   # 2026-10-25: "File as", always written (`app.contacts.file_as`)
 
 GOOGLE_CAPS = Capabilities(
     kinds=frozenset({"email", "phone", "address", "url", "date", "related", "im", "custom"}),
@@ -115,7 +116,9 @@ class GooglePeopleProvider:
     caps = GOOGLE_CAPS
 
     def __init__(self, transport: Transport, token_source: TokenSource, *, account: str = "Google",
-                 base_url: str = API_BASE, page_size: int = 1000) -> None:
+                 base_url: str = API_BASE, page_size: int = 1000, file_as: str = "first_last") -> None:
+        #: 2026-10-25: how each contact written is filed (`app.contacts.file_as.FORMATS`).
+        self._file_as = file_as
         self._t = transport
         self._token = token_source
         self._account = account
@@ -286,6 +289,12 @@ class GooglePeopleProvider:
             person["organizations"] = [org]
         if s("notes"):
             person["biographies"] = [{"value": s("notes"), "contentType": "TEXT_PLAIN"}]
+        # 2026-10-25, the owner: how the contact is filed, Google's `fileAses` (Outlook's "File as").
+        from app.contacts.file_as import file_as  # noqa: PLC0415
+
+        filed = file_as(c.scalars, self._file_as, [f.value for f in c.fields if f.kind == "email"])
+        if filed:
+            person["fileAses"] = [{"value": filed}]
 
         def add(key: str, entry: dict[str, Any]) -> None:
             person.setdefault(key, []).append(entry)
