@@ -133,6 +133,7 @@ def test_an_unregistered_tool_says_so_and_a_registered_one_runs(qapp, monkeypatc
         openers.OPENERS.update(saved)
 
 
+@pytest.mark.slow
 def test_every_toolbar_button_and_the_sidebar_door_calls_the_opener(world, monkeypatch):
     calls = []
     for name in openers.NAMES:
