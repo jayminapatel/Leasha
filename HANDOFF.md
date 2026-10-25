@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.191 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
+**Doc version:** 7.192 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-25, night - v1.1.0 released (owner: "if all done bump release then make sure only one main and then create a new release and create the install and publish"; 1.1.0 and install-and-e2e chosen by the owner).** Gate: the full local suite on #116 green (18,396 passed, 0 failed, 0 crashed) and Windows Run on its branch green in 70 minutes - and on the runner pytest again finished its session (status 0) and did not end; `scripts/ci_pytest.py` ended it 60 s later, as built. Mac Run green on `9e45ff3`. #116 merged (`c1a0f28`). VERSION 1.1.0; every document changed since 1.0.3 applies to 1.1.0; `CHANGELOG.md` [Unreleased] promoted to [1.1.0]. **Not re-measured for this release:** the performance budget (checklist step 3) and 1.0.0's three owed checks (24-hour soak, force-kill recovery, cold start under 5 s).
 
 **2026-10-25, evening - docs caught up; main's full suite and GitHub runs; Windows Run made to end (owner: "is the documentation and help updated if not do so", "run full suite local and git for mac", "and full on git too", "do recommended").** Docs (#114, `9e45ff3`, merged without a full run by the owner's exception): the user guide, the technical reference (schema 44), the glossary, troubleshooting and the build spec now describe #97-#113. Full local suite on `9e45ff3`: 2 failed, both the tests' own - `test_lo_session` killed a converter member that had ended with its parent, and three tests were 1 s+ unmarked; fixed in #115 (`6deb1fd`, again by exception). Mac Run on `9e45ff3`: green. Windows Run on `9e45ff3`: every test ran by 13:27 (two `timing` budgets missed on the runner: Contacts' first visit 436 ms > 400, the busy bar 1 frame in 2 s), then pytest did not end - main thread in native shutdown, LanceDB's (daemon) loop thread idle - the conftest watchdog dumped at 13:32, and the step still waited for a left-behind process holding its output until the 90-minute ceiling cancelled it at 13:55. **Now:** the workflow runs pytest through `scripts/ci_pytest.py` (output to a file copied to the log; a plugin half writes the session's exit status; a pytest still alive 60 s after its session is ended with that status), and the `timing` tests in a step of their own with `continue-on-error`, as `run_suite.py` runs them last. **Not found:** what keeps the process alive in native shutdown on the runner; the wrapper bounds it rather than cures it. **UNVERIFIED** until the next Windows Run on GitHub.
 

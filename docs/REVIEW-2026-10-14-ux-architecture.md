@@ -1,6 +1,6 @@
 # Review 2026-10-14 - UX/UI and architecture survey
 
-**Doc version:** 1.0 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
+**Doc version:** 1.1 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 
 An end-to-end survey of the window against a Raycast / Linear / Craft / Apple Photos bar,
 read from the code at `d8e9471`. Four read-only audits ran side by side (navigation, design

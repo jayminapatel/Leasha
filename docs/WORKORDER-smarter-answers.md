@@ -1,6 +1,6 @@
 # Work order (One thread): smarter answers - a stronger answerer, a card for every document, answers in Search, your own words, questions across documents
 
-**Doc version:** 1.1 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/chat/`, `app/index/`, `app/storage/`, `app/ui/widgets/`, `app/cli/`, `tests/unit/`, the docs)
 **Status:** BUILT 2026-10-12, 23 of 24 (6b HELD until the final index); full suite owed - run combined with main by the Mail and Contacts thread (`test/combined`). RELEASED by the owner 2026-10-12 ("do all of them as the questions is the last once the full index is done, note this index is still test until we get it perfect then i will do the final index"), after asking "now we have all this data in our index is embedding etc enough to be smart what can we do so the system is more ai and smarter in its response and answers especially when we use natural language .. i want it to work like i am talking to an very smart system"
 

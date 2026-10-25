@@ -1,6 +1,6 @@
 # UI style guide - One Leasha
 
-**Doc version:** 1.4 · **Updated:** 2026-10-19 · **Applies to:** app v1.0.3
+**Doc version:** 1.5 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 
 How Leasha's window looks and behaves, as it is in the code today. Every rule names the
 module that carries it and the test that fails when it is broken. Where this guide and the

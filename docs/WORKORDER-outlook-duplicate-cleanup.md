@@ -1,6 +1,6 @@
 # Work order (One thread): copies of a message in a mailbox are moved to its Deleted Items, from a button on its line
 
-**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/extract/outlook_cleanup.py`, `app/cli/`, `app/ui/widgets/mail_archives_box.py`,
 `app/ui/controllers/`, `app/ui/presenter/`, `app/ui/shell.py`, `tests/unit/`, the user guide)
 **Status:** BUILT 2026-10-11, all 10; RELEASED by the owner 2026-10-11 ("yes write the order for the outlook clean-up and execute"), after

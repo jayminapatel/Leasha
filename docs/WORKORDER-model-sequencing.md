@@ -1,6 +1,6 @@
 # Work order (One thread): the models run where they pay, in the order that pays, and the graphics card is one lock across processes
 
-**Doc version:** 1.4 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.5 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/core/gpu_serialize.py`, `app/index/pipeline.py`, `app/index/media_backlog.py`,
 `app/extract/ocr.py`, `app/extract/chunker.py`, `app/search/engine.py`, `app/search/vector.py`,
 `app/search/translate.py`, `app/ui/workers.py`, `app/ui/shell.py`, `app/chat/engine.py`, `app/chat/context.py`,

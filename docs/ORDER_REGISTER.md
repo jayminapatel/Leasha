@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.97 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 1.98 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 
 Every work order in one table, with its status and where it sits in the queue.
 

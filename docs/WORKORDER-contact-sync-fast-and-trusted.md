@@ -1,6 +1,6 @@
 # Work order (One thread): contact sync that is fast and can be trusted - batched writes, one count everywhere, a check after every sync, a brake that holds only deletes
 
-**Doc version:** 1.2 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 1.3 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/accounts/engine.py`, `app/accounts/provider.py`, `app/accounts/http.py`,
 `app/accounts/providers/google_people.py`, `app/accounts/providers/graph_contacts.py`,
 `app/accounts/providers/carddav.py`, `app/accounts/service.py`, `app/accounts/store.py`, `app/contacts/hub.py`,

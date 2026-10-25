@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.149 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
+**Doc version:** 4.150 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,8 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+## [1.1.0] - 2026-10-25
 
 ### Windows Run on GitHub ends when its tests have; its timing tests are a warning there (2026-10-25)
 
@@ -978,6 +980,10 @@ the code; each is fixed with a test. Not yet seen in the real window.
   had a lock of its own, which kept two callers of that model apart but let it run beside the
   text reader's graphics-card session on another thread. They now use the same one-at-a-time
   gate the text reader, the meaning model and the reranker already shared.
+
+### Docs
+
+- Every document changed since 1.0.3 applies to 1.1.0: `BUILD_SPEC_V2.md` 2.20, `CHANGELOG.md` 4.150, `CLAUDE.md` 1.12, `HANDOFF.md` 7.192, `LOCAL_KNOWLEDGE_GRAPH_V2.md` 2.17, `README.md` 4.11, `docs/GLOSSARY.md` 1.20, `docs/MAC_VERIFICATION.md` 1.14, `docs/ORDER_REGISTER.md` 1.98, `docs/PARKED-IDEAS.md` 1.8, `docs/PROJECT_INSTRUCTIONS.md` 1.12, `docs/REVIEW-2026-10-14-ux-architecture.md` 1.1, `docs/TEST_COVERAGE.md` 1.1, `docs/TROUBLESHOOTING.md` 1.25, `docs/UI_STYLE_GUIDE.md` 1.5, `docs/VERSIONING.md` 1.17, `docs/VSCODE.md` 1.7, `docs/WORKORDER-202626082213-install-and-distribution.md` 1.4, `docs/WORKORDER-accounts-mail-and-contact-sync.md` 1.7, `docs/WORKORDER-chat-like-claude.md` 1.2, `docs/WORKORDER-contact-enrichment-that-finds.md` 1.4, `docs/WORKORDER-contact-sync-fast-and-trusted.md` 1.3, `docs/WORKORDER-indexing-cockpit-and-conductor.md` 1.5, `docs/WORKORDER-mail-folder-list.md` 1.2, `docs/WORKORDER-model-sequencing.md` 1.5, `docs/WORKORDER-offline-into-indexing-timeline-on-the-rail.md` 1.2, `docs/WORKORDER-outlook-duplicate-cleanup.md` 1.2, `docs/WORKORDER-pictures-process-isolation.md` 1.2, `docs/WORKORDER-rail-order-by-drag.md` 1.2, `docs/WORKORDER-reader-process-isolation.md` 1.2, `docs/WORKORDER-side-lists-everywhere.md` 1.2, `docs/WORKORDER-smarter-answers.md` 1.2, `docs/WORKORDER-space-report-files-only-inheritance-pst-duplicates.md` 1.3, `docs/WORKORDER-test-suite-faster.md` 1.5, `docs/WORKORDER-tidy-page.md` 1.2, `docs/reports/code_review_report.md` 1.1, `scripts/README.md` 1.6; the user guide and the technical reference name 1.1.0.
 
 ## [1.0.3] - 2026-10-09
 

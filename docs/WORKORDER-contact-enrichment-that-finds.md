@@ -1,6 +1,6 @@
 # Work order (One thread): contact enrichment that finds things - fresh details only, a signature reader that does not need "Kind regards", more of your own sources, every rule a setting
 
-**Doc version:** 1.3 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.4 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/contacts/enrich/`, `app/extract/quoting.py`, `app/extract/email_files.py`, `app/storage/`, `app/accounts/store.py`, `app/ui/contacts_tools/`, `app/ui/accounts/`, `app/cli/`, `tests/unit/`, the docs)
 **Status:** MERGED TO `main` 2026-10-13 (#75, `e634639`), 45 of 48. Open: 5e waits on §9, **9a NOT MET** (113 of 200 as shipped; 310 with the originals re-read, at 90/100 precision against 95), 9f the owner's Windows checks. RELEASED by the owner 2026-10-12 ("fix it and make the whole system smart and configurable write a work order for all and give the design system thread to execute when it deems it is ready to execute .. make the design fool proof and extremely smart"), after asking "how does the contact enrichment work as it does not seem to work well at the moment". The executing thread decides when to start: §0 lists what must be true first.
 

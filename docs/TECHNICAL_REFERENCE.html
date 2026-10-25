@@ -109,7 +109,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <header class="hero">
   <h1>Leasha Technical Reference</h1>
   <p>How Leasha is built: its layers and processes, the data it keeps, how a file becomes searchable, how a search is answered, and every command-line entry point.</p>
-  <div class="meta">App v1.0.3 · schema v44 · Reference updated 25 October 2026 · Contact enrichment checked against <code>feat/enrichment-that-finds</code> at 1b4c54f; Document cards, your words, the answer card and question shapes checked against <code>feat/smarter-answers</code>; Accounts, contacts and live mail checked against <code>feat/accounts-1k</code> at 9f7cde6; the restart, the governor, archive re-checks, face quality, cover photos and File as against <code>main</code> at 7911404; the rest against <code>main</code> at 0a39a5e</div>
+  <div class="meta">App v1.1.0 · schema v44 · Reference updated 25 October 2026 · Contact enrichment checked against <code>feat/enrichment-that-finds</code> at 1b4c54f; Document cards, your words, the answer card and question shapes checked against <code>feat/smarter-answers</code>; Accounts, contacts and live mail checked against <code>feat/accounts-1k</code> at 9f7cde6; the restart, the governor, archive re-checks, face quality, cover photos and File as against <code>main</code> at 7911404; the rest against <code>main</code> at 0a39a5e</div>
 </header>
 
 <h2 id="overview"><span class="num">1</span>Overview</h2>
@@ -839,7 +839,7 @@ leasha contacts enrich --measure [--months N | --any-age] [--read-originals] [--
 
 <h2 id="release"><span class="num">14</span>Versions, documents and releases</h2>
 <ul>
-  <li><b><code>VERSION</code></b> (1.0.3) is the only place the version lives; <code>app.core.version.build_info()</code> adds <code>git describe</code>. MAJOR: an index change that cannot be migrated. MINOR: a build-spec layer complete. PATCH: fixes and tuning.</li>
+  <li><b><code>VERSION</code></b> (1.1.0) is the only place the version lives; <code>app.core.version.build_info()</code> adds <code>git describe</code>. MAJOR: an index change that cannot be migrated. MINOR: a build-spec layer complete. PATCH: fixes and tuning.</li>
   <li><b>Schema version</b> is its own integer (38), stepped one migration at a time.</li>
   <li><b>Every <code>.md</code></b> opens with an H1 and the line <code>**Doc version:** X.Y · **Updated:** YYYY-MM-DD · **Applies to:** app vX.Y.Z</code>; <code>test_docs_versioned.py</code> fails the suite otherwise, with no exemption list. <code>HANDOFF.md</code> and <code>docs/PROJECT_INSTRUCTIONS.md</code> must state the current version (<code>test_handoff_current.py</code>).</li>
   <li><b>Where things live</b>: code and documents on GitHub <code>jayminapatel/Leasha</code>, branch <code>main</code>; release builds outside the repository under <code>Leasha\Releases\&lt;version&gt;\</code> on Google Drive; the owner's index never in git.</li>
@@ -866,7 +866,7 @@ leasha contacts enrich --measure [--months N | --any-age] [--read-originals] [--
   <li>Fixed while writing: the Search home suggestion "photos from the Lake District" typed <code>/type image</code>, which was not a kind and matched nothing. <code>image</code>, <code>photo</code> and <code>picture</code> (and plurals) are now kinds (commit <code>31edaea</code>).</li>
 </ul>
 
-<footer>Leasha Technical Reference · for app v1.0.3, schema v44 · 25 October 2026. Built from the source; the user guide is <a href="USER_GUIDE.html">USER_GUIDE.html</a>.</footer>
+<footer>Leasha Technical Reference · for app v1.1.0, schema v44 · 25 October 2026. Built from the source; the user guide is <a href="USER_GUIDE.html">USER_GUIDE.html</a>.</footer>
 
 </main>
 </div>

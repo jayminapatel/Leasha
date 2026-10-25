@@ -1,6 +1,6 @@
 # Work order (One thread): Tidy - find what is indexed, and clear copies, similar photos and leftovers
 
-**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/tidy/`, `app/core/osbridge/recycle.py`, `app/reports/`, `app/cli/tidy.py`,
 `app/cli/report.py`, `app/storage/migrations.py`, `app/storage/sqlite_store.py`, `app/ui/tidy_view.py`,
 `app/ui/reports_view.py`, `app/ui/presenter/tidy.py`, `app/ui/controllers/tidy_controller.py`, `app/ui/widgets/tidy_*.py`,

@@ -1,6 +1,6 @@
 # Work order (One thread): Mail shows the mailboxes and their folders on the left, and a click narrows the list
 
-**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/ui/mail_view.py`, `app/ui/widgets/`, `app/ui/tasks.py`, `app/storage/sqlite_store.py`, `tests/unit/`, the user guide)
 **Status:** BUILT 2026-10-11, all 5, D1-D3 as written; RELEASED by the owner 2026-10-11 ("b do them all"), after asking what a View menu like the Photos tree's would hold on Mail, Files, Code and Browse
 

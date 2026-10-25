@@ -1,6 +1,6 @@
 # Working on this project in VS Code
 
-**Doc version:** 1.6 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.1
+**Doc version:** 1.7 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 
 ## Opening it
 

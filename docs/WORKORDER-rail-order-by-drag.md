@@ -1,6 +1,6 @@
 # Work order (One thread): the rail's pages can be put in any order, by dragging or from a menu
 
-**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/ui/widgets/rail.py`, `app/ui/shell.py`, `tests/unit/`, the user guide)
 **Status:** BUILT 2026-10-11, all 6, D1-D3 as written; RELEASED by the owner 2026-10-11 ("b do them all"), after asking "is there a way they can be dragged in any order ?"
 

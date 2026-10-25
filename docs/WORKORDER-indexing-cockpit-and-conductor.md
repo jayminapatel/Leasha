@@ -1,6 +1,6 @@
 # Work order (Parallel threads): the indexing cockpit, nothing silent, and one conductor for every thread
 
-**Doc version:** 1.4 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 1.5 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** Four parallel threads - lanes (`app/index/live_progress.py`, `pipeline.py`), the cockpit
 (`app/ui/indexing_view.py`, `app/ui/widgets/`, `app/ui/presenter/`), the found faults (Files and Photos side
 lists, file kinds, icons), and the conductor (`app/index/conductor.py`, `pipeline.py`), which starts on top of

@@ -1,6 +1,6 @@
 # Work order (Master thread): Accounts - live mail in, and a contact book that syncs
 
-**Doc version:** 1.6 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.7 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** Master thread with helper threads (new `app/accounts/`, new `app/contacts/`,
 `app/storage/migrations.py`, `app/ui/shell.py`, a new `app/ui/contacts_view.py` and its widgets,
 `app/cli/`, `app/serve/mcp.py`, `tests/unit/`, the user guide, `docs/GLOSSARY.md`, `docs/PROJECT_INSTRUCTIONS.md`)

@@ -1,6 +1,6 @@
 # Work order (One thread): Chat looks and works like a modern assistant: one calm column, actions on hover and right-click
 
-**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/ui/chat_view.py`, `app/ui/widgets/chat_*.py`, `app/ui/theme.py`, `tests/unit/`, the user guide)
 **Status:** BUILT 2026-10-11, 5 of 6 (2b's fresh guide screenshot not taken); D1-D4 as written; RELEASED by the owner 2026-10-11 ("b do them all"), after asking "the chat interface can it be like claude for example as the current one looks dated may be buttons are not required just the context menu"
 

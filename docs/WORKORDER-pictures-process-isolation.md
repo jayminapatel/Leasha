@@ -1,6 +1,6 @@
 # Work order (One thread): pictures never kill the index process - scanned pages rendered in the reader child, OCR in a process of its own
 
-**Doc version:** 1.1 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/index/read_process.py`, `app/index/pipeline.py`, `app/extract/ocr.py`,
 `app/extract/pdf.py`, `app/extract/media.py`, the settings registry)
 **Status:** BUILT 2026-10-09, the same session (the owner: "do recomended but dont loose performance do all

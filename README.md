@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 4.10 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 4.11 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 
 <p align="center">
   <img src="assets/leasha-lockup.png" width="420" alt="Leasha">

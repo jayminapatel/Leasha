@@ -1,6 +1,6 @@
 # Work order (One thread): Offline moves into Indexing, and the timeline takes its place on the rail
 
-**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/ui/shell.py`, `app/ui/indexing_view.py`,
 `app/ui/widgets/indexing_layout.py`, `app/ui/offline_media_view.py`, `app/ui/reports_view.py`,
 `app/ui/timeline_view.py`, `app/ui/controllers/timeline_controller.py`, `tests/unit/`, the user

@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.19 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
+**Doc version:** 1.20 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several

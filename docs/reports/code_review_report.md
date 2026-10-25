@@ -1,6 +1,6 @@
 # Leasha - Comprehensive 360 Code Review
 
-**Doc version:** 1.0 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 1.1 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 
 ## Executive Summary
 

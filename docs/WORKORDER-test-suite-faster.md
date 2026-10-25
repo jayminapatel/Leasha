@@ -1,6 +1,6 @@
 # Work order (Parallel threads): the test suite runs faster - the slowest 20 files made lighter, every check kept
 
-**Doc version:** 1.4 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.5 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** Seven parallel threads - one per group in §2, one for §4a/4b/4f, one for §4c/4d (`tests/unit/`, `tests/integration/`, test fixtures and
 `tests/unit/conftest.py` only where a group needs it; app code only for a fault a test finds)
 **Status:** RELEASED by the owner 2026-10-13 ("yes do it, use parallel agents"), after asking "we have lots of

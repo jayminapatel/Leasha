@@ -1,6 +1,6 @@
 # Work order (One thread): the index process never dies on a file - PDF and archive members read in a reader process
 
-**Doc version:** 1.1 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/index/read_process.py`, `app/index/pipeline.py`, `app/extract/pdf.py`,
 `app/extract/archive.py`, the settings registry)
 **Status:** SHIPPED 2026-10-09, the same session. RELEASED by the owner 2026-10-09 ("write the work order for the reader process

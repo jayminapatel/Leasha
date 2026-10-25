@@ -1,6 +1,6 @@
 # Test coverage map
 
-**Doc version:** 1.0 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.1 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 
 What the test suite runs of `app/`, measured once for work order 1u §4c (`docs/WORKORDER-test-suite-faster.md`).
 It is a map for deciding where tests are thin, not a score to chase: a line that runs is not a line that is checked.

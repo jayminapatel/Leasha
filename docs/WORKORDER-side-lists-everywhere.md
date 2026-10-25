@@ -1,6 +1,6 @@
 # Work order (One thread): one left-hand list for every page, drawn the Contacts way
 
-**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/ui/widgets/side_list.py`, `app/ui/widgets/mail_folders.py`,
 `app/ui/widgets/photo_sidebar.py`, `app/ui/files_view.py`, `app/ui/code_view.py`,
 `app/ui/timeline_view.py`, `app/ui/presenter/`, `app/storage/sqlite_store.py`, `tests/unit/`, the user guide)

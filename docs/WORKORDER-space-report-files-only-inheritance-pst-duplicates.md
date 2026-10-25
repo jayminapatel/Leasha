@@ -1,6 +1,6 @@
 # Work order (One thread): the Space Report counts files only, Digital Inheritance shows the sources, and duplicate PST messages leave the index
 
-**Doc version:** 1.2 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.3 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
 **Thread:** One thread (`app/reports/space.py`, `app/reports/inheritance.py`,
 `app/storage/sqlite_store.py`, `app/ui/reports_view.py`, `app/cli/`, the PST readers under
 `app/extract/`, `app/index/`, `tests/unit/`)
