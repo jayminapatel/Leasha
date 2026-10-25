@@ -1,6 +1,6 @@
 # scripts
 
-**Doc version:** 1.4 · **Updated:** 2026-10-15 · **Applies to:** app v1.0.3
+**Doc version:** 1.5 · **Updated:** 2026-10-25 · **Applies to:** app v1.0.3
 
 Helper scripts that are not part of the application. Run them from the project folder with
 the venv's Python (`venv\Scripts\python.exe` on Windows, `venv/bin/python` elsewhere).
@@ -26,6 +26,11 @@ the venv's Python (`venv\Scripts\python.exe` on Windows, `venv/bin/python` elsew
   measurements - the rule `tests/unit/test_slow_markers_truthful.py` fails on.
 - `suite_durations.py` and `suite_affected.py` - the runner's two helpers above; not run on
   their own.
+- `ci_pytest.py` - how the Windows Run workflow runs pytest on GitHub, so the step ends when
+  pytest has. pytest writes to a file this copies to the log, so a process a test left behind
+  cannot hold the step open; loaded into pytest as a plugin too, it learns when the session has
+  finished and with what status, and ends a pytest that has not exited a minute later.
+  `python scripts/ci_pytest.py -- <pytest arguments>`.
 - `regen_vs_project.py` - rewrites `Leasha.pyproj` from the files git tracks. Run it after
   adding or removing a Python file (`git add` it first); `tests/unit/test_vs_project.py` fails
   until you do.

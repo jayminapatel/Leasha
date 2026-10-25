@@ -129,10 +129,16 @@ def test_every_run_may_only_read_the_repository():
 
 
 def test_windows_run_runs_the_pr_ci_tier():
+    """2026-10-25: as two steps, the way `run_suite.py` runs it - everything but the `timing`
+    tests, then those on their own, a miss there a warning (`continue-on-error`)."""
     (job,) = _workflow("windows-run.yml")["jobs"].values()
     assert job["runs-on"] == "windows-latest"
-    (step,) = _pytest_steps(job)
-    assert _marker_expression(step["run"]) == run_suite.TIERS["pr_ci"]
+    rest, timing = _pytest_steps(job)
+    assert _marker_expression(rest["run"]) == f"{run_suite.TIERS['pr_ci']} and not timing"
+    assert _marker_expression(timing["run"]) == f"{run_suite.TIERS['pr_ci']} and timing"
+    assert not rest.get("continue-on-error") and timing.get("continue-on-error") is True
+    for step in (rest, timing):
+        assert "scripts\\ci_pytest.py" in step["run"], "the step must end when pytest has"
 
 
 def test_windows_jvm_run_runs_the_jvm_tests_in_a_run_of_their_own():
