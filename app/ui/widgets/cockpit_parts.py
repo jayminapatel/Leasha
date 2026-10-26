@@ -28,7 +28,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.ui.presenter.cockpit import (
-    NO_VALUE, RESOURCE_LABELS, STATE_ICONS, STATE_TOKENS, STATES, STEPS, TILE_LABELS,
+    NO_VALUE, RESOURCE_LABELS, STATE_ICONS, STATE_TOKENS, STATES, STEP_ICONS, STEPS, TILE_LABELS,
+    step_tip,
 )
 from app.ui.theme import SPACE_S, SPACE_XS, theme_colours
 from app.ui.widgets.elided_label import ElidedLabel
@@ -184,12 +185,13 @@ class PhaseStepper(_Themed):
         for (words, _codes), chip, state in zip(STEPS, self.chips, states):
             repolish(chip, "step", state)
             chip.setAccessibleName(f"{words}: {state}")
+            chip.setToolTip(step_tip(words, state))
         self.retint()
 
     def retint(self) -> None:
         glyphs = {"done": ("check", "success"), "current": ("loader-circle", "accent")}
-        for glyph, state in zip(self._glyphs, self.states):
-            name, token = glyphs.get(state, ("", ""))
+        for (words, _codes), glyph, state in zip(STEPS, self._glyphs, self.states):
+            name, token = glyphs.get(state, (STEP_ICONS.get(words, ""), "text_faint"))
             _paint_icon(glyph, name, token)
 
 

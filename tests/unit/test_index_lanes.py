@@ -288,3 +288,42 @@ def test_the_heartbeat_moves_when_only_a_lane_moves():
     lane.tick()
     stats.refresh_live(now=40.0)
     assert stats.last_activity == 40.0
+
+
+def test_a_writer_held_by_a_full_pictures_queue_says_so(tmp_path, monkeypatch):
+    """2026-10-26, the owner's run: four readers "Waiting for the index writer" and
+    the writer "Waiting" with nothing on it. A stack dump showed the writer in
+    `_picture_put`, the pictures queue full. Its line now names what holds it."""
+    from app.index.live_progress import LANE_WAITING, LANE_WRITER, TASK_WAITING_PICTURES
+
+    release = threading.Event()
+    with SqliteStore(tmp_path / "index.db") as store:
+        pipeline = _pipeline(store, people_recognition_enabled=True)
+        pipeline.PICTURE_QUEUE_SIZE = 1
+        stats = IndexStats()
+        pipeline._stats_ref = stats
+        for name in ("_maybe_embed_image", "_maybe_compute_phash", "_maybe_embed_video"):
+            monkeypatch.setattr(pipeline, name, lambda *a, **k: None)
+        monkeypatch.setattr(pipeline, "_maybe_detect_faces", lambda *a: release.wait(5))
+        pipeline._start_picture_work()
+        try:
+            photos = [Candidate(path=tmp_path / f"p{i}.heic", size_bytes=1, mtime_ns=1)
+                      for i in range(3)]
+            assert pipeline._picture_put(("photo", photos[0], 1, None))   # in hand
+            assert _wait_for(pipeline._picture_queue.empty)
+            assert pipeline._picture_put(("photo", photos[1], 2, None))   # queued
+            assert stats.snapshot().lanes.get(LANE_WRITER, {}).get("task", "") == "", (
+                "a hand-over that did not wait says nothing")
+            held = threading.Thread(
+                target=lambda: pipeline._picture_put(("photo", photos[2], 3, None)))
+            held.start()
+            assert _wait_for(lambda: stats.snapshot().lanes[LANE_WRITER]["task"]
+                             == TASK_WAITING_PICTURES)
+            writer = stats.snapshot().lanes[LANE_WRITER]
+            assert writer["state"] == LANE_WAITING
+            assert writer["item"] == "p2.heic"
+            release.set()
+            held.join(5)
+        finally:
+            release.set()
+            pipeline._finish_picture_work()

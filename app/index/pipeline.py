@@ -140,6 +140,7 @@ from app.index.live_progress import (
     TASK_SAVING_PICTURES,
     TASK_SAVING_RESUME,
     TASK_VIDEO,
+    TASK_WAITING_PICTURES,
     TASK_WRITING,
     WorkerBoard,
 )
@@ -9096,6 +9097,17 @@ class Pipeline:
         """Hand `job` over, waiting while the queue is full. False if the worker
         has died, so the caller does the work itself rather than wait for ever."""
         thread = self._picture_thread
+        try:
+            self._picture_queue.put_nowait(job)
+            return True
+        except queue.Full:
+            pass
+        # 2026-10-26: the writer's line says what holds it - see
+        # `TASK_WAITING_PICTURES`. The writer sets its own line again at its
+        # next document or its next empty wait.
+        candidate = job[1] if isinstance(job, tuple) and len(job) > 1 else None
+        self._lane(LANE_WRITER).set(task=TASK_WAITING_PICTURES, state=LANE_WAITING,
+                                    item=getattr(candidate, "path", "") or "")
         while True:
             try:
                 self._picture_queue.put(job, timeout=0.5)

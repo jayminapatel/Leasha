@@ -394,6 +394,10 @@ TASK_DESCRIBING = "Describing photos"
 TASK_MEANING = "Making text searchable by meaning"
 TASK_WRITING = "Writing"
 TASK_SAVING_RESUME = "Saving where to resume from"
+#: 2026-10-26: the writer, held because the pictures lane has `PICTURE_QUEUE_SIZE`
+#: photos in hand. It read "Waiting" with nothing on it, beside four readers
+#: "Waiting for the index writer" - each side seemed to wait on the other.
+TASK_WAITING_PICTURES = "Waiting for the pictures lane"
 
 #: What `Lane.set` leaves alone when a keyword is not given.
 _KEEP: Any = object()

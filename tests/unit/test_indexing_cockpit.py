@@ -55,7 +55,7 @@ def test_the_tiles_say_what_the_progress_line_says() -> None:
                    recent_files_per_minute=321.4)
     values = {caption: (value, tip) for caption, value, tip in
               cp.tiles(stats, total_estimate=0)}
-    assert values["Indexed"][0] == "1,234,567"
+    assert values["Indexed this run"][0] == "1,234,567"
     assert values["Files seen"][0] == "2,000,000"
     assert values["Passages"][0] == "40,211"
     assert values["Speed"][0] == "321 files/min"
@@ -70,7 +70,7 @@ def test_the_tiles_say_what_the_progress_line_says() -> None:
 
 def test_a_stretch_with_no_count_shows_no_speed() -> None:
     values = dict((c, v) for c, v, _t in cp.tiles(_stats(phase="tidying", indexed=5)))
-    assert values["Indexed"] == "5"
+    assert values["Indexed this run"] == "5"
     assert values["Speed"] == values["Time left"] == cp.NO_VALUE
 
 

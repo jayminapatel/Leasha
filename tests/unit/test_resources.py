@@ -420,7 +420,9 @@ class FakePsutil:
 def probe_with(fake: FakePsutil):
     from app.index.resources import SystemProbe
 
-    probe = SystemProbe()
+    # Every ask reads: these tests hold what one reading computes. The window
+    # the run's asks share is `test_governor_one_reading_at_a_time.py`'s.
+    probe = SystemProbe(min_interval_s=0.0)
     probe._psutil = lambda: fake                # the seam, exactly as `read` uses it
     probe._process = fake.Process()
     return probe

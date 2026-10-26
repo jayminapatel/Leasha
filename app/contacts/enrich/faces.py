@@ -50,9 +50,11 @@ def face_photo(path: str, bbox: tuple[float, float, float, float]) -> Optional[P
     if not path or "://" in path or not os.path.isfile(path):
         return None
     try:
-        from PIL import Image, ImageOps  # noqa: PLC0415
+        from PIL import Image  # noqa: PLC0415
+
+        from app.extract.picture import upright  # noqa: PLC0415 - see `upright`
         with Image.open(path) as im:
-            im = ImageOps.exif_transpose(im).convert("RGB")
+            im = upright(im).convert("RGB")
             x, y, w, h = bbox
             left, top = max(0, int(x - w * MARGIN)), max(0, int(y - h * MARGIN))
             right, bottom = min(im.width, int(x + w + w * MARGIN)), min(im.height, int(y + h + h * MARGIN))

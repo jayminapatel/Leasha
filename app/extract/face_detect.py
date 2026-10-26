@@ -286,13 +286,14 @@ def _bytes_bgr(data: bytes, np: Any) -> Optional[Any]:
     are reversed to BGR, as `_read_bgr` does for the same reason."""
     import io
 
-    from PIL import Image, ImageOps
+    from PIL import Image
 
     from app.extract.heif import register_heif
+    from app.extract.picture import upright
 
     register_heif()
     with Image.open(io.BytesIO(data)) as opened:
-        rgb = np.asarray(ImageOps.exif_transpose(opened).convert("RGB"))
+        rgb = np.asarray(upright(opened).convert("RGB"))
     return np.ascontiguousarray(rgb[:, :, ::-1])
 
 
