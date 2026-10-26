@@ -379,6 +379,7 @@ def test_an_embedder_without_warm_up_still_runs(tmp_path):
 # Reporting must never cost the flush
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_failing_progress_callback_does_not_cost_the_vectors(tmp_path):
     r"""The CLI's progress line prints a *filename* to a Windows console.
 

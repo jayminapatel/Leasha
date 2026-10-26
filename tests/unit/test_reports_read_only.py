@@ -254,6 +254,7 @@ def test_the_command_line_reports_never_touch_the_folders_they_describe(tmp_path
     assert "PRIVATE LETTER BODY" not in capsys.readouterr().out
 
 
+@pytest.mark.slow
 def test_the_timeline_window_never_touches_a_photograph_it_shows(qtbot, tmp_path, monkeypatch):
     from PIL import Image
 

@@ -1235,6 +1235,7 @@
     <Compile Include="tests\unit\test_mail_sync.py" />
     <Compile Include="tests\unit\test_mail_sync_mcp.py" />
     <Compile Include="tests\unit\test_mail_sync_speed.py" />
+    <Compile Include="tests\unit\test_manage_faces_never_freezes.py" />
     <Compile Include="tests\unit\test_match_marker.py" />
     <Compile Include="tests\unit\test_mcp_contacts.py" />
     <Compile Include="tests\unit\test_mcp_contacts_readonly.py" />
@@ -1412,6 +1413,7 @@
     <Compile Include="tests\unit\test_rerank_reuses_candidates.py" />
     <Compile Include="tests\unit\test_rerank_window.py" />
     <Compile Include="tests\unit\test_reset_keeps_accounts_and_contacts.py" />
+    <Compile Include="tests\unit\test_reset_keeps_people.py" />
     <Compile Include="tests\unit\test_reset_leaves_nothing.py" />
     <Compile Include="tests\unit\test_resolve_gpu_regression.py" />
     <Compile Include="tests\unit\test_resources.py" />

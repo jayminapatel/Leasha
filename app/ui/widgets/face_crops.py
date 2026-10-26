@@ -21,6 +21,12 @@ icon showing until it landed. Now:
   People page does (`round_pixmap`). "Manage the faces" keeps squares - there
   the face is a thing being selected, and a square shows the selection.
 
+- **A few at a time** (2026-10-26). `CropQueue` cuts at most `AT_ONCE` faces on
+  workers and starts the next as each lands, the way the Photos grid's
+  `photo_thumbs.ThumbLoader` does. The manage-faces window used to start one
+  worker per face up front - thousands for one person - and the window froze
+  for up to 5 seconds building them (the owner's logs, 2026-10-26).
+
 Lives in Leasha's own data folder, never beside the photos (rule 10).
 """
 
@@ -32,12 +38,13 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional
 
+from PySide6.QtCore import QObject, QThreadPool, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
 
 from app.core.logging import logger
 
 __all__ = ["face_key", "cached_face_crop", "remembered", "remember", "blank_tile",
-           "square_image", "round_pixmap", "KEEP"]
+           "square_image", "round_pixmap", "KEEP", "CropQueue", "AT_ONCE"]
 
 _log = logger.bind(component="ui.face_crops")
 
@@ -45,6 +52,8 @@ _log = logger.bind(component="ui.face_crops")
 KEEP = 2000
 
 _PIXMAPS: "OrderedDict[str, QPixmap]" = OrderedDict()
+#: Faces one `CropQueue` cuts at once - the Photos grid's `photo_thumbs.AT_ONCE`.
+AT_ONCE = 4
 
 
 def face_key(path: str, bbox: Any) -> str:
@@ -158,3 +167,74 @@ def round_pixmap(pixmap: QPixmap) -> QPixmap:
     while len(_ROUND) > KEEP:
         _ROUND.popitem(last=False)
     return out
+
+
+class CropQueue(QObject):
+    r"""Cut faces on workers, `AT_ONCE` at a time; `cut(key, image)` as each lands.
+
+    2026-10-26. A worker per face started up front cost the window's thread
+    about a millisecond each to build, and a person with thousands of faces froze
+    the manage-faces window for 1.4, 2.0 and 5.0 seconds (the owner's lag-monitor
+    logs). Here a worker is made only when one before it has finished, so asking
+    for a face costs a dictionary entry.
+
+    `newest_first` makes the waiting faces a stack, as `ThumbLoader`'s is: the
+    tiles scrolled to last are cut next. `max_waiting` then drops the oldest asks -
+    they were scrolled past. `image` is None when a face would not cut. A face
+    already cutting is not asked for twice. UI thread only; the workers are
+    owned by this object (`when_done`), so a queue destroyed with its window
+    receives nothing late.
+    """
+
+    cut = Signal(str, object)
+
+    def __init__(self, cache_dir: Optional[Path], parent: Optional[QObject] = None, *,
+                 newest_first: bool = True, max_waiting: Optional[int] = None,
+                 component: str = "ui.face_crops") -> None:
+        super().__init__(parent)
+        self.cache_dir = cache_dir
+        self._newest_first = newest_first
+        self._max_waiting = max_waiting
+        self._component = component
+        self._pool = QThreadPool.globalInstance()
+        self._waiting: "OrderedDict[str, tuple[str, Any]]" = OrderedDict()
+        self._running: set[str] = set()
+
+    def request(self, key: str, path: str, bbox: Any) -> None:
+        """Cut the face `key` names soon - next, when `newest_first`."""
+        if key in self._running:
+            return
+        self._waiting.pop(key, None)
+        self._waiting[key] = (path, bbox)
+        if self._max_waiting is not None:
+            while len(self._waiting) > self._max_waiting:
+                self._waiting.popitem(last=False)
+        if len(self._running) < AT_ONCE:
+            self._next()
+
+    def forget_waiting(self) -> None:
+        """A new list: nothing asked for before is wanted. Those cutting still land."""
+        self._waiting.clear()
+
+    def busy(self) -> bool:
+        """Anything waiting or cutting."""
+        return bool(self._waiting or self._running)
+
+    def _next(self) -> None:
+        from app.ui.later import when_done
+        from app.ui.workers import CallableWorker, run
+
+        while self._waiting and len(self._running) < AT_ONCE:
+            key, (path, bbox) = self._waiting.popitem(last=self._newest_first)
+            self._running.add(key)
+            worker = CallableWorker(cached_face_crop, path, bbox, self.cache_dir,
+                                    component=self._component)
+            when_done(self, worker,
+                      finished=lambda image, k=key: self._landed(k, image),
+                      failed=lambda _error, k=key: self._landed(k, None))
+            run(self._pool, worker)
+
+    def _landed(self, key: str, image: Any) -> None:
+        self._running.discard(key)
+        self.cut.emit(key, image)
+        self._next()

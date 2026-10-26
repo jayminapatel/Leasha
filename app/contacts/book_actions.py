@@ -35,7 +35,10 @@ __all__ = [
     "SAFE_REASONS",
 ]
 
-SAFE_REASONS = frozenset({"same email", "same phone"})
+#: 2026-10-26: and a card that holds nothing but its name, beside the one other card of that
+#: name (`dupes.holds_only_a_name`) - merging it loses nothing. The owner: "let empty
+#: name-only copies merge into their original".
+SAFE_REASONS = frozenset({"same email", "same phone", "same name, one holds nothing else"})
 
 
 def new_batch() -> str:

@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.17 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
+**Doc version:** 1.18 · **Updated:** 2026-10-26 · **Applies to:** app v1.1.0
 
 ## Scheme
 
@@ -94,7 +94,7 @@ committed to `main` on the owner's word, or done in a `git worktree` under `.wor
 its own branch (`layer/<n>-<name>`, `fix/<short-name>`, `trial/<name>`) and merged by one
 thread; parallel helpers each get their own worktree, because two threads in one working copy
 collide. A merged branch is deleted, here and on GitHub. The index schema is at version
-**44** (`CURRENT_VERSION` in `app/storage/migrations.py`).
+**45** (`CURRENT_VERSION` in `app/storage/migrations.py`).
 
 **Commits** — Conventional Commits, so the changelog can be assembled from history:
 

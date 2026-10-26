@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.25 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
+**Doc version:** 1.26 · **Updated:** 2026-10-26 · **Applies to:** app v1.1.0
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -398,6 +398,15 @@ in** row marks that account **refused**.
 nothing is copied to the other accounts yet (one person must never be written to an account twice).
 The row says **Waiting for duplicates**; press **Find duplicates**, then **Merge all safe matches**, and
 the next sync writes every account.
+
+### "Many contacts appear twice, one of them with no number"
+
+Usually Microsoft Teams on a phone: with its "Sync device contacts" on, it copies the phone's contacts into
+Outlook, often as a name alone, in a group named after the phone ("Teams+<phone> (contacts)"), and the
+next sync brings them into Leasha and on to the other accounts. Contacts > **Find duplicates** pairs each copy
+with its original ("same name, one holds nothing else"), and **Merge all safe matches** folds the copies in
+without losing anything; the accounts lose the copies at their next sync, the delete brake asking first. To
+stop new ones, turn off the device-contacts sync in Teams on the phone.
 
 ### "My contact counts are different in Google, Outlook and Leasha"
 

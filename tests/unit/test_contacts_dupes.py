@@ -40,6 +40,64 @@ def test_a_name_alone_is_a_suggestion_never_safe():
     assert not g.safe and g.reasons == ("same name",)
 
 
+def test_a_whole_name_in_the_first_name_is_the_same_name():
+    """2026-10-26, the owner: "two copies of one contact, duplicates are not getting
+    picked". Teams' copy of a phone's contacts reached Outlook with the whole name in the first
+    name and nothing else; the original has it split, and its number."""
+    items = [(718, c("Ravi Kumar", "Shah", phone=["+91 98765 43210"], company="Acme HR")),
+             (3189, c("Ravi Kumar Shah"))]
+    (g,) = dupes.scan_duplicates(items, set())
+    assert set(g.ids) == {718, 3189}
+
+
+def test_a_whole_name_meets_one_kept_with_a_middle_name():
+    items = [(300, c("Arun", "Mehta", additional="Dev", phone=["07911 123456"])),
+             (2875, c("Arun Dev Mehta")),
+             (733, c("Kiran", additional="Rao", phone=["07922 654321"])),
+             (2975, c("Kiran Rao"))]
+    assert set(groups_by_ids(dupes.scan_duplicates(items, set()))) == {
+        frozenset({300, 2875}), frozenset({733, 2975})}
+
+
+def test_a_copy_holding_only_the_name_merges_safely_into_its_one_original():
+    """2026-10-26, the owner: "let empty name-only copies merge into their original"."""
+    items = [(718, c("Ravi Kumar", "Shah", phone=["+91 98765 43210"], company="Acme HR")),
+             (3189, c("Ravi Kumar Shah"))]
+    (g,) = dupes.scan_duplicates(items, set())
+    assert g.safe and g.reasons == ("same name, one holds nothing else",)
+    assert dupes.safe_groups([g]) == [g]
+
+
+def test_a_name_only_copy_beside_two_people_of_that_name_is_never_safe():
+    items = [(1, c("Priya", "Patel", phone=["07911 123456"])),
+             (2, c("Priya", "Patel", phone=["07922 654321"])),
+             (3, c("Priya Patel"))]
+    assert not any(g.safe for g in dupes.scan_duplicates(items, set()))
+
+
+def test_two_cards_with_more_than_a_name_are_still_only_a_suggestion():
+    items = [(1, c("Ann", "Lee", phone=["07911 123456"])), (2, c("Ann Lee", email=["a@x.example"]))]
+    (g,) = dupes.scan_duplicates(items, set())
+    assert not g.safe and g.reasons == ("same name",)
+
+
+def test_a_note_or_a_company_is_more_than_a_name():
+    assert dupes.holds_only_a_name(c("Ann Lee"))
+    assert not dupes.holds_only_a_name(c("Ann Lee", company="Acme"))
+    assert not dupes.holds_only_a_name(c("Ann Lee", notes="met at the fair"))
+    assert not dupes.holds_only_a_name(c("Ann Lee", email=["a@x.example"]))
+
+
+def test_a_rejected_name_only_pair_is_not_offered():
+    items = [(1, c("Ann", "Lee", phone=["07911 123456"])), (2, c("Ann Lee"))]
+    assert dupes.scan_duplicates(items, {(1, 2)}) == []
+
+
+def test_one_word_is_still_not_a_name_to_match_on():
+    items = [(1, c("Mum", phone=["07911 123456"])), (2, c("Mum", phone=["07922 654321"]))]
+    assert dupes.scan_duplicates(items, set()) == []
+
+
 def test_name_and_company_is_a_suggestion_with_higher_confidence_than_name_alone():
     items = [(1, c("Ann", "Lee", company="Acme")), (2, c("Ann", "Lee", company="acme ")),
              (3, c("Joe", "Doe", company="A")), (4, c("Joe", "Doe", company="B"))]

@@ -52,6 +52,20 @@ def _live(hub):
 
 # ---------------------------------------------------------------- what is merged
 
+def test_a_copy_holding_only_the_name_is_folded_into_its_original_and_keeps_the_number(hub):
+    """2026-10-26: Teams' name-only copies of the owner's contacts, beside their originals."""
+    original = hub.create(_card("Ravi Kumar", "Shah", phone="+919876543210", company="Acme HR"))
+    copy = hub.create(_card("Ravi Kumar Shah", groups=["Teams+Phone (contacts)"]))
+    scan = ba.scan_book(hub, use_cache=False)
+
+    (step,) = ba.plan_safe_merges(scan.groups, scan.cards)
+    assert step.survivor == original and step.others == [copy]
+    ba.merge_safe(hub, [step])
+
+    assert _live(hub) == {original}
+    assert _phones(hub.get_card(original)) == ["+919876543210"]
+
+
 def test_two_cards_with_the_same_email_are_planned_and_merged_into_the_fuller_one(hub):
     thin = hub.create(_card("Ann", "Lee", email="ann@example.com"))
     full = hub.create(_card("Ann", "Lee", email="ann@example.com", phone="+447700900123", company="Acme"))

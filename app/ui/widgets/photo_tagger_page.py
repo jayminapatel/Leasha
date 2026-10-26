@@ -41,8 +41,8 @@ from app.ui.later import when_done
 from app.ui.widgets.buttons import style_all
 from app.ui.widgets.confirm import confirm
 from app.ui.widgets.dialog_frame import buttons as dialog_buttons, frame
-from app.ui.widgets.face_crops import (blank_tile, cached_face_crop, face_key, remember,
-                                       remembered, round_pixmap)
+from app.ui.widgets.face_crops import (CropQueue, blank_tile, cached_face_crop, face_key,
+                                       remember, remembered, round_pixmap)
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 from app.ui.widgets import list_keys, menus
 from app.ui.theme import SPACE_S
@@ -308,6 +308,17 @@ class PhotoTaggerPage(QWidget):
         #: 2026-10-05: face crops kept beside the photo thumbnails, made once.
         data = getattr(store, "db_path", None)
         self._faces_dir = Path(data).parent / "thumbs" / "faces" if data else None
+        #: 2026-10-26: each tile by its pile id, so finding one is a lookup, not
+        #: a walk of the grid (`_item_for`); the queue that cuts the tiles'
+        #: faces a few at a time, top of the grid first; and which piles wait
+        #: for each face. Measured offscreen on 2,000 piles before this: 7.2 s
+        #: in `_piles_ready` and 5.8 s more as the crops landed - every tile
+        #: found by walking the grid, and a worker made per tile up front.
+        self._tiles: dict[int, QListWidgetItem] = {}
+        self._crops = CropQueue(self._faces_dir, self, newest_first=False,
+                                component="ui.photo_tagger")
+        self._crops.cut.connect(self._face_cut)
+        self._wanting: dict[str, set[int]] = {}
         # 2026-10-04, the owner: "the pictures for naming should be updated
         # periodically if not live". Grouping now happens during a run
         # (`Pipeline._maybe_detect_faces`), so the page looks every
@@ -576,6 +587,7 @@ class PhotoTaggerPage(QWidget):
         self._list.setUpdatesEnabled(False)
         try:
             kept: dict[int, QListWidgetItem] = {}
+            tiles: dict[int, QListWidgetItem] = {}
             for row in range(self._list.count() - 1, -1, -1):
                 pile_id = self._list.item(row).data(ROLE_PILE_ID)
                 if pile_id in wanted and pile_id not in kept:
@@ -591,6 +603,10 @@ class PhotoTaggerPage(QWidget):
                 elif self._list.row(item) != rank - 1:
                     self._list.insertItem(rank - 1, self._list.takeItem(self._list.row(item)))
                 self._dress(item, pile, self._ranks[pile.id])
+                tiles[pile.id] = item
+            if SEEN_ONCE in kept:
+                tiles[SEEN_ONCE] = kept[SEEN_ONCE]
+            self._tiles = tiles
             if current_id in wanted:
                 self._list.setCurrentItem(self._item_for(current_id))
         finally:
@@ -687,12 +703,23 @@ class PhotoTaggerPage(QWidget):
             item.setToolTip(tip)
 
     def _item_for(self, pile_id: int) -> Optional[QListWidgetItem]:
-        """The tile for `pile_id`, or None."""
-        for row in range(self._list.count()):
-            item = self._list.item(row)
-            if item.data(ROLE_PILE_ID) == pile_id:
+        """The tile for `pile_id`, or None.
+
+        2026-10-26: from `_tiles`, checked to be still in the grid and still that
+        pile's; only a tile taken out or a grid cleared behind its back sends it
+        back to one walk of the grid, which files every tile again."""
+        item = self._tiles.get(pile_id)
+        try:
+            if (item is not None and item.listWidget() is self._list
+                    and item.data(ROLE_PILE_ID) == pile_id):
                 return item
-        return None
+        except RuntimeError:                      # the grid was cleared meanwhile
+            pass
+        self._tiles = {}
+        for row in range(self._list.count()):
+            found = self._list.item(row)
+            self._tiles.setdefault(found.data(ROLE_PILE_ID), found)
+        return self._tiles.get(pile_id)
 
     def _load_crops(self, piles: Any) -> None:
         r"""Each pile's face: from memory at once when it was seen this session,
@@ -705,8 +732,6 @@ class PhotoTaggerPage(QWidget):
 
     def _load_crop(self, pile_id: int, path: str, bbox: Any) -> None:
         """One tile's face - `_load_crops`, for one tile."""
-        from app.ui.workers import CallableWorker, run
-
         key = face_key(path, bbox)
         item = self._item_for(pile_id)
         if item is None or item.data(ROLE_FACE_KEY) == key:
@@ -716,15 +741,21 @@ class PhotoTaggerPage(QWidget):
         if pixmap is not None:
             item.setIcon(QIcon(round_pixmap(pixmap)))
             return
-        worker = CallableWorker(
-            cached_face_crop, path, bbox, self._faces_dir, component="ui.photo_tagger")
-        # `when_done`, not a bare connect: a crop that finishes after this page
-        # has been closed used to reach `_list` on a deleted widget and raise in
-        # the Qt event loop (2026-10-09, found by the Photos tests).
-        when_done(self, worker,
-                  finished=lambda image, p=pile_id, k=key: self._crop_ready(p, k, image))
+        # 2026-10-26: through `_crops`, a few at a time in grid order, not a
+        # worker per tile started here. Its workers belong to the queue, a child
+        # of this page, so a crop that finishes after the page has closed
+        # reaches nothing (2026-10-09, found by the Photos tests).
         # A face that will not cut keeps its blank tile; the worker logged why.
-        run(self._pool, worker)
+        self._wanting.setdefault(key, set()).add(pile_id)
+        self._crops.request(key, path, bbox)
+
+    def _face_cut(self, key: str, image: Any) -> None:
+        """`_crops` cut a face: shown on each pile that waited for it."""
+        piles = self._wanting.pop(key, ())
+        if not piles:
+            remember(key, image)
+        for pile_id in piles:
+            self._crop_ready(pile_id, key, image)
 
     def _crop_ready(self, pile_id: int, key: str, image: Any) -> None:
         """A face is ready - shown on its pile if that pile still wants it,
@@ -1233,9 +1264,24 @@ class _ManageFacesDialog(QDialog):
     There is no person to say "not" to, so that answer is hidden and "Name
     them" takes its place: the selected faces join whoever has that name, or
     become a new person called it.
+
+    *2026-10-26:* the owner's logs caught this window frozen for 1.4, 2.0 and
+    5.0 seconds in `_faces_ready`, which built every tile and started a crop
+    worker for every face in one go - thousands, for one person. The owner
+    called "Change the cover photo…" flaky for it. Now the tiles go in a slice
+    at a time from a timer (`FILL_MS` of work, then the window paints and
+    answers), and only the faces on screen or near it are cut, a few at a time
+    (`face_crops.CropQueue`).
     """
 
     FACE = 112
+    #: 2026-10-26: the most one slice of the fill may spend on the window's
+    #: thread, in milliseconds - well under the 50 ms a person notices.
+    FILL_MS = 12
+    #: Screens' worth of faces beyond the visible ones that are cut ahead.
+    AHEAD_SCREENS = 1
+    #: Faces waiting to be cut beyond this were scrolled past; the oldest go.
+    MAX_WAITING = 400
 
     def __init__(self, store: Any, pile_id: Optional[int], parent: Optional[QWidget] = None,
                  *, pile_name: str = "", choosing_cover: bool = False) -> None:
@@ -1250,6 +1296,24 @@ class _ManageFacesDialog(QDialog):
         self._pile_id = pile_id
         self._pool = QThreadPool.globalInstance()
         self._changed = False
+        #: 2026-10-26: the faces of the list now shown and how far the fill has
+        #: got; the timer that puts in the next slice; which rows show each face
+        #: not cut yet, and the queue that cuts them.
+        self._pending: list = []
+        self._filled_to = 0
+        self._scroll = 0
+        self._fill_timer = QTimer(self)
+        self._fill_timer.setInterval(0)
+        self._fill_timer.timeout.connect(self._fill_slice)
+        self._rows_for: dict[str, list[int]] = {}
+        self._crops = CropQueue(getattr(parent, "_faces_dir", None), self,
+                                max_waiting=self.MAX_WAITING,
+                                component="ui.photo_tagger.manage")
+        self._crops.cut.connect(self._face_cut)
+        self._visible_soon = QTimer(self)
+        self._visible_soon.setSingleShot(True)
+        self._visible_soon.setInterval(30)
+        self._visible_soon.timeout.connect(self._cut_visible)
         #: 2026-10-25: opened from "Change the cover photo…" - a double-click on
         #: a face makes it the cover and closes the window.
         self._choosing_cover = bool(choosing_cover) and not seen_once
@@ -1275,6 +1339,8 @@ class _ManageFacesDialog(QDialog):
         self._list.setUniformItemSizes(True)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list.itemSelectionChanged.connect(self._selection_changed)
+        # 2026-10-26: a face is cut when it comes on screen, not before.
+        self._list.verticalScrollBar().valueChanged.connect(self._visible_soon.start)
         # 2026-10-25: right-click a face for "Use as cover photo" (a person's
         # faces only - the faces seen once have no tile of their own to dress).
         if not seen_once:
@@ -1342,7 +1408,9 @@ class _ManageFacesDialog(QDialog):
 
         # Where the person was in the grid, so a move or a split does not
         # throw them back to the top.
-        self._scroll = self._list.verticalScrollBar().value()
+        if not self._filling():                  # mid-fill: keep the place asked for
+            self._scroll = self._list.verticalScrollBar().value()
+        self._stop_filling()
         self._list.clear()
         self._count.setText("Reading the faces...")
         faces = (CallableWorker(self._store.faces_seen_once,
@@ -1358,32 +1426,112 @@ class _ManageFacesDialog(QDialog):
         run(self._pool, people)
 
     def _faces_ready(self, faces: Any) -> None:
-        """UI thread: one tile per face, from memory when seen before, else a worker
-        cuts it (`cached_face_crop`) and `_show` paints it.
+        """UI thread: the faces are read. The count shows at once; the tiles follow
+        a slice at a time (`_fill_slice`), each from memory when the face was seen
+        before, else blank until it comes on screen and is cut (`_cut_visible`).
         """
-        from app.ui.workers import CallableWorker, run
+        self._stop_filling()
+        self._pending = list(faces or [])
+        self._count.setText(f"{len(self._pending):,} face(s)")
+        self._fill_slice()
+        if self._filling():
+            self._fill_timer.start()
 
-        faces = list(faces or [])
-        self._count.setText(f"{len(faces):,} face(s)")
-        faces_dir = getattr(self.parent(), "_faces_dir", None)
-        for face_id, path, bbox in faces:
+    def _filling(self) -> bool:
+        """Tiles still to go in the grid."""
+        return self._filled_to < len(self._pending)
+
+    def _stop_filling(self) -> None:
+        """2026-10-26: a re-read or a close - no more slices and no more crops for
+        the old list. A face already being cut still lands, and is only kept."""
+        self._fill_timer.stop()
+        self._visible_soon.stop()
+        self._pending = []
+        self._filled_to = 0
+        self._rows_for = {}
+        self._crops.forget_waiting()
+
+    def _fill_slice(self) -> None:
+        """Timer: put in tiles for at most `FILL_MS`, then let the window paint."""
+        import time
+
+        stop_at = time.perf_counter() + self.FILL_MS / 1000
+        blank = blank_tile(self.FACE)
+        size = QSize(self.FACE + 12, self.FACE + 12)
+        while self._filling():
+            row = self._filled_to
+            face_id, path, bbox = self._pending[row]
+            self._filled_to += 1
             key = face_key(path, bbox)
             pixmap = remembered(key)
-            item = QListWidgetItem(blank_tile(self.FACE) if pixmap is None else
-                                   self._icon(pixmap), "")
+            item = QListWidgetItem(blank if pixmap is None else self._icon(pixmap), "")
             item.setData(ROLE_FACE_ID, int(face_id))
             item.setToolTip(Path(path).name)
-            item.setSizeHint(QSize(self.FACE + 12, self.FACE + 12))
+            item.setSizeHint(size)
             self._list.addItem(item)
-            if pixmap is not None:
+            if pixmap is None:
+                self._rows_for.setdefault(key, []).append(row)
+            if time.perf_counter() >= stop_at:
+                break
+        if not self._filling():
+            self._fill_timer.stop()
+            self._filled()
+        self._visible_soon.start()
+
+    def _filled(self) -> None:
+        """The last slice is in: back where the person was before a re-read -
+        unless they scrolled while it filled."""
+        bar = self._list.verticalScrollBar()
+        if self._scroll and bar.value() == 0:
+            self._list.doItemsLayout()
+            bar.setValue(self._scroll)
+
+    def _visible_rows(self) -> range:
+        """The rows on screen and `AHEAD_SCREENS` beyond, found by asking the grid
+        which tile is under points a cell apart across the view."""
+        from PySide6.QtCore import QPoint
+
+        count = self._list.count()
+        viewport = self._list.viewport()
+        width, height = max(1, viewport.width()), max(1, viewport.height())
+        step = self.FACE + 16
+        per_screen = max(1, width // step) * (height // step + 1)
+        rows = []
+        for y in range(step // 2, height + step // 2, step):
+            for x in range(step // 2, width + step // 2, step):
+                index = self._list.indexAt(QPoint(min(x, width - 1), min(y, height - 1)))
+                if index.isValid():
+                    rows.append(index.row())
+        ahead = per_screen * self.AHEAD_SCREENS
+        if not rows:                              # not laid out yet: the top
+            return range(0, min(count, per_screen + ahead))
+        return range(max(0, min(rows) - ahead), min(count, max(rows) + 1 + ahead))
+
+    def _cut_visible(self) -> None:
+        """Ask for the faces on screen and near it - the furthest first, so the
+        ones on screen are on top of the queue's stack and are cut next."""
+        if not self._rows_for:
+            return
+        for row in reversed(self._visible_rows()):
+            if row >= len(self._pending):
                 continue
-            crop = CallableWorker(cached_face_crop, path, bbox, faces_dir,
-                                  component="ui.photo_tagger.manage")
-            when_done(self, crop,
-                      finished=lambda image, it=item, k=key: self._show(it, remember(k, image)))
-            run(self._pool, crop)
-        self._list.doItemsLayout()
-        self._list.verticalScrollBar().setValue(getattr(self, "_scroll", 0))
+            _face_id, path, bbox = self._pending[row]
+            key = face_key(path, bbox)
+            if key in self._rows_for:
+                self._crops.request(key, path, bbox)
+
+    def _face_cut(self, key: str, image: Any) -> None:
+        """UI thread: a face landed - kept for next time, and shown on every tile
+        of the list now shown that wants it (none, after a re-read or a close)."""
+        pixmap = remember(key, image)
+        rows = self._rows_for.pop(key, ())
+        if pixmap is None:
+            return
+        icon = self._icon(pixmap)
+        for row in rows:
+            item = self._list.item(row)
+            if item is not None:
+                item.setIcon(icon)
 
     def _people_ready(self, piles: Any) -> None:
         """UI thread: fill the Move to drop-down with the other named people."""
@@ -1398,14 +1546,13 @@ class _ManageFacesDialog(QDialog):
             self.FACE, self.FACE, Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation))
 
-    def _show(self, item: QListWidgetItem, pixmap: Optional[QPixmap]) -> None:
-        """UI thread: a face landed; the list may have been re-read meanwhile."""
-        if pixmap is None or pixmap.isNull():
-            return
-        try:
-            item.setIcon(self._icon(pixmap))
-        except RuntimeError:
-            pass                                 # the list was re-read meanwhile
+    def showEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        super().showEvent(event)
+        self._visible_soon.start()                # 2026-10-26: cut what is on screen
+
+    def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        super().resizeEvent(event)
+        self._visible_soon.start()
 
     # -- what the selection is ----------------------------------------------------------
 
@@ -1522,7 +1669,13 @@ class _ManageFacesDialog(QDialog):
         else:
             self.reject()
 
+    def done(self, result: int) -> None:
+        """Accept, reject or close: the fill and the crops stop (2026-10-26)."""
+        self._stop_filling()
+        super().done(result)
+
     def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        self._stop_filling()
         if self._changed:
             self.setResult(QDialog.DialogCode.Accepted)
         super().closeEvent(event)
