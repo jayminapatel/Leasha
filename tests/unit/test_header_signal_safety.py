@@ -285,7 +285,12 @@ class TestALetGoViewTakesItsWatcherWithIt:
             timer = [c for c in view.table.children() if isinstance(c, QTimer)][0]
             timer.setInterval(10)
             timer.timeout.connect(lambda: ticks.append(1))
-            self._pump(0.1)
+            # 2026-10-26: until it ticks, up to 5 s, not a fixed 0.1 s - a full suite on a
+            # loaded laptop gave the 10 ms timer no tick in 0.1 s ("proves nothing", red).
+            for _ in range(50):
+                self._pump(0.1)
+                if ticks:
+                    break
             assert ticks, "this test's own probe never ticked - it proves nothing"
 
             alive = weakref.ref(view)

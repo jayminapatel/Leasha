@@ -41,7 +41,7 @@ from typing import Any, Hashable, Iterable, Optional
 from app.contacts import phone as phones
 from app.contacts.card import Card, Field, SCALARS, field_key, units
 
-__all__ = ["DuplicateGroup", "scan_duplicates", "names_compatible", "shared_keys", "safe_groups", "pairs_of", "MergePreview", "merge_cards",
+__all__ = ["DuplicateGroup", "scan_duplicates", "names_compatible", "holds_only_a_name", "shared_keys", "safe_groups", "pairs_of", "MergePreview", "merge_cards",
            "CONFIDENCE"]
 
 #: Confidence of each reason, 0..1. Exact matches sit above 0.9, everything a
@@ -50,12 +50,15 @@ __all__ = ["DuplicateGroup", "scan_duplicates", "names_compatible", "shared_keys
 CONFIDENCE = {
     "same email": 0.97,
     "same phone": 0.95,
+    "same name, one holds nothing else": 0.92,
     "same landline and name": 0.75,
     "same name and company": 0.70,
     "same phone digits": 0.60,
     "same name": 0.50,
 }
-_SAFE_REASONS = frozenset({"same email", "same phone"})
+_SAFE_REASONS = frozenset({"same email", "same phone", "same name, one holds nothing else"})
+#: The name parts: a card holding nothing but these "holds only the name".
+_NAME_PARTS = frozenset({"prefix", "given", "additional", "family", "suffix"})
 #: Reasons that only count when the two names could be one person's.
 _NEEDS_NAMES = frozenset({"same email", "same phone", "same landline and name", "same phone digits"})
 
@@ -148,6 +151,14 @@ def names_compatible(a: Card, b: Card) -> bool:
     return True
 
 
+def holds_only_a_name(card: Card) -> bool:
+    """A card with a name and nothing else - no number, address, company, note or photo.
+    Merging it into another card loses nothing (2026-10-26: Teams' copies of a phone's
+    contacts reached Outlook as names alone, 120 of them beside their originals)."""
+    others = {k for k, v in card.scalars.items() if str(v or "").strip()} - _NAME_PARTS
+    return not card.fields and card.photo is None and not others
+
+
 def _edges(items: list[tuple[Id, Card]], region: str, shared: frozenset = frozenset()) -> dict[tuple, set[str]]:
     """{(index_a, index_b): reasons} over positions in `items` (a < b)."""
     buckets: dict[tuple[str, str], list[int]] = {}
@@ -172,21 +183,36 @@ def _edges(items: list[tuple[Id, Card]], region: str, shared: frozenset = frozen
                     put("same phone" if phones.is_mobile(f.value, region) else "same landline and name", e164, i)
                 else:
                     put("same phone digits", phones.digits_key(f.value), i)
-        given, family = _fold(card.get("given")), _fold(card.get("family"))
-        if given and family:
-            name = f"{given} {family}"
-            put("same name", name, i)
+        # 2026-10-26: the whole name, however it is split. Microsoft Teams' copy of a
+        # phone's contacts puts "Ravi Kumar Shah" all in the first name; keyed only when
+        # both parts were set, 120 such copies were never offered beside their originals
+        # ("Ravi Kumar" "Shah"). Two words at least, as before: one word is not a name.
+        # With the middle name as well, so "Arun Dev Mehta" meets "Arun" "Dev" "Mehta";
+        # without it too, so "Ann Lee" still meets "Ann Marie Lee".
+        name = _fold(f"{card.get('given')} {card.get('family')}")
+        whole = _fold(f"{card.get('given')} {card.get('additional')} {card.get('family')}")
+        for key in {name, whole}:
+            if len(key.split()) >= 2:
+                put("same name", key, i)
             company = _fold(card.get("company"))
             if company:
                 put("same name and company", f"{name}|{company}", i)
     edges: dict[tuple, set[str]] = {}
+    # 2026-10-26, the owner: "let empty name-only copies merge into their original". Safe
+    # only when the name is held by exactly two cards and one holds nothing else: with a
+    # third card of that name, the copy could be either person, so it stays a suggestion.
+    for (reason, _key), members in buckets.items():
+        if reason == "same name" and len(set(members)) == 2:
+            a, b = sorted(set(members))
+            if holds_only_a_name(items[a][1]) != holds_only_a_name(items[b][1]):
+                edges.setdefault((a, b), set()).add("same name, one holds nothing else")
     for (reason, _key), members in buckets.items():
         for a, b in combinations(members, 2):
             if reason in _NEEDS_NAMES and not names_compatible(items[a][1], items[b][1]):
                 continue                              # a shared number or address is not a person
             edges.setdefault((a, b), set()).add(reason)
     for reasons in edges.values():
-        if "same name and company" in reasons:
+        if "same name and company" in reasons or "same name, one holds nothing else" in reasons:
             reasons.discard("same name")             # the stronger reason says it already
     return edges
 

@@ -4992,6 +4992,14 @@ class SqliteStore:
         out: dict[int, list[bytes]] = {}
         for row in rows:
             out.setdefault(int(row["pile_id"]), []).append(row["embedding"])
+        # 2026-10-26: and the faces a named person had before a reset (`pile_anchors`,
+        # v45), so a face found again goes back to them.
+        try:
+            kept = self.conn.execute("SELECT pile_id, embedding FROM pile_anchors").fetchall()
+        except sqlite3.OperationalError:
+            kept = []                             # a database before v45
+        for row in kept:
+            out.setdefault(int(row["pile_id"]), []).append(row["embedding"])
         return out
 
     def create_pile(self, name: Optional[str] = None) -> int:
@@ -5475,6 +5483,9 @@ class SqliteStore:
                 "UPDATE faces SET suggested_pile_id = ? WHERE suggested_pile_id = ?",
                 (target_id, source_id),
             )
+            # A reset's kept faces go with the person too (v45).
+            conn.execute("UPDATE pile_anchors SET pile_id = ? WHERE pile_id = ?",
+                         (target_id, source_id))
             conn.execute("DELETE FROM piles WHERE id = ?", (source_id,))
         for file_id in affected:
             self.sync_people_segment(file_id)
@@ -5531,6 +5542,8 @@ class SqliteStore:
                 conn.execute("DELETE FROM piles WHERE id = ?", (pile_id,))
             else:
                 conn.execute("UPDATE piles SET name = NULL WHERE id = ?", (pile_id,))
+            # Forgotten means forgotten: what a reset kept of them goes too (v45).
+            conn.execute("DELETE FROM pile_anchors WHERE pile_id = ?", (pile_id,))
         for file_id in affected:
             self.sync_people_segment(file_id)
 
@@ -6261,6 +6274,31 @@ class SqliteStore:
             conn.execute(f"DROP TRIGGER IF EXISTS {row[0]}")
         return restore
 
+    #: The most of one person's faces a reset keeps (`pile_anchors`). Enough for their
+    #: centroid to be their own; a person with thousands is sampled evenly.
+    ANCHORS_PER_PERSON = 64
+
+    def _keep_named_faces(self, conn: sqlite3.Connection) -> None:
+        """Copy the faces of every named or contact-linked pile into `pile_anchors`
+        (replacing what an earlier reset kept), in the reset's own transaction. A pile
+        with no faces now keeps what it had."""
+        try:
+            piles = [int(r[0]) for r in conn.execute(
+                "SELECT id FROM piles WHERE (name IS NOT NULL AND name <> '') "
+                "OR id IN (SELECT pile_id FROM contact_pile_links)")]
+        except sqlite3.OperationalError:
+            return                                # a database before the tables exist
+        for pile_id in piles:
+            faces = [r[0] for r in conn.execute(
+                "SELECT embedding FROM faces WHERE pile_id = ? ORDER BY id", (pile_id,))]
+            if not faces:
+                continue
+            step = max(1, len(faces) // self.ANCHORS_PER_PERSON)
+            chosen = faces[::step][:self.ANCHORS_PER_PERSON]
+            conn.execute("DELETE FROM pile_anchors WHERE pile_id = ?", (pile_id,))
+            conn.executemany("INSERT INTO pile_anchors (pile_id, embedding) VALUES (?, ?)",
+                             [(pile_id, emb) for emb in chosen])
+
     def clear_index(self) -> int:
         """Delete everything indexed. Returns how many documents were removed.
 
@@ -6279,6 +6317,9 @@ class SqliteStore:
         """
         with self.write() as conn:
             count = int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0])
+            # 2026-10-26, the owner: "index reset should not remove face name". Every
+            # face goes with its file below; a named person's are copied first.
+            self._keep_named_faces(conn)
             # `files` cascades to chunks and messages, and their triggers clear
             # `chunks_fts` and `messages_fts` - both are external-content tables
             # with `content=`, so that is genuinely automatic. The entity tables

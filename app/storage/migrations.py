@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 44
+CURRENT_VERSION = 45
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -2224,6 +2224,28 @@ def _v44_pile_cover(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_piles_cover ON piles(cover_face_id)")
 
 
+def _v45_pile_anchors(conn: sqlite3.Connection) -> None:
+    r"""`pile_anchors`: a named person's face embeddings, kept through a reset.
+
+    2026-10-26, the owner: "index reset should not remove face name". A reset deletes
+    every file, and every face with it (`faces.file_id` cascades); the piles and their
+    names stayed, holding nothing, so the faces found again went into new unnamed piles
+    and all eleven of the owner's named people were left with none. Before a reset,
+    `SqliteStore.clear_index` copies a named (or contact-linked) pile's embeddings here,
+    and `pile_centroids` counts them as that pile's own - so a face found again lands
+    back with its person.
+
+    Additive: a new table and its index; no existing row is touched.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pile_anchors (
+            id        INTEGER PRIMARY KEY,
+            pile_id   INTEGER NOT NULL REFERENCES piles(id) ON DELETE CASCADE,
+            embedding BLOB NOT NULL
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pile_anchors_pile ON pile_anchors(pile_id)")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -2268,6 +2290,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     42: _v42_message_tails,
     43: _v43_enrich_declines,
     44: _v44_pile_cover,
+    45: _v45_pile_anchors,
 }
 
 #: Released migrations that open and close transactions of their own -

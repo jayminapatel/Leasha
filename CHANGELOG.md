@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.150 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
+**Doc version:** 4.152 · **Updated:** 2026-10-26 · **Applies to:** app v1.1.0
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,18 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A reset keeps the people you named (2026-10-26)
+
+The owner: "index reset should not remove face name". A reset deleted every face with its file and left the named people empty - after this morning's reset all eleven had no faces, and the faces found again went into new unnamed groups. Schema 45 adds `pile_anchors`: before a reset, up to 64 faces of every named or contact-linked person are kept, and the grouping counts them as that person's own, so a face found again goes back to them. A combine moves them; Forget drops them.
+
+### Contacts that came in as a name alone are found as duplicates, and merge safely (2026-10-26)
+
+The owner: two copies of one contact, "duplicates are not getting picked". Microsoft Teams on the owner's phone put 120 of its contacts into Outlook as names alone, the whole name in the first name; Leasha brought them in on 25 October and wrote them to the other accounts. The finder keyed a name only when first and last were both set, so none was offered. The name is now keyed whole, with and without the middle name, and a card holding nothing but its name beside exactly one other card of that name is a safe merge ("same name, one holds nothing else"). On the owner's book, read only: 106 safe pairs, each a copy and its original.
+
+### Managing a person's faces, and changing the cover photo, no longer freeze the window (2026-10-26)
+
+The owner's logs caught the manage-faces window - opened by "Manage the faces in this pile" and by "Change the cover photo…" - unresponsive for 1.4, 2.0 and 5.0 seconds while it filled: it built a tile and started a crop worker for every one of a person's thousands of faces in one go. The tiles now go in a slice at a time (at most 12 ms of work, then the window paints), and only the faces on screen or a screen ahead are cut, four at a time, through the new `face_crops.CropQueue`; a re-read or a close stops the fill and drops the faces waiting. Measured offscreen on 5,000 faces, the longest pass of the event loop went from 4.1 s to under 40 ms. The People grid had the same fault: every tile was found by walking the grid and every face had its worker made up front, so 2,000 people took 7.2 s to show and 5.8 s more as their faces landed. Tiles are now a lookup and the faces go through the same queue: 2,000 people show in about 0.1 s. `tests/unit/test_manage_faces_never_freezes.py`.
 
 ## [1.1.0] - 2026-10-25
 

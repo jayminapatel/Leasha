@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.20 · **Updated:** 2026-10-25 · **Applies to:** app v1.1.0
+**Doc version:** 1.21 · **Updated:** 2026-10-26 · **Applies to:** app v1.1.0
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -222,6 +222,7 @@ Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, l
 | Hub | Leasha's own master copy of the contact book. Accounts are copies that are kept in step with it, not the source | `ContactHub`, `app/contacts/hub.py`; SQLite is the authority (rule 6) |
 | Journal | The record of every change to a contact (who made it: Leasha, an import, or an account) with what was there before, so any change, a whole merge, a clean-up or a whole sync can be undone | `contact_journal`; a contact's **History**; `contacts history`, `contacts undo` |
 | File as | How Outlook and Google file and sort a contact ("Ann Lee", "Lee, Ann", "Acme"...); written on each contact Leasha sends to a Microsoft or Google account, First Last by default | Settings > Accounts > File contacts as; `app/contacts/file_as.py`; `AccountSettings.file_as` |
+| Name-only copy | A contact holding nothing but its name. Beside the one other contact of that name it is a safe duplicate ("same name, one holds nothing else"), merged by Merge all safe matches | `dupes.holds_only_a_name`; 2026-10-26, Microsoft Teams' copies of a phone's contacts in Outlook |
 | Kept in | The set of accounts a contact is stored in. A contact made in Leasha goes to the default account; one that came from an account is kept in that account; nothing is copied everywhere unless the person asks. Adding an account writes the contact there; taking one away deletes it from that account only after the person confirms | `contact_links`; the editor's **Kept in** chips |
 | Live mail | Mail fetched from an account over the internet, read only, and indexed like any other mail. Mail read from files and Outlook archives stays with the indexing schedule | `app/accounts/mail_sync.py`; Settings > Accounts, the account's **Mail** tab |
 | Quiet hours | Two times between which no scheduled sync starts. Sync now still works | Settings > Accounts |
