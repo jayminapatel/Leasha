@@ -44,6 +44,27 @@ class SkipGroup:
         return self.code in RETRY_CODES
 
 
+def run_skipped_and_held(stats: Any) -> tuple[int, int]:
+    """`(skipped, held)` for this run: real skips, and files held for later.
+
+    2026-10-26, the owner: the page read "0 documents ... 2,523 skipped" over a
+    folder of photos, beside an index of 305,725. Most of those "skips" were
+    photos whose text is read at the end of the run (`ERR_PICTURE_TEXT_LATER`)
+    - held for later, which the page's own Held for later tab calls them. The
+    run's `skipped` counts both; the words now tell them apart. Never raises.
+    """
+    from app.core.file_state import DEFERRED_CODES
+
+    try:
+        total = int(getattr(stats, "skipped", 0) or 0)
+        by_code = dict(getattr(stats, "skipped_by_code", None) or {})
+        held = sum(int(n or 0) for code, n in by_code.items() if code in DEFERRED_CODES)
+    except (TypeError, ValueError):
+        return 0, 0
+    held = min(max(held, 0), max(total, 0))
+    return total - held, held
+
+
 #: What a group row says where one file's row would name its own detail.
 #:
 #: **2026-09-30.** `group_skips` filled only `path`, `ext` and `folder`, so 22
@@ -331,7 +352,7 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
         # explanation reads as a click that was ignored.
         return (
             "Stopping after the current file…",
-            f"{format_count(getattr(stats, 'indexed', 0))} indexed so far. "
+            f"{format_count(getattr(stats, 'indexed', 0))} indexed this run so far. "
             "Everything indexed is kept.",
         )
 
@@ -347,14 +368,16 @@ def progress_text(stats: Any, *, total_estimate: int = 0, stopping: bool = False
         return (
             "Paused - waiting for the machine",
             f"{getattr(stats, 'pause_reason', '') or 'Waiting for resources.'} "
-            f"{format_count(getattr(stats, 'indexed', 0))} indexed so far; "
+            f"{format_count(getattr(stats, 'indexed', 0))} indexed this run so far; "
             "it will continue on its own.",
         )
 
+    skipped, held = run_skipped_and_held(stats)
     headline = (
-        f"{format_count(getattr(stats, 'indexed', 0))} documents  ·  "
+        f"{format_count(getattr(stats, 'indexed', 0))} documents this run  ·  "
         f"{format_count(getattr(stats, 'seen', 0))} files seen  ·  "
-        f"{format_count(getattr(stats, 'skipped', 0))} skipped"
+        f"{format_count(skipped)} skipped"
+        + (f"  ·  {format_count(held)} held for later" if held else "")
     )
     # Counts stay in the headline - they are still true - and the detail says
     # what is happening instead of a rate that is not being earned.
@@ -399,10 +422,12 @@ def finished_text(stats: Any) -> tuple[str, str]:
     if stopped is not None:
         return str(getattr(stopped, "message", stopped)), str(getattr(stopped, "suggestion", ""))
 
+    skipped, held = run_skipped_and_held(stats)
     headline = (
         f"Finished: {format_count(getattr(stats, 'indexed', 0))} indexed, "
-        f"{format_count(getattr(stats, 'skipped', 0))} skipped, "
-        f"{format_count(getattr(stats, 'deleted', 0))} removed"
+        f"{format_count(skipped)} skipped, "
+        + (f"{format_count(held)} held for later, " if held else "")
+        + f"{format_count(getattr(stats, 'deleted', 0))} removed"
     )
     detail = (
         f"{format_count(getattr(stats, 'chunks', 0))} chunks in "

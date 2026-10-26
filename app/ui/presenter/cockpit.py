@@ -32,7 +32,7 @@ from typing import Any, Mapping, Optional
 from app.core.file_state import DEFERRED, DEFERRED_CODES, EXPLANATIONS
 from app.ui.presenter.formatting import format_count
 from app.ui.presenter.indexing import (
-    ETA_UNKNOWN, group_skips, phase_words, run_eta, run_rate,
+    ETA_UNKNOWN, group_skips, phase_words, run_eta, run_rate, run_skipped_and_held,
 )
 from app.ui.presenter.live_progress import (
     TRAIL_SEPARATOR, _frame_counts, _get, _int, _segments, position_text,
@@ -120,6 +120,39 @@ STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 _FACES = 3
 
+#: 2026-10-26, the owner: "no icon ... and they dont have tool tips". A step
+#: not yet reached drew an empty slot. Each step's own glyph, shown dim until
+#: the step is reached (done ticks, the current one turns), and what it does.
+STEP_ICONS: dict[str, str] = {
+    "Prepare": "list-checks",
+    "Read": "file-text",
+    "Meaning": "brain",
+    "Faces and pictures": "users",
+    "Describe photos": "sparkles",
+    "Text in pictures": "scan-search",
+    "Cards": "id-card",
+    "Tidy": "database",
+}
+STEP_TIPS: dict[str, str] = {
+    "Prepare": "Gets the models ready, finishes what the last run left undone and finds the files to read.",
+    "Read": "Reads the text out of each file and makes it searchable by its words.",
+    "Meaning": "Makes the text searchable by what it means, not only by its words.",
+    "Faces and pictures": "Finds photos by what they show, and the faces in them.",
+    "Describe photos": "Describes the photos that have no text in them.",
+    "Text in pictures": "Reads any text in the pictures, last of all.",
+    "Cards": "Writes a card for each document: what it is, who and when.",
+    "Tidy": "Tidies the index at the end of a run so searches stay quick.",
+}
+#: What a chip's state adds to its tooltip.
+STEP_STATE_WORDS = {"done": "Done.", "current": "Happening now.", "todo": "Not reached yet."}
+
+
+def step_tip(words: str, state: str) -> str:
+    """A chip's tooltip: what the step does, then where the run is with it."""
+    tip = STEP_TIPS.get(words, "")
+    said = STEP_STATE_WORDS.get(state, "")
+    return f"{tip} {said}".strip()
+
 
 def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
@@ -157,8 +190,20 @@ def step_states(stats: Any, *, finished: bool = False) -> list[str]:
 # -- the six tiles -----------------------------------------------------------
 
 #: The tiles' captions, left to right.
+#: 2026-10-26, the owner ("do all recommended"): "Indexed 0" read as an empty
+#: index beside 305,725 in the line above. The tiles count this run.
 TILE_LABELS: tuple[str, ...] = (
-    "Indexed", "Files seen", "Skipped", "Passages", "Speed", "Time left")
+    "Indexed this run", "Files seen", "Skipped", "Passages", "Speed", "Time left")
+
+#: Each tile's tooltip, before a run and when it has nothing more to add.
+TILE_TIPS: tuple[str, ...] = (
+    "Files this run has read and saved. The whole index is counted on the line above.",
+    "Files this run has found so far, read or not.",
+    "Files this run could not read. Files held for a later pass are not counted here.",
+    "Pieces of text this run has saved, ready to search.",
+    "Files read a minute, over the last few minutes.",
+    "How long the files still to read should take at this speed.",
+)
 
 
 def tiles(stats: Any, *, total_estimate: int = 0,
@@ -172,9 +217,10 @@ def tiles(stats: Any, *, total_estimate: int = 0,
     finished run keeps its counts and its whole-run speed.
     """
     if stats is None:
-        return [(label, NO_VALUE, "") for label in TILE_LABELS]
-    counts = [format_count(_int(_get(stats, name)))
-              for name in ("indexed", "seen", "skipped", "chunks")]
+        return [(label, NO_VALUE, tip) for label, tip in zip(TILE_LABELS, TILE_TIPS)]
+    skipped, held = run_skipped_and_held(stats)
+    counts = [format_count(_int(_get(stats, name))) for name in ("indexed", "seen")]
+    counts += [format_count(skipped), format_count(_int(_get(stats, "chunks")))]
     counting = not finished and not phase_words(stats)
     speed, left, left_tip = NO_VALUE, NO_VALUE, ""
     if counting or finished:
@@ -192,7 +238,11 @@ def tiles(stats: Any, *, total_estimate: int = 0,
         else:
             left = eta
     values = counts + [speed, left]
-    tips = ["", "", "", "", "", left_tip]
+    tips = list(TILE_TIPS)
+    if held:
+        tips[2] = f"{tips[2]} {format_count(held)} held for later this run."
+    if left_tip:
+        tips[5] = left_tip
     return list(zip(TILE_LABELS, values, tips))
 
 

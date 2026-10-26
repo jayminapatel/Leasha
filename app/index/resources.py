@@ -65,6 +65,10 @@ log = logger.bind(component="index.resources")
 #: new child being counted within a quarter of a second rather than one.
 CHILD_LIST_S = 1.0
 
+#: 2026-10-26. The shortest window one CPU reading is taken over, in seconds;
+#: an ask inside it gets the last reading back. See `SystemProbe.read`.
+READ_MIN_S = 0.5
+
 #: Consecutive memory polls with no meaningful drop before the level being
 #: waited for is accepted as resident rather than transient.
 SETTLE_POLLS = 3
@@ -336,7 +340,12 @@ class SystemProbe:
         index_path: Optional[Path] | Callable[[], object] = None,
         *,
         baseline_mb: Optional[float] = None,
+        min_interval_s: float = READ_MIN_S,
     ) -> None:
+        #: See `read`. Zero reads the machine on every ask.
+        self.min_interval_s = min_interval_s
+        self._lock = threading.Lock()
+        self._last: Optional[Snapshot] = None
         #: Public, because the governor raises it when a memory pause proves
         #: that the level being waited for is resident rather than transient.
         #: See `ResourceGovernor._accept_resident`.
@@ -386,7 +395,32 @@ class SystemProbe:
         return psutil
 
     def read(self) -> Snapshot:
-        """Never raises. A probe that can fail is a probe nobody can rely on."""
+        """Never raises. A probe that can fail is a probe nobody can rely on.
+
+        **One reading at a time, over at least `min_interval_s` (2026-10-26).**
+        `cpu_percent(interval=None)` answers for the time since it was last
+        asked, and a run asks from the walker, every reader and the consumer,
+        each every `pipeline.SCAN_GOVERNOR_S`. Interleaved, one thread's
+        machine figure and another's own figure covered different windows,
+        and back-to-back asks covered a millisecond or two - under Windows'
+        15.6 ms clock tick, so Leasha's own share read 0.0. Measured on the
+        owner's laptop with four threads busy: six threads asking together read
+        own = 0 in 19 of 48 readings and put "other programs" over 80% in 22 of
+        48, against 54-78% when one thread asked. The live run that day paused
+        every minute on "97% CPU used by other programs" while the
+        programs it named came to under 20%. A lock keeps the two figures in
+        one window, and an ask inside the window gets the last reading.
+        """
+        with self._lock:
+            last = self._last
+            if (last is not None and self.min_interval_s > 0
+                    and time.monotonic() - last.at < self.min_interval_s):
+                return last
+            self._last = self._read_now()
+            return self._last
+
+    def _read_now(self) -> Snapshot:
+        """One reading of the machine. Never raises."""
         free_gb = None
         if self.index_path is not None:
             try:

@@ -31,7 +31,7 @@ from typing import Any, Optional
 
 from app.core.logging import logger
 
-__all__ = ["decoded", "clear", "KEEP", "small_copy", "keep_at_least", "keep_default",
+__all__ = ["decoded", "upright", "clear", "KEEP", "small_copy", "keep_at_least", "keep_default",
            "kept_limit"]
 
 log = logger.bind(component="extract.picture")
@@ -78,6 +78,34 @@ def _key(path: Path) -> Optional[tuple]:
     return (str(path), stat.st_size, stat.st_mtime_ns)
 
 
+#: EXIF orientation -> the `Image.Transpose` that undoes it (`upright`).
+_ORIENTATION = {2: "FLIP_LEFT_RIGHT", 3: "ROTATE_180", 4: "FLIP_TOP_BOTTOM",
+                5: "TRANSPOSE", 6: "ROTATE_270", 7: "TRANSVERSE", 8: "ROTATE_90"}
+
+
+def upright(image: Any) -> Any:
+    """`image` turned the way its EXIF says it was taken. Never raises.
+
+    2026-10-26, the owner's run: "face detection failed on Maya_MedicalCard_2015.jpg:
+    TypeError: can't concat str to bytes". `ImageOps.exif_transpose` writes the
+    EXIF back out after turning the picture (`Exif.tobytes`), and Pillow cannot
+    write a malformed tag it read - so a scanned card with odd EXIF lost its
+    faces and its picture search, and showed no thumbnail. The turn itself needs
+    only the orientation tag, so on that failure it is done here, by hand."""
+    from PIL import Image, ImageOps
+
+    try:
+        return ImageOps.exif_transpose(image)
+    except Exception:                               # noqa: BLE001 - see above
+        pass
+    try:
+        orientation = int(image.getexif().get(0x0112, 1) or 1)
+    except Exception:                               # noqa: BLE001 - unreadable EXIF: as it is
+        return image
+    method = _ORIENTATION.get(orientation)
+    return image.transpose(getattr(Image.Transpose, method)) if method else image
+
+
 def decoded(path: Any) -> Optional[Any]:
     """The photo as an upright RGB `PIL.Image`, decoded once. None if unreadable.
 
@@ -92,13 +120,13 @@ def decoded(path: Any) -> Optional[Any]:
                 _kept.move_to_end(key)
                 return found
     try:
-        from PIL import Image, ImageOps
+        from PIL import Image
 
         from app.extract.heif import register_heif
 
         register_heif()
         with Image.open(path) as opened:
-            picture = ImageOps.exif_transpose(opened)
+            picture = upright(opened)
             picture = picture.convert("RGB")
             picture.load()
     except Exception as exc:                        # noqa: BLE001 - unreadable, as before

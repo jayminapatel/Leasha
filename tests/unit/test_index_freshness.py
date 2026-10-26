@@ -197,6 +197,7 @@ def test_a_second_run_over_an_untouched_corpus_reads_nothing(tmp_path, corpus):
     assert second.bytes_read == 0
 
 
+@pytest.mark.slow
 def test_an_untouched_archive_costs_no_extraction(tmp_path, corpus):
     """A 30GB historic .pst must cost a stat() on every run after the first.
 

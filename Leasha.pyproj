@@ -973,6 +973,7 @@
     <Compile Include="tests\unit\test_close_waits_off_the_window.py" />
     <Compile Include="tests\unit\test_cloud_content_cli.py" />
     <Compile Include="tests\unit\test_cloudstub.py" />
+    <Compile Include="tests\unit\test_cockpit_says_this_run.py" />
     <Compile Include="tests\unit\test_code_fixes_0y.py" />
     <Compile Include="tests\unit\test_code_history_live.py" />
     <Compile Include="tests\unit\test_code_open_at_line.py" />
@@ -1143,6 +1144,7 @@
     <Compile Include="tests\unit\test_gitsearch.py" />
     <Compile Include="tests\unit\test_gitsearch_reading.py" />
     <Compile Include="tests\unit\test_governor_counts_the_leasha_family.py" />
+    <Compile Include="tests\unit\test_governor_one_reading_at_a_time.py" />
     <Compile Include="tests\unit\test_governor_settles.py" />
     <Compile Include="tests\unit\test_gpu_gate_pictures.py" />
     <Compile Include="tests\unit\test_gpu_lock_across_processes.py" />
@@ -1348,6 +1350,7 @@
     <Compile Include="tests\unit\test_picture_lane_skipped_when_empty.py" />
     <Compile Include="tests\unit\test_picture_model_threads.py" />
     <Compile Include="tests\unit\test_picture_status.py" />
+    <Compile Include="tests\unit\test_picture_upright_odd_exif.py" />
     <Compile Include="tests\unit\test_pictures_faces_then_text.py" />
     <Compile Include="tests\unit\test_pinned.py" />
     <Compile Include="tests\unit\test_pinned_panel.py" />

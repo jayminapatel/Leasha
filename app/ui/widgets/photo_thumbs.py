@@ -86,13 +86,15 @@ def cache_name(path: str, size: int, mtime_ns: int) -> str:
 def _fast_jpeg(path: str, edge: int) -> Any:
     """A JPEG decoded small with draft mode, upright, as a `QImage`; None when
     this is not a JPEG Pillow can draft."""
-    from PIL import Image, ImageOps
+    from PIL import Image
+
+    from app.extract.picture import upright
 
     with Image.open(path) as opened:
         if opened.format != "JPEG":
             return None
         opened.draft("RGB", (edge, edge))
-        image = ImageOps.exif_transpose(opened.convert("RGB"))
+        image = upright(opened.convert("RGB"))
     image.thumbnail((edge, edge))
     from PySide6.QtGui import QImage
 

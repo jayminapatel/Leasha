@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.152 · **Updated:** 2026-10-26 · **Applies to:** app v1.1.0
+**Doc version:** 4.153 · **Updated:** 2026-10-26 · **Applies to:** app v1.1.0
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,16 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Indexing no longer pauses for its own work, and the Status page says what it counts (2026-10-26)
+
+The owner: "look at the index status page that does not make sense", "tidy on the page no icon ... they dont have tool tips", "why does it keep waiting for index writer", "the making text searchable ... is too slow"; then "do all recommended".
+
+- **The CPU pause counted Leasha as another program.** A run asks the resource governor from the walker, every reader and the consumer, and `cpu_percent(interval=None)` answers for the time since it was last asked: interleaved and back-to-back asks put Leasha's own share at 0. Measured on the owner's laptop, six threads asking read own = 0 in 19 of 48 readings and went over the 80% limit in 22; the live run paused every minute on "97% CPU used by other programs" while the programs it named came to under 20%. `SystemProbe.read` now takes one reading at a time over at least half a second (`READ_MIN_S`): 0 zeros, 0 over the limit. `tests/unit/test_governor_one_reading_at_a_time.py`.
+- **"Waiting for the index writer", explained.** A stack dump of the live run showed the writer blocked handing photos to the pictures lane (16 places), while its line read "Waiting" with nothing on it. It now says "Waiting for the pictures lane" and the photo.
+- **This run's counts, and the index's.** The headline read "0 documents · 137,803 files seen · 2,523 skipped" over an index of 305,725, and most of the 2,523 were photos held for their text pass. Now "0 documents this run · ... · 21 skipped · 2,502 held for later"; the first tile is "Indexed this run", Skipped counts real skips, and every tile has a tooltip. The finished line names held files too.
+- **Every step chip has a picture and a tooltip.** A step not yet reached drew an empty slot (Tidy, Meaning, Cards...); each now shows its own icon, dim until reached, and says what it does.
+- **Photos with EXIF Pillow cannot write back** (a BlackBerry Z30 stores its XMP as text) lost their faces, picture search and thumbnail: "TypeError: can't concat str to bytes" from `ImageOps.exif_transpose`. `picture.upright` turns them by the orientation tag alone, in all four places. `tests/unit/test_picture_upright_odd_exif.py`.
 
 ### A reset keeps the people you named (2026-10-26)
 
